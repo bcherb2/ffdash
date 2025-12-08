@@ -2,6 +2,10 @@
 
 A terminal UI for batch VP9 video encoding with hardware acceleration, real-time progress monitoring, and full control over quality settings.  Made to work as a viable encoding dashboard over SSH.
 
+
+https://github.com/user-attachments/assets/f7551d5f-fe6c-4a13-81e2-92a5e2bb42c2
+
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)
 
@@ -13,6 +17,9 @@ A terminal UI for batch VP9 video encoding with hardware acceleration, real-time
 - **Full tunability** - Rate control modes, quality presets, filters, GOP settings, audio options
 - **Keyboard-first** - Fast navigation, built-in help (`H`), SSH-friendly, TUI mouse support
 - **Dry-run preview** - See exact FFmpeg commands before committing to an encode
+  
+![stats](https://github.com/user-attachments/assets/44fa1a89-e541-4557-9dc0-81463c5567e5)
+<p align="center"><i>Total space used and queue progress dashboard</i></p>
 
 ### Why VP9?
 
