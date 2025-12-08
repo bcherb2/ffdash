@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a8d994273d4329d53e61bf0b5a85a575adc659331acafbcc3f6f4f5200de66d1 # shrinks to max_frames = 0, strength = 0, arnr_type = 0
+cc c3a8daf39eba2233866e56e46250a398f4bcf7c6769691132b4511c9ed47f7d0 # shrinks to crf = 0, cpu_used = 0, bitrate = 100, tile_cols = 0, tile_rows = 0, threads = 0, gop = 1, lag = 0, row_mt = false, frame_parallel = false, two_pass = false, fixed_gop = false, auto_alt_ref = false

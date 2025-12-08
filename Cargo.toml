@@ -1,0 +1,31 @@
+[package]
+name = "ffdash"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+walkdir = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+ratatui = "0.29"
+crossterm = "0.29"
+tui-textarea = "0.6"
+tui-checkbox = "0.3"
+rand = "0.8"
+sysinfo = "0.30"
+waveformchart = { git = "https://github.com/bcherb2/waveformchart", rev = "7029f924ec3a40d484c366bebb077c6c3f8f033f" }
+dirs = "5"
+clap = { version = "4", features = ["derive"] }
+tui-piechart = "0.2"
+chrono = "0.4"
+
+[dev-dependencies]
+proptest = "1.5"
+tempfile = "3"
+anyhow = "1"
