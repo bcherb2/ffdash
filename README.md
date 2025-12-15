@@ -23,7 +23,7 @@ https://github.com/user-attachments/assets/f7551d5f-fe6c-4a13-81e2-92a5e2bb42c2
 
 ### Why VP9?
 
-VP9 delivers 20-50% smaller files than H.264 at equivalent quality. It's open-source, royalty-free, and natively supported by YouTube, all modern browsers, and media servers like Plex and Jellyfin.  Considering support for AV1 in the future.
+VP9 delivers 20-50% smaller files than H.264 at equivalent quality. It's open-source, royalty-free, and natively supported by YouTube, all modern browsers, and media servers like Plex and Jellyfin.  Will support for AV1 in the future.
 
 ## Prerequisites
 
@@ -242,6 +242,24 @@ ffmpeg -h encoder=vp9_vaapi     # VA-API options
 ffmpeg -h encoder=libvpx-vp9    # Software VP9 options
 ffmpeg -h encoder=vp9_nvenc     # NVENC options (if available)
 ```
+
+## Features
+
+
+
+ - [x] TUI batch pipeline (scan, queue, pause/skip, ETA/speed, resume via .enc_state)
+ - [x] Allows tuning of almost every single VP9 parameter in TUI
+ - [x] 'Dry run' (outputs FFMPEG command to be run)
+ - [x] Custom output patterns and containers ({basename}/{filename}/{profile}/{ext}, overwrite/skip)
+ - [x] SSH / Tmux capable
+ - [ ] Auto‑VMAF calibration (window sampling, target VMAF, fps/scale‑aligned)
+ - [ ] Multi‑encoder support
+   - [ ] AV1 Software / VAAPI
+   - [ ] NVENC VP9 & AV1
+   - [ ] Codec auto-select 
+ - [ ] Robust queue invalidation when config/filename pattern changes
+ - [ ] Full‑file VMAF verification option (post‑encode target/tolerance), auto delete option
+ - [ ] Media fix‑ups (deinterlace, colorspace conversions, loudness/EBU R128 normalization)
 
 ## Known Limitations
 
