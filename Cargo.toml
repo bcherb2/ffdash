@@ -1,6 +1,6 @@
 [package]
 name = "ffdash"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["Ben H <bcherb2@users.noreply.github.com>"]
 description = "FFMPEG video encoder with live dashboard, hardware acceleration, and batch processing"
