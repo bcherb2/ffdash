@@ -409,7 +409,7 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "ffdash"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1565,7 +1565,8 @@ dependencies = [
 [[package]]
 name = "waveformchart"
 version = "0.1.0"
-source = "git+https://github.com/bcherb2/waveformchart?rev=7029f924ec3a40d484c366bebb077c6c3f8f033f#7029f924ec3a40d484c366bebb077c6c3f8f033f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02b06b76112e5d33288de58e5754f5d11fe05e7c2f750744349e27ed2fd0d2fd"
 dependencies = [
  "anyhow",
  "crossterm 0.29.0",

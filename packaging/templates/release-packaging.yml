@@ -1,0 +1,302 @@
+name: release-packaging
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CRATE_NAME: ffdash
+  REPO_OWNER: bcherb2
+  REPO_NAME: ffdash
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      tag: ${{ steps.extract.outputs.tag }}
+    steps:
+      - name: Extract version from tag
+        id: extract
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build-binaries:
+    name: Build binaries (${{ matrix.target }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: ffdash-linux-x86_64.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: ffdash-macos-aarch64.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: ffdash-macos-x86_64.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: ffdash-windows-x86_64.zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build release binary
+        run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Package artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          bin_path="target/${{ matrix.target }}/release/ffdash"
+          tar -czf "${{ matrix.archive }}" -C "$(dirname "$bin_path")" "$(basename "$bin_path")"
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binPath = "target/${{ matrix.target }}/release/ffdash.exe"
+          Compress-Archive -Path $binPath -DestinationPath "${{ matrix.archive }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  crates-io:
+    name: Publish to crates.io
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+        run: cargo publish --locked --token "$CARGO_REGISTRY_TOKEN"
+
+  publish-release-assets:
+    name: Publish release assets
+    needs:
+      - prepare
+      - build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ffdash-*
+          path: dist
+          merge-multiple: true
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ needs.prepare.outputs.tag }}"
+          title="v${{ needs.prepare.outputs.version }}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$title" --notes "Automated release for $title"
+          fi
+          gh release upload "$tag" dist/* --clobber
+
+  apt-cloudsmith:
+    name: Publish .deb to Cloudsmith
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      CLOUDSMITH_REPO: bcherb2/ffdash
+      DISTROS: "ubuntu/jammy ubuntu/focal debian/bookworm"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install packaging tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-sig
+          cargo install cargo-deb --locked
+          python -m pip install --upgrade cloudsmith-cli
+      - name: Import GPG signing key
+        id: import_gpg
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          printf '%s' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          fpr=$(gpg --list-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+          echo "fingerprint=$fpr" >> "$GITHUB_OUTPUT"
+      - name: Build .deb
+        run: cargo deb --locked
+      - name: Sign .deb
+        env:
+          FPR: ${{ steps.import_gpg.outputs.fingerprint }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          deb=$(ls target/debian/*.deb | head -n1)
+          dpkg-sig --sign builder --gpg-options "--batch --yes --pinentry-mode loopback --passphrase $APT_GPG_PASSPHRASE" -k "$FPR" "$deb"
+          echo "DEB_PATH=$deb" >> "$GITHUB_ENV"
+      - name: Push to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.APT_REPO_API_KEY }}
+        run: |
+          deb_path="${DEB_PATH}"
+          for distro in $DISTROS; do
+            cloudsmith push deb "$CLOUDSMITH_REPO/$distro" "$deb_path" --republish --no-wait-for-sync
+          done
+
+  homebrew:
+    name: Update Homebrew tap
+    needs:
+      - prepare
+      - publish-release-assets
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download macOS artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" -p "ffdash-macos-*.tar.gz" -D dist
+      - name: Compute checksums
+        id: shas
+        run: |
+          x86_sha=$(shasum -a 256 dist/ffdash-macos-x86_64.tar.gz | awk '{print $1}')
+          arm_sha=$(shasum -a 256 dist/ffdash-macos-aarch64.tar.gz | awk '{print $1}')
+          echo "x86_sha=$x86_sha" >> "$GITHUB_OUTPUT"
+          echo "arm_sha=$arm_sha" >> "$GITHUB_OUTPUT"
+      - name: Render formula
+        run: |
+          ./packaging/scripts/render-homebrew-formula.sh \
+            "${{ needs.prepare.outputs.version }}" \
+            "https://github.com/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}/releases/download/${{ needs.prepare.outputs.tag }}/ffdash-macos-x86_64.tar.gz" \
+            "${{ steps.shas.outputs.x86_sha }}" \
+            "https://github.com/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}/releases/download/${{ needs.prepare.outputs.tag }}/ffdash-macos-aarch64.tar.gz" \
+            "${{ steps.shas.outputs.arm_sha }}" \
+            /tmp/ffdash.rb
+      - name: Push to tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git config --global user.name "ffdash-bot"
+          git config --global user.email "actions@github.com"
+          git clone "https://${HOMEBREW_TAP_TOKEN}@github.com/${REPO_OWNER}/homebrew-ffdash.git" tap
+          mkdir -p tap/Formula
+          cp /tmp/ffdash.rb tap/Formula/ffdash.rb
+          cd tap
+          git add Formula/ffdash.rb
+          git commit -m "Update ffdash to v${{ needs.prepare.outputs.version }}"
+          git push
+
+  aur-bin:
+    name: Publish to AUR (ffdash-bin)
+    needs:
+      - prepare
+      - publish-release-assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Linux artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" -p "ffdash-linux-x86_64.tar.gz" -D dist
+      - name: Compute tarball checksum
+        id: aur_sha
+        run: |
+          sha=$(sha256sum dist/ffdash-linux-x86_64.tar.gz | awk '{print $1}')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Render PKGBUILD
+        run: |
+          ./packaging/scripts/render-aur-pkgbuild.sh \
+            "${{ needs.prepare.outputs.version }}" \
+            "https://github.com/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}/releases/download/${{ needs.prepare.outputs.tag }}/ffdash-linux-x86_64.tar.gz" \
+            "${{ steps.aur_sha.outputs.sha }}" \
+            /tmp/PKGBUILD
+      - name: Configure AUR SSH
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+      - name: Push to AUR
+        run: |
+          git config --global user.name "ffdash-bot"
+          git config --global user.email "actions@github.com"
+          git clone ssh://aur@aur.archlinux.org/ffdash-bin.git aur
+          cp /tmp/PKGBUILD aur/PKGBUILD
+          cd aur
+          updpkgsums
+          makepkg --printsrcinfo > .SRCINFO
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to v${{ needs.prepare.outputs.version }}"
+          git push
+
+  nix:
+    name: Validate Nix flake
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+      - name: Build flake package
+        run: nix build .#ffdash
+      - name: Push to Cachix (optional)
+        if: secrets.CACHIX_AUTH_TOKEN != ''
+        uses: cachix/cachix-action@v15
+        with:
+          name: ffdash
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  scoop:
+    name: Update Scoop bucket
+    needs:
+      - prepare
+      - publish-release-assets
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Windows artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" -p "ffdash-windows-x86_64.zip" -D dist
+      - name: Compute checksum
+        id: scoop_sha
+        shell: bash
+        run: |
+          sha=$(sha256sum dist/ffdash-windows-x86_64.zip | awk '{print $1}')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Update manifest
+        shell: bash
+        run: |
+          ./packaging/scripts/update-scoop-manifest.sh \
+            "${{ needs.prepare.outputs.version }}" \
+            "https://github.com/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}/releases/download/${{ needs.prepare.outputs.tag }}/ffdash-windows-x86_64.zip" \
+            "${{ steps.scoop_sha.outputs.sha }}" \
+            /tmp/ffdash.json
+      - name: Push to bucket
+        shell: bash
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: |
+          git config --global user.name "ffdash-bot"
+          git config --global user.email "actions@github.com"
+          git clone "https://${SCOOP_BUCKET_TOKEN}@github.com/${REPO_OWNER}/ffdash-bucket.git" bucket
+          mv /tmp/ffdash.json bucket/ffdash.json
+          cd bucket
+          git add ffdash.json
+          git commit -m "Update ffdash to v${{ needs.prepare.outputs.version }}"
+          git push
