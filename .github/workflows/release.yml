@@ -175,3 +175,177 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
         run: cargo publish --locked
         continue-on-error: true
+
+  update-aur:
+    name: Update AUR package
+    needs: [prepare, publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Linux artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" -p "ffdash-linux-x86_64.tar.gz" -D dist
+
+      - name: Compute checksum
+        id: sha
+        run: |
+          sha=$(sha256sum dist/ffdash-linux-x86_64.tar.gz | awk '{print $1}')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Generate PKGBUILD
+        run: |
+          version="${{ needs.prepare.outputs.version }}"
+          tag="${{ needs.prepare.outputs.tag }}"
+          sha="${{ steps.sha.outputs.sha }}"
+          cat > PKGBUILD << 'PKGEOF'
+          # Maintainer: Ben H <bcherb2@users.noreply.github.com>
+          pkgname=ffdash-bin
+          pkgver=__VERSION__
+          pkgrel=1
+          pkgdesc="VP9 video encoder with live TUI dashboard and hardware acceleration"
+          arch=('x86_64')
+          url="https://github.com/bcherb2/ffdash"
+          license=('MIT')
+          depends=('ffmpeg')
+          provides=('ffdash')
+          conflicts=('ffdash')
+          source=(
+              "ffdash-${pkgver}.tar.gz::https://github.com/bcherb2/ffdash/releases/download/v${pkgver}/ffdash-linux-x86_64.tar.gz"
+              "LICENSE-${pkgver}::https://raw.githubusercontent.com/bcherb2/ffdash/v${pkgver}/LICENSE"
+          )
+          sha256sums=(
+              '__SHA__'
+              'SKIP'
+          )
+
+          package() {
+              install -Dm755 "${srcdir}/ffdash" "${pkgdir}/usr/bin/ffdash"
+              install -Dm644 "${srcdir}/LICENSE-${pkgver}" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+          }
+          PKGEOF
+          sed -i "s/__VERSION__/$version/g" PKGBUILD
+          sed -i "s/__SHA__/$sha/g" PKGBUILD
+          # Remove leading whitespace
+          sed -i 's/^          //' PKGBUILD
+
+      - name: Generate .SRCINFO
+        run: |
+          version="${{ needs.prepare.outputs.version }}"
+          sha="${{ steps.sha.outputs.sha }}"
+          cat > .SRCINFO << EOF
+          pkgbase = ffdash-bin
+          	pkgdesc = VP9 video encoder with live TUI dashboard and hardware acceleration
+          	pkgver = ${version}
+          	pkgrel = 1
+          	url = https://github.com/bcherb2/ffdash
+          	arch = x86_64
+          	license = MIT
+          	depends = ffmpeg
+          	provides = ffdash
+          	conflicts = ffdash
+          	source = ffdash-${version}.tar.gz::https://github.com/bcherb2/ffdash/releases/download/v${version}/ffdash-linux-x86_64.tar.gz
+          	source = LICENSE-${version}::https://raw.githubusercontent.com/bcherb2/ffdash/v${version}/LICENSE
+          	sha256sums = ${sha}
+          	sha256sums = SKIP
+
+          pkgname = ffdash-bin
+          EOF
+          sed -i 's/^          //' .SRCINFO
+
+      - name: Configure SSH
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Push to AUR
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git clone ssh://aur@aur.archlinux.org/ffdash-bin.git aur
+          cp PKGBUILD .SRCINFO aur/
+          cd aur
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to ${{ needs.prepare.outputs.tag }}"
+          git push
+
+  update-homebrew:
+    name: Update Homebrew tap
+    needs: [prepare, publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" -R bcherb2/ffdash \
+            -p "ffdash-linux-x86_64.tar.gz" \
+            -p "ffdash-macos-aarch64.tar.gz" \
+            -p "ffdash-macos-x86_64.tar.gz" \
+            -D dist
+
+      - name: Compute checksums
+        id: sha
+        run: |
+          echo "linux=$(sha256sum dist/ffdash-linux-x86_64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "macos_arm=$(sha256sum dist/ffdash-macos-aarch64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "macos_x86=$(sha256sum dist/ffdash-macos-x86_64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Generate formula
+        run: |
+          version="${{ needs.prepare.outputs.version }}"
+          tag="${{ needs.prepare.outputs.tag }}"
+          cat > ffdash.rb << EOF
+          class Ffdash < Formula
+            desc "VP9 video encoder with live TUI dashboard and hardware acceleration"
+            homepage "https://github.com/bcherb2/ffdash"
+            version "${version}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/bcherb2/ffdash/releases/download/${tag}/ffdash-macos-aarch64.tar.gz"
+                sha256 "${{ steps.sha.outputs.macos_arm }}"
+              else
+                url "https://github.com/bcherb2/ffdash/releases/download/${tag}/ffdash-macos-x86_64.tar.gz"
+                sha256 "${{ steps.sha.outputs.macos_x86 }}"
+              end
+            end
+
+            on_linux do
+              url "https://github.com/bcherb2/ffdash/releases/download/${tag}/ffdash-linux-x86_64.tar.gz"
+              sha256 "${{ steps.sha.outputs.linux }}"
+            end
+
+            depends_on "ffmpeg"
+
+            def install
+              bin.install "ffdash"
+            end
+
+            test do
+              assert_match "ffdash", shell_output("\#{bin}/ffdash --help")
+            end
+          end
+          EOF
+
+      - name: Push to tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git clone "https://${HOMEBREW_TAP_TOKEN}@github.com/bcherb2/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp ffdash.rb tap/Formula/
+          cd tap
+          git add Formula/ffdash.rb
+          git commit -m "Update ffdash to ${{ needs.prepare.outputs.tag }}"
+          git push
