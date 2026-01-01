@@ -50,7 +50,7 @@ jobs:
             target: aarch64-apple-darwin
             archive: ffdash-macos-aarch64.tar.gz
             binary: ffdash
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             archive: ffdash-macos-x86_64.tar.gz
             binary: ffdash
