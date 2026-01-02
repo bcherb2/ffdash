@@ -60,7 +60,11 @@ pub const COLOR_TRCS: &[&str] = &["Auto", "BT709", "SMPTE170M", "SMPTE2084", "AR
 pub const COLOR_RANGES: &[&str] = &["Auto", "TV", "PC"];
 
 // Color Space Presets (replaces individual colorspace/primaries/trc/range dropdowns)
-pub const COLORSPACE_PRESETS: &[&str] = &["Auto (passthrough)", "SDR (BT709)", "HDR10 (BT2020+PQ)"];
+pub const COLORSPACE_PRESETS: &[&str] = &[
+    "Auto (passthrough)",
+    "SDR (BT709)",
+    "HDR10 (BT2020+PQ)",
+];
 
 // FPS options
 pub const FPS_OPTIONS: &[&str] = &[

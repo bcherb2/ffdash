@@ -536,9 +536,7 @@ impl Profile {
             "vorbis" => crate::ui::state::AudioPrimaryCodec::Vorbis,
             _ => crate::ui::state::AudioPrimaryCodec::Opus,
         };
-        config
-            .audio_primary_codec_state
-            .select(Some(config.audio_primary_codec.to_index()));
+        config.audio_primary_codec_state.select(Some(config.audio_primary_codec.to_index()));
         config.audio_primary_bitrate = self.audio_primary_bitrate;
         config.audio_primary_downmix = self.audio_primary_downmix;
         config.audio_add_ac3 = self.audio_add_ac3;
@@ -549,9 +547,7 @@ impl Profile {
             "libopus" => crate::ui::state::AudioStereoCodec::Opus,
             _ => crate::ui::state::AudioStereoCodec::Aac,
         };
-        config
-            .audio_stereo_codec_state
-            .select(Some(config.audio_stereo_codec.to_index()));
+        config.audio_stereo_codec_state.select(Some(config.audio_stereo_codec.to_index()));
         config.audio_stereo_bitrate = self.audio_stereo_bitrate;
 
         // Output settings
@@ -658,9 +654,7 @@ impl Profile {
             self.color_range,
         ) {
             config.colorspace_preset = preset;
-            config
-                .colorspace_preset_state
-                .select(Some(crate::ui::options::colorspace_preset_to_idx(preset)));
+            config.colorspace_preset_state.select(Some(crate::ui::options::colorspace_preset_to_idx(preset)));
         } else {
             // Custom values → default to Auto in UI, but preserve actual values
             config.colorspace_preset = crate::ui::state::ColorSpacePreset::Auto;
@@ -1060,8 +1054,8 @@ mod tests {
         let mut profile = Profile {
             name: "Test".to_string(),
             video_codec: "libvpx-vp9".to_string(), // WRONG: VP9 encoder for AV1 codec
-            crf: 37,                               // STALE: Old value
-            hw_global_quality: 70,                 // STALE: Old value
+            crf: 37, // STALE: Old value
+            hw_global_quality: 70, // STALE: Old value
             use_hardware_encoding: true,
             codec: Codec::Av1(Av1Config {
                 hw_cq: 105, // CORRECT: User's intended quality

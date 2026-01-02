@@ -70,10 +70,10 @@ fn snapshot_av1_nvenc() {
 #[test]
 fn snapshot_av1_nvenc_sdr() {
     let mut profile = Profile::get("av1-nvenc");
-    profile.colorspace = 1; // bt709
-    profile.color_primaries = 1; // bt709
-    profile.color_trc = 1; // bt709
-    profile.color_range = 0; // tv/limited
+    profile.colorspace = 1;        // bt709
+    profile.color_primaries = 1;   // bt709
+    profile.color_trc = 1;         // bt709
+    profile.color_range = 0;       // tv/limited
 
     let job = mk_job("mkv");
     let cmd = build_av1_nvenc_cmd(&job, &profile);
@@ -83,10 +83,10 @@ fn snapshot_av1_nvenc_sdr() {
 #[test]
 fn snapshot_av1_nvenc_hdr10() {
     let mut profile = Profile::get("av1-nvenc");
-    profile.colorspace = 9; // bt2020nc
-    profile.color_primaries = 9; // bt2020
-    profile.color_trc = 16; // smpte2084 (PQ)
-    profile.color_range = 0; // tv/limited
+    profile.colorspace = 9;        // bt2020nc
+    profile.color_primaries = 9;   // bt2020
+    profile.color_trc = 16;        // smpte2084 (PQ)
+    profile.color_range = 0;       // tv/limited
     profile.pix_fmt = "yuv420p10le".to_string(); // 10-bit for HDR
 
     let job = mk_job("mkv");
@@ -105,10 +105,10 @@ fn snapshot_av1_vaapi() {
 #[test]
 fn snapshot_av1_qsv_sdr() {
     let mut profile = Profile::get("av1-qsv");
-    profile.colorspace = 1; // bt709
-    profile.color_primaries = 1; // bt709
-    profile.color_trc = 1; // bt709
-    profile.color_range = 0; // tv/limited
+    profile.colorspace = 1;        // bt709
+    profile.color_primaries = 1;   // bt709
+    profile.color_trc = 1;         // bt709
+    profile.color_range = 0;       // tv/limited
 
     let job = mk_job("mkv");
     let cmd = build_av1_qsv_cmd(&job, &profile);
@@ -118,10 +118,10 @@ fn snapshot_av1_qsv_sdr() {
 #[test]
 fn snapshot_av1_qsv_hdr10() {
     let mut profile = Profile::get("av1-qsv");
-    profile.colorspace = 9; // bt2020nc
-    profile.color_primaries = 9; // bt2020
-    profile.color_trc = 16; // smpte2084 (PQ)
-    profile.color_range = 0; // tv/limited
+    profile.colorspace = 9;        // bt2020nc
+    profile.color_primaries = 9;   // bt2020
+    profile.color_trc = 16;        // smpte2084 (PQ)
+    profile.color_range = 0;       // tv/limited
     profile.pix_fmt = "yuv420p10le".to_string(); // 10-bit for HDR
 
     let job = mk_job("mkv");

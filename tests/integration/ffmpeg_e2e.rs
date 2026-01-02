@@ -469,7 +469,7 @@ fn e2e_test_built_in_profiles() {
 /// the job fails, causing failed jobs to be counted as successes.
 #[test]
 fn e2e_test_failed_encode_returns_error() {
-    use ffdash::engine::{JobStatus, VideoJob, encode_job_with_callback};
+    use ffdash::engine::{encode_job_with_callback, JobStatus, VideoJob};
     use std::path::PathBuf;
 
     require_ffmpeg!();
@@ -480,11 +480,7 @@ fn e2e_test_failed_encode_returns_error() {
     let nonexistent_input = PathBuf::from("/nonexistent/path/to/video.mp4");
     let output = temp_dir.path().join("output_should_fail.webm");
 
-    let mut job = VideoJob::new(
-        nonexistent_input.clone(),
-        output.clone(),
-        "test".to_string(),
-    );
+    let mut job = VideoJob::new(nonexistent_input.clone(), output.clone(), "test".to_string());
 
     // Try to encode
     let result = encode_job_with_callback(&mut job, true, None, |_, _| {});
@@ -509,7 +505,7 @@ fn e2e_test_failed_encode_returns_error() {
 /// Test that encoding to a non-existent output directory creates the directory.
 #[test]
 fn e2e_test_creates_output_directory() {
-    use ffdash::engine::{JobStatus, VideoJob, encode_job_with_callback};
+    use ffdash::engine::{encode_job_with_callback, JobStatus, VideoJob};
 
     require_ffmpeg!();
 
@@ -547,7 +543,7 @@ fn e2e_test_creates_output_directory() {
 /// Test that encoding with invalid FFmpeg parameters returns an error.
 #[test]
 fn e2e_test_invalid_encode_returns_error() {
-    use ffdash::engine::{JobStatus, Profile, VideoJob, encode_job_with_callback_and_profile};
+    use ffdash::engine::{encode_job_with_callback_and_profile, JobStatus, Profile, VideoJob};
 
     require_ffmpeg!();
 

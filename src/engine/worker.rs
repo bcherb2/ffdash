@@ -192,6 +192,7 @@ impl WorkerPool {
     /// Sends SIGTERM first to let FFmpeg finalize output files,
     /// then SIGKILL after a brief delay if still running
     /// Returns the number of processes signaled
+    #[cfg(unix)]
     pub fn kill_all_running(&self) -> usize {
         let pids = self.running_pids.lock().unwrap();
         let count = pids.len();
@@ -210,9 +211,9 @@ impl WorkerPool {
         for _ in 0..20 {
             std::thread::sleep(std::time::Duration::from_millis(100));
 
-            let all_dead = pids_vec
-                .iter()
-                .all(|&pid| unsafe { libc::kill(pid as i32, 0) != 0 });
+            let all_dead = pids_vec.iter().all(|&pid| unsafe {
+                libc::kill(pid as i32, 0) != 0
+            });
 
             if all_dead {
                 return count;
@@ -226,6 +227,23 @@ impl WorkerPool {
                     libc::kill(pid as i32, libc::SIGKILL);
                 }
             }
+        }
+
+        count
+    }
+
+    #[cfg(windows)]
+    pub fn kill_all_running(&self) -> usize {
+        let pids = self.running_pids.lock().unwrap();
+        let count = pids.len();
+        let pids_vec: Vec<u32> = pids.iter().copied().collect();
+        drop(pids);
+
+        // On Windows, use taskkill to terminate processes
+        for &pid in &pids_vec {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/F"])
+                .output();
         }
 
         count

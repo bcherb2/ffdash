@@ -177,7 +177,8 @@ pub fn run_smoke_tests(opts: SmokeTestOptions) -> Result<SmokeSummary> {
 
     // Copy outputs to persistent directory if requested
     if let Some(output_dir) = &opts.output_dir {
-        fs::create_dir_all(output_dir).context("Failed to create output directory")?;
+        fs::create_dir_all(output_dir)
+            .context("Failed to create output directory")?;
 
         // Find all encoded output files in temp_dir (exclude input files)
         if let Ok(entries) = fs::read_dir(&temp_dir) {
@@ -189,11 +190,7 @@ pub fn run_smoke_tests(opts: SmokeTestOptions) -> Result<SmokeSummary> {
                     if filename.to_string_lossy().starts_with("smoke_") {
                         let dest = output_dir.join(filename);
                         if let Err(e) = fs::copy(&path, &dest) {
-                            eprintln!(
-                                "Warning: failed to copy {} to output dir: {}",
-                                path.display(),
-                                e
-                            );
+                            eprintln!("Warning: failed to copy {} to output dir: {}", path.display(), e);
                         }
                     }
                 }
@@ -341,11 +338,7 @@ fn run_profile(
     let hw_cfg = profile
         .use_hardware_encoding
         .then_some(HwEncodingConfig::default());
-    let encoder = hardware::select_encoder(
-        &profile.codec,
-        profile.use_hardware_encoding,
-        Some(&profile.video_codec),
-    );
+    let encoder = hardware::select_encoder(&profile.codec, profile.use_hardware_encoding, Some(&profile.video_codec));
 
     // Ensure outputs land in temp dir (one file per profile)
     job.output_path = temp_dir.join(format!(

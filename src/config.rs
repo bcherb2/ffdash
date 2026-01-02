@@ -95,11 +95,11 @@ impl Default for DefaultsConfig {
         Self {
             profile: default_profile(),
             max_workers: default_max_workers(),
-            overwrite: false,             // Default to not overwriting
-            last_used_profile: None,      // No profile used yet
-            use_hardware_encoding: false, // Default to software encoding
+            overwrite: false,              // Default to not overwriting
+            last_used_profile: None,       // No profile used yet
+            use_hardware_encoding: false,  // Default to software encoding
             filename_pattern: default_filename_pattern(),
-            auto_bit_depth: true, // Use source bit depth for HW surfaces
+            auto_bit_depth: true,          // Use source bit depth for HW surfaces
             disable_vaapi_fallback: false, // Try VAAPI fallback when QSV fails
         }
     }

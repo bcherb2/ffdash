@@ -2,10 +2,7 @@
 // Ensures dropdown selections survive Profile save/load and stay in sync with backing values.
 
 use ffdash::engine::Profile;
-use ffdash::ui::{
-    options,
-    state::{AudioPrimaryCodec, ConfigState},
-};
+use ffdash::ui::{options, state::{AudioPrimaryCodec, ConfigState}};
 
 #[test]
 fn colorspace_preset_roundtrip_preserves_all_values() {

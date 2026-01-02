@@ -301,16 +301,9 @@ impl ConfigScreen {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 "Primary Track",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             )),
-            Rect {
-                x: inner.x,
-                y,
-                width: inner.width,
-                height: 1,
-            },
+            Rect { x: inner.x, y, width: inner.width, height: 1 },
         );
         y += 1;
 
@@ -323,13 +316,9 @@ impl ConfigScreen {
         };
         state.audio_primary_codec_area = Some(primary_codec_area);
         let selected_idx = state.audio_primary_codec_state.selected().unwrap_or(1);
-        let selected_value = constants::AUDIO_PRIMARY_CODECS
-            .get(selected_idx)
-            .unwrap_or(&"Opus");
+        let selected_value = constants::AUDIO_PRIMARY_CODECS.get(selected_idx).unwrap_or(&"Opus");
         let codec_style = if state.focus == ConfigFocus::AudioPrimaryCodec {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Green)
         };
@@ -376,9 +365,7 @@ impl ConfigScreen {
                 bitrate_focused,
             );
             let bitrate_style = if bitrate_focused {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Green)
             };
@@ -405,16 +392,9 @@ impl ConfigScreen {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 "Compatibility Tracks",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             )),
-            Rect {
-                x: inner.x,
-                y,
-                width: inner.width,
-                height: 1,
-            },
+            Rect { x: inner.x, y, width: inner.width, height: 1 },
         );
         y += 1;
 
@@ -449,9 +429,7 @@ impl ConfigScreen {
                 bitrate_focused,
             );
             let bitrate_style = if bitrate_focused {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Green)
             };
@@ -499,13 +477,9 @@ impl ConfigScreen {
         if state.audio_add_stereo {
             // Codec dropdown
             let stereo_codec_idx = state.audio_stereo_codec_state.selected().unwrap_or(0);
-            let stereo_codec_name = constants::AUDIO_STEREO_CODECS
-                .get(stereo_codec_idx)
-                .unwrap_or(&"AAC");
+            let stereo_codec_name = constants::AUDIO_STEREO_CODECS.get(stereo_codec_idx).unwrap_or(&"AAC");
             let codec_style = if state.focus == ConfigFocus::AudioStereoCodec {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Green)
             };
@@ -524,9 +498,7 @@ impl ConfigScreen {
                 bitrate_focused,
             );
             let bitrate_style = if bitrate_focused {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Green)
             };
@@ -2378,9 +2350,7 @@ impl ConfigScreen {
         state.audio_primary_codec_area = Some(codec_area);
 
         let selected_index = state.audio_primary_codec_state.selected().unwrap_or(1);
-        let selected_value = constants::AUDIO_PRIMARY_CODECS
-            .get(selected_index)
-            .unwrap_or(&"Opus");
+        let selected_value = constants::AUDIO_PRIMARY_CODECS.get(selected_index).unwrap_or(&"Opus");
 
         let codec_style = if state.focus == ConfigFocus::AudioPrimaryCodec {
             Style::default()
@@ -2423,9 +2393,7 @@ impl ConfigScreen {
                 bitrate_focused,
             );
             let bitrate_style = if bitrate_focused {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Green)
             };
@@ -2745,9 +2713,7 @@ impl ConfigScreen {
         });
 
         let selected_index = state.colorspace_preset_state.selected().unwrap_or(0);
-        let selected_value = COLORSPACE_PRESETS
-            .get(selected_index)
-            .unwrap_or(&"Auto (passthrough)");
+        let selected_value = COLORSPACE_PRESETS.get(selected_index).unwrap_or(&"Auto (passthrough)");
         let preset_style = if state.focus == ConfigFocus::ColorSpacePresetDropdown {
             Style::default()
                 .fg(Color::Yellow)
@@ -2768,7 +2734,10 @@ impl ConfigScreen {
         // Hardware Encoding Filter Parameters (Intel/AMD only, not NVIDIA)
         // VPP denoise/detail filters for QSV and VAAPI
         if state.use_hardware_encoding
-            && !matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Nvidia)
+            && !matches!(
+                state.gpu_vendor,
+                crate::engine::hardware::GpuVendor::Nvidia
+            )
         {
             y += 1; // Spacer before hardware filter section
 
@@ -2786,8 +2755,7 @@ impl ConfigScreen {
             let denoise_base = &state.hw_denoise;
             let denoise_focus = state.focus == ConfigFocus::HwDenoiseInput;
             let denoise_value = denoise_base.parse::<u32>().unwrap_or(0);
-            let denoise_text =
-                Self::adjustable_value_display(denoise_value.to_string(), denoise_focus);
+            let denoise_text = Self::adjustable_value_display(denoise_value.to_string(), denoise_focus);
             let denoise_style = if denoise_focus {
                 Style::default()
                     .fg(Color::Yellow)
@@ -2795,12 +2763,11 @@ impl ConfigScreen {
             } else {
                 Style::default().fg(Color::Green)
             };
-            let denoise_label =
-                if matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Intel) {
-                    "HW Denoise (0-100): "
-                } else {
-                    "HW Denoise (0-64): "
-                };
+            let denoise_label = if matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Intel) {
+                "HW Denoise (0-100): "
+            } else {
+                "HW Denoise (0-64): "
+            };
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::raw(denoise_label),
@@ -2813,8 +2780,7 @@ impl ConfigScreen {
             let detail_base = &state.hw_detail;
             let detail_focus = state.focus == ConfigFocus::HwDetailInput;
             let detail_value = detail_base.parse::<u32>().unwrap_or(0);
-            let detail_text =
-                Self::adjustable_value_display(detail_value.to_string(), detail_focus);
+            let detail_text = Self::adjustable_value_display(detail_value.to_string(), detail_focus);
             let detail_style = if detail_focus {
                 Style::default()
                     .fg(Color::Yellow)
@@ -2822,12 +2788,11 @@ impl ConfigScreen {
             } else {
                 Style::default().fg(Color::Green)
             };
-            let detail_label =
-                if matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Intel) {
-                    "HW Detail (0-100): "
-                } else {
-                    "HW Detail (0-64): "
-                };
+            let detail_label = if matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Intel) {
+                "HW Detail (0-100): "
+            } else {
+                "HW Detail (0-64): "
+            };
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::raw(detail_label),
@@ -2844,7 +2809,10 @@ impl ConfigScreen {
         // VP9 QSV-specific Parameters (Intel only) - EXCLUDING the preset slider which is in Core Video
         if state.use_hardware_encoding
             && matches!(state.codec_selection, CodecSelection::Vp9)
-            && matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Intel)
+            && matches!(
+                state.gpu_vendor,
+                crate::engine::hardware::GpuVendor::Intel
+            )
         {
             y += 1; // Spacer
 
@@ -3075,12 +3043,7 @@ impl ConfigScreen {
                 if selected >= constants::AUDIO_PRIMARY_CODECS.len() {
                     state.audio_primary_codec_state.select(Some(0));
                 }
-                Self::render_popup_list(
-                    frame,
-                    constants::AUDIO_PRIMARY_CODECS,
-                    area,
-                    &mut state.audio_primary_codec_state,
-                );
+                Self::render_popup_list(frame, constants::AUDIO_PRIMARY_CODECS, area, &mut state.audio_primary_codec_state);
             }
             ConfigFocus::AudioStereoCodec => {
                 let area = state.audio_stereo_codec_area.unwrap_or_default();
@@ -3088,12 +3051,7 @@ impl ConfigScreen {
                 if selected >= constants::AUDIO_STEREO_CODECS.len() {
                     state.audio_stereo_codec_state.select(Some(0));
                 }
-                Self::render_popup_list(
-                    frame,
-                    constants::AUDIO_STEREO_CODECS,
-                    area,
-                    &mut state.audio_stereo_codec_state,
-                );
+                Self::render_popup_list(frame, constants::AUDIO_STEREO_CODECS, area, &mut state.audio_stereo_codec_state);
             }
             ConfigFocus::ArnrTypeDropdown => {
                 let area = state.arnr_type_area.unwrap_or_default();
@@ -3109,12 +3067,7 @@ impl ConfigScreen {
                 if selected >= COLORSPACE_PRESETS.len() {
                     state.colorspace_preset_state.select(Some(0));
                 }
-                Self::render_popup_list(
-                    frame,
-                    COLORSPACE_PRESETS,
-                    area,
-                    &mut state.colorspace_preset_state,
-                );
+                Self::render_popup_list(frame, COLORSPACE_PRESETS, area, &mut state.colorspace_preset_state);
             }
             ConfigFocus::FpsDropdown => {
                 let area = state.fps_area.unwrap_or_default();

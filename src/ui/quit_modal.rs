@@ -49,27 +49,23 @@ impl QuitModal {
 
         let lines = vec![
             Line::from(""),
-            Line::from(vec![Span::styled(
-                format!("{} currently running.", encode_text),
-                Style::default().fg(Color::White),
-            )]),
-            Line::from(vec![Span::styled(
-                "Quitting will cancel them.",
-                Style::default().fg(Color::Gray),
-            )]),
-            Line::from(""),
             Line::from(vec![
                 Span::styled(
-                    "[Y]",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
+                    format!("{} currently running.", encode_text),
+                    Style::default().fg(Color::White),
                 ),
-                Span::raw(" Quit   "),
+            ]),
+            Line::from(vec![
                 Span::styled(
-                    "[N]",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    "Quitting will cancel them.",
+                    Style::default().fg(Color::Gray),
                 ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw(" Quit   "),
+                Span::styled("[N]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
                 Span::raw(" Cancel"),
             ]),
         ];

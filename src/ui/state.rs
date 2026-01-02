@@ -44,7 +44,7 @@ pub enum CodecSelection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ColorSpacePreset {
     #[default]
-    Auto, // Passthrough: -1, -1, -1, -1
+    Auto,  // Passthrough: -1, -1, -1, -1
     Sdr,   // BT709: 1, 1, 1, 0
     Hdr10, // BT2020+PQ: 9, 9, 16, 0
 }
@@ -55,9 +55,9 @@ pub enum ColorSpacePreset {
 pub enum AudioPrimaryCodec {
     #[default]
     Passthrough, // -c:a copy
-    Opus,   // libopus
-    Aac,    // aac
-    Mp3,    // mp3
+    Opus, // libopus
+    Aac,  // aac
+    Mp3,  // mp3
     Vorbis, // vorbis
 }
 
@@ -102,8 +102,8 @@ impl AudioPrimaryCodec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AudioStereoCodec {
     #[default]
-    Aac, // aac (best compatibility)
-    Opus, // libopus
+    Aac,    // aac (best compatibility)
+    Opus,   // libopus
 }
 
 impl AudioStereoCodec {
@@ -167,11 +167,11 @@ impl Default for AppState {
             stats: StatsState::default(),
             last_metrics_update: Instant::now(),
             viewport: Rect::default(),
-            worker_pool: None,       // Initialized when encoding starts
-            enc_state: None,         // Initialized when encoding starts
-            root_path: None,         // Set when user provides a directory to encode
-            help_modal: None,        // Opened when 'H' key is pressed
-            quit_confirmation: None, // Opened when 'q' pressed with active encodes
+            worker_pool: None,        // Initialized when encoding starts
+            enc_state: None,          // Initialized when encoding starts
+            root_path: None,          // Set when user provides a directory to encode
+            help_modal: None,         // Opened when 'H' key is pressed
+            quit_confirmation: None,  // Opened when 'q' pressed with active encodes
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             ffmpeg_version: None,      // Cached when help is first opened
             ffprobe_version: None,     // Cached when help is first opened
@@ -255,9 +255,9 @@ pub struct ConfigState {
     pub codec_selection: CodecSelection,
 
     // AV1 software settings (libsvtav1)
-    pub av1_preset: u32,              // 0-13, default 8
-    pub av1_tune_state: ListState,    // Visual Quality, SSIM, VMAF
-    pub av1_film_grain: u32,          // 0-50, default 0
+    pub av1_preset: u32,           // 0-13, default 8
+    pub av1_tune_state: ListState, // Visual Quality, SSIM, VMAF
+    pub av1_film_grain: u32,       // 0-50, default 0
     pub av1_film_grain_denoise: bool, // denoise before grain synthesis
     pub av1_enable_overlays: bool,
     pub av1_scd: bool,            // Scene change detection
@@ -269,10 +269,10 @@ pub struct ConfigState {
     pub av1_hw_cq: u32,     // Legacy: use per-encoder fields below
 
     // Per-encoder quality (AV1) - these take precedence over av1_hw_cq
-    pub av1_svt_crf: u32,  // Software SVT-AV1: 0-63, lower=better
-    pub av1_qsv_cq: u32,   // Intel QSV: 1-255, lower=better
-    pub av1_nvenc_cq: u32, // NVIDIA: 0-63, lower=better
-    pub av1_vaapi_cq: u32, // VAAPI: 1-255, lower=better
+    pub av1_svt_crf: u32,   // Software SVT-AV1: 0-63, lower=better
+    pub av1_qsv_cq: u32,    // Intel QSV: 1-255, lower=better
+    pub av1_nvenc_cq: u32,  // NVIDIA: 0-63, lower=better
+    pub av1_vaapi_cq: u32,  // VAAPI: 1-255, lower=better
 
     pub av1_hw_lookahead: u32, // Lookahead frames
     pub av1_hw_tile_cols: u32, // Tile columns
@@ -594,10 +594,10 @@ impl Default for ConfigState {
             av1_hw_cq: 30,    // Legacy fallback
 
             // Per-encoder quality defaults (calibrated for balanced quality)
-            av1_svt_crf: 28,  // SVT-AV1 default CRF
-            av1_qsv_cq: 65,   // Intel QSV balanced
-            av1_nvenc_cq: 16, // NVIDIA (65/255*63 ≈ 16)
-            av1_vaapi_cq: 65, // VAAPI same as QSV
+            av1_svt_crf: 28,   // SVT-AV1 default CRF
+            av1_qsv_cq: 65,    // Intel QSV balanced
+            av1_nvenc_cq: 16,  // NVIDIA (65/255*63 ≈ 16)
+            av1_vaapi_cq: 65,  // VAAPI same as QSV
 
             av1_hw_lookahead: 0,
             av1_hw_tile_cols: 0,

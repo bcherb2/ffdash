@@ -2,6 +2,7 @@
 ///
 /// This module provides functionality to validate encoding profiles against
 /// the parameter registry to ensure all parameters are valid for the target encoder.
+
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -120,86 +121,46 @@ pub fn clamp_value(value: &Value, range: &Range) -> Option<Value> {
         // Unsigned integers
         (Value::U8(v), Range::Int { min, max }) => {
             let clamped = (*v as i64).clamp(*min, *max) as u8;
-            if clamped != *v {
-                Some(Value::U8(clamped))
-            } else {
-                None
-            }
+            if clamped != *v { Some(Value::U8(clamped)) } else { None }
         }
         (Value::U16(v), Range::Int { min, max }) => {
             let clamped = (*v as i64).clamp(*min, *max) as u16;
-            if clamped != *v {
-                Some(Value::U16(clamped))
-            } else {
-                None
-            }
+            if clamped != *v { Some(Value::U16(clamped)) } else { None }
         }
         (Value::U32(v), Range::Int { min, max }) => {
             let clamped = (*v as i64).clamp(*min, *max) as u32;
-            if clamped != *v {
-                Some(Value::U32(clamped))
-            } else {
-                None
-            }
+            if clamped != *v { Some(Value::U32(clamped)) } else { None }
         }
         (Value::U64(v), Range::Int { min, max }) => {
             let clamped_i64 = (*v as i64).clamp(*min, *max);
             let clamped = clamped_i64 as u64;
-            if clamped != *v {
-                Some(Value::U64(clamped))
-            } else {
-                None
-            }
+            if clamped != *v { Some(Value::U64(clamped)) } else { None }
         }
         // Signed integers
         (Value::I8(v), Range::Int { min, max }) => {
             let clamped = (*v as i64).clamp(*min, *max) as i8;
-            if clamped != *v {
-                Some(Value::I8(clamped))
-            } else {
-                None
-            }
+            if clamped != *v { Some(Value::I8(clamped)) } else { None }
         }
         (Value::I16(v), Range::Int { min, max }) => {
             let clamped = (*v as i64).clamp(*min, *max) as i16;
-            if clamped != *v {
-                Some(Value::I16(clamped))
-            } else {
-                None
-            }
+            if clamped != *v { Some(Value::I16(clamped)) } else { None }
         }
         (Value::I32(v), Range::Int { min, max }) => {
             let clamped = (*v as i64).clamp(*min, *max) as i32;
-            if clamped != *v {
-                Some(Value::I32(clamped))
-            } else {
-                None
-            }
+            if clamped != *v { Some(Value::I32(clamped)) } else { None }
         }
         (Value::I64(v), Range::Int { min, max }) => {
             let clamped = (*v).clamp(*min, *max);
-            if clamped != *v {
-                Some(Value::I64(clamped))
-            } else {
-                None
-            }
+            if clamped != *v { Some(Value::I64(clamped)) } else { None }
         }
         // Floats
         (Value::F32(v), Range::Float { min, max }) => {
             let clamped = (*v as f64).clamp(*min, *max) as f32;
-            if (clamped - *v).abs() > f32::EPSILON {
-                Some(Value::F32(clamped))
-            } else {
-                None
-            }
+            if (clamped - *v).abs() > f32::EPSILON { Some(Value::F32(clamped)) } else { None }
         }
         (Value::F64(v), Range::Float { min, max }) => {
             let clamped = (*v).clamp(*min, *max);
-            if (clamped - *v).abs() > f64::EPSILON {
-                Some(Value::F64(clamped))
-            } else {
-                None
-            }
+            if (clamped - *v).abs() > f64::EPSILON { Some(Value::F64(clamped)) } else { None }
         }
         // Strings and enums - can't clamp, would need validation
         (Value::String(_), Range::Enum { .. }) => None,
@@ -231,7 +192,10 @@ pub fn clamp_value(value: &Value, range: &Range) -> Option<Value> {
 /// # Note
 /// This function modifies the Profile in-place, clamping any out-of-range values.
 /// It only validates parameters that are relevant to the specified encoder.
-pub fn validate_and_clamp_profile(profile: &mut Profile, encoder_id: &str) -> Vec<ParamClamp> {
+pub fn validate_and_clamp_profile(
+    profile: &mut Profile,
+    encoder_id: &str,
+) -> Vec<ParamClamp> {
     let mut clamps = Vec::new();
 
     // Check if encoder exists
@@ -289,104 +253,138 @@ fn extract_profile_field(profile: &Profile, field_name: &str) -> Option<Value> {
                 _ => Some(Value::U32(profile.cpu_used)),
             }
         }
-        "cpu_used_pass1" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.cpu_used_pass1)),
-            _ => Some(Value::U32(profile.cpu_used_pass1)),
-        },
-        "cpu_used_pass2" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.cpu_used_pass2)),
-            _ => Some(Value::U32(profile.cpu_used_pass2)),
-        },
-        "quality_mode" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::String(vp9.quality_mode.clone())),
-            _ => Some(Value::String(profile.quality_mode.clone())),
-        },
-        "row_mt" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::Bool(vp9.row_mt)),
-            _ => Some(Value::Bool(profile.row_mt)),
-        },
+        "cpu_used_pass1" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.cpu_used_pass1)),
+                _ => Some(Value::U32(profile.cpu_used_pass1)),
+            }
+        }
+        "cpu_used_pass2" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.cpu_used_pass2)),
+                _ => Some(Value::U32(profile.cpu_used_pass2)),
+            }
+        }
+        "quality_mode" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::String(vp9.quality_mode.clone())),
+                _ => Some(Value::String(profile.quality_mode.clone())),
+            }
+        }
+        "row_mt" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::Bool(vp9.row_mt)),
+                _ => Some(Value::Bool(profile.row_mt)),
+            }
+        }
         "tile_columns" => Some(Value::I32(profile.tile_columns)),
         "tile_rows" => Some(Value::I32(profile.tile_rows)),
-        "lag_in_frames" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.lag_in_frames)),
-            _ => Some(Value::U32(profile.lag_in_frames)),
-        },
-        "auto_alt_ref" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.auto_alt_ref)),
-            _ => Some(Value::U32(profile.auto_alt_ref)),
-        },
-        "aq_mode" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::I32(vp9.aq_mode)),
-            _ => Some(Value::I32(profile.aq_mode)),
-        },
+        "lag_in_frames" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.lag_in_frames)),
+                _ => Some(Value::U32(profile.lag_in_frames)),
+            }
+        }
+        "auto_alt_ref" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.auto_alt_ref)),
+                _ => Some(Value::U32(profile.auto_alt_ref)),
+            }
+        }
+        "aq_mode" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::I32(vp9.aq_mode)),
+                _ => Some(Value::I32(profile.aq_mode)),
+            }
+        }
         "hw_global_quality" => {
             // Read from codec config (source of truth for hardware encoding)
             match &profile.codec {
-                Codec::Vp9(vp9) if profile.use_hardware_encoding => {
-                    Some(Value::U32(vp9.hw_global_quality))
-                }
+                Codec::Vp9(vp9) if profile.use_hardware_encoding => Some(Value::U32(vp9.hw_global_quality)),
                 Codec::Av1(av1) if profile.use_hardware_encoding => Some(Value::U32(av1.hw_cq)),
                 _ => Some(Value::U32(profile.hw_global_quality)),
             }
         }
         "hw_rc_mode" => Some(Value::U32(profile.hw_rc_mode)),
         "hw_b_frames" => Some(Value::U32(profile.hw_b_frames)),
-        "hw_compression_level" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_compression_level)),
-            _ => Some(Value::U32(profile.hw_compression_level)),
-        },
-        "hw_denoise" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_denoise)),
-            Codec::Av1(av1) => Some(Value::U32(av1.hw_denoise)),
-        },
-        "hw_detail" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_detail)),
-            Codec::Av1(av1) => Some(Value::U32(av1.hw_detail)),
-        },
-        "arnr_max_frames" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.arnr_max_frames)),
-            _ => Some(Value::U32(profile.arnr_max_frames)),
-        },
-        "arnr_strength" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.arnr_strength)),
-            _ => Some(Value::U32(profile.arnr_strength)),
-        },
-        "frame_parallel" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::Bool(vp9.frame_parallel)),
-            _ => Some(Value::Bool(profile.frame_parallel)),
-        },
-        "film_grain" => match &profile.codec {
-            Codec::Av1(av1) => Some(Value::U32(av1.film_grain)),
-            _ => None,
-        },
-        "tune" => match &profile.codec {
-            Codec::Av1(av1) => Some(Value::U32(av1.tune)),
-            _ => None,
-        },
-        "hw_loop_filter_level" => match &profile.codec {
-            Codec::Vp9(vp9) if profile.use_hardware_encoding => {
-                Some(Value::U32(vp9.hw_loop_filter_level))
+        "hw_compression_level" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_compression_level)),
+                _ => Some(Value::U32(profile.hw_compression_level)),
             }
-            _ => Some(Value::U32(profile.hw_loop_filter_level)),
-        },
-        "hw_loop_filter_sharpness" => match &profile.codec {
-            Codec::Vp9(vp9) if profile.use_hardware_encoding => {
-                Some(Value::U32(vp9.hw_loop_filter_sharpness))
+        }
+        "hw_denoise" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_denoise)),
+                Codec::Av1(av1) => Some(Value::U32(av1.hw_denoise)),
             }
-            _ => Some(Value::U32(profile.hw_loop_filter_sharpness)),
-        },
-        "qsv_look_ahead" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::Bool(vp9.qsv_look_ahead)),
-            _ => None,
-        },
-        "qsv_look_ahead_depth" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.qsv_look_ahead_depth)),
-            _ => None,
-        },
-        "hw_lookahead" => match &profile.codec {
-            Codec::Av1(av1) => Some(Value::U32(av1.hw_lookahead)),
-            _ => None,
-        },
+        }
+        "hw_detail" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_detail)),
+                Codec::Av1(av1) => Some(Value::U32(av1.hw_detail)),
+            }
+        }
+        "arnr_max_frames" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.arnr_max_frames)),
+                _ => Some(Value::U32(profile.arnr_max_frames)),
+            }
+        }
+        "arnr_strength" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.arnr_strength)),
+                _ => Some(Value::U32(profile.arnr_strength)),
+            }
+        }
+        "frame_parallel" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::Bool(vp9.frame_parallel)),
+                _ => Some(Value::Bool(profile.frame_parallel)),
+            }
+        }
+        "film_grain" => {
+            match &profile.codec {
+                Codec::Av1(av1) => Some(Value::U32(av1.film_grain)),
+                _ => None,
+            }
+        }
+        "tune" => {
+            match &profile.codec {
+                Codec::Av1(av1) => Some(Value::U32(av1.tune)),
+                _ => None,
+            }
+        }
+        "hw_loop_filter_level" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) if profile.use_hardware_encoding => Some(Value::U32(vp9.hw_loop_filter_level)),
+                _ => Some(Value::U32(profile.hw_loop_filter_level)),
+            }
+        }
+        "hw_loop_filter_sharpness" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) if profile.use_hardware_encoding => Some(Value::U32(vp9.hw_loop_filter_sharpness)),
+                _ => Some(Value::U32(profile.hw_loop_filter_sharpness)),
+            }
+        }
+        "qsv_look_ahead" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::Bool(vp9.qsv_look_ahead)),
+                _ => None,
+            }
+        }
+        "qsv_look_ahead_depth" => {
+            match &profile.codec {
+                Codec::Vp9(vp9) => Some(Value::U32(vp9.qsv_look_ahead_depth)),
+                _ => None,
+            }
+        }
+        "hw_lookahead" => {
+            match &profile.codec {
+                Codec::Av1(av1) => Some(Value::U32(av1.hw_lookahead)),
+                _ => None,
+            }
+        }
         _ => {
             // Log unmapped field names for debugging
             #[cfg(feature = "dev-tools")]
@@ -485,14 +483,18 @@ fn apply_profile_field(profile: &mut Profile, field_name: &str, value: &Value) {
                 vp9.hw_compression_level = *v;
             }
         }
-        ("hw_denoise", Value::U32(v)) => match &mut profile.codec {
-            Codec::Vp9(vp9) => vp9.hw_denoise = *v,
-            Codec::Av1(av1) => av1.hw_denoise = *v,
-        },
-        ("hw_detail", Value::U32(v)) => match &mut profile.codec {
-            Codec::Vp9(vp9) => vp9.hw_detail = *v,
-            Codec::Av1(av1) => av1.hw_detail = *v,
-        },
+        ("hw_denoise", Value::U32(v)) => {
+            match &mut profile.codec {
+                Codec::Vp9(vp9) => vp9.hw_denoise = *v,
+                Codec::Av1(av1) => av1.hw_denoise = *v,
+            }
+        }
+        ("hw_detail", Value::U32(v)) => {
+            match &mut profile.codec {
+                Codec::Vp9(vp9) => vp9.hw_detail = *v,
+                Codec::Av1(av1) => av1.hw_detail = *v,
+            }
+        }
         ("arnr_max_frames", Value::U32(v)) => {
             profile.arnr_max_frames = *v;
             if let Codec::Vp9(vp9) = &mut profile.codec {
@@ -678,10 +680,7 @@ mod tests {
     #[test]
     fn test_clamp_value_float() {
         let value = Value::F32(150.0);
-        let range = Range::Float {
-            min: 0.0,
-            max: 100.0,
-        };
+        let range = Range::Float { min: 0.0, max: 100.0 };
         let clamped = clamp_value(&value, &range);
         assert_eq!(clamped, Some(Value::F32(100.0)));
     }
@@ -695,7 +694,7 @@ mod tests {
 
     #[test]
     fn test_validate_and_clamp_profile() {
-        use crate::engine::core::{Codec, Profile, Vp9Config};
+        use crate::engine::core::{Profile, Codec, Vp9Config};
 
         // Create a profile with out-of-range values
         let mut vp9_config = Vp9Config::default();
@@ -704,7 +703,7 @@ mod tests {
         let mut profile = Profile {
             name: "Test".to_string(),
             video_codec: "libvpx-vp9".to_string(),
-            crf: 100,      // Out of range (max 63)
+            crf: 100, // Out of range (max 63)
             cpu_used: 100, // Out of range (will be clamped to max in registry)
             use_hardware_encoding: false,
             codec: Codec::Vp9(vp9_config),
@@ -715,19 +714,13 @@ mod tests {
         let clamps = validate_and_clamp_profile(&mut profile, "libvpx-vp9");
 
         // Should have clamped at least crf and cpu_used
-        assert!(
-            !clamps.is_empty(),
-            "Should have clamped at least one parameter"
-        );
+        assert!(!clamps.is_empty(), "Should have clamped at least one parameter");
 
         // Verify crf was clamped to 63
         assert_eq!(profile.crf, 63, "crf should be clamped to 63");
 
         // Verify cpu_used was clamped to 5 (libvpx-vp9 specific max, both root and codec config)
-        assert_eq!(
-            profile.cpu_used, 5,
-            "profile.cpu_used should be clamped to 5"
-        );
+        assert_eq!(profile.cpu_used, 5, "profile.cpu_used should be clamped to 5");
         if let Codec::Vp9(vp9) = &profile.codec {
             assert_eq!(vp9.cpu_used, 5, "vp9.cpu_used should be clamped to 5");
         }

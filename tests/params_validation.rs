@@ -3,10 +3,11 @@
 
 #[cfg(feature = "dev-tools")]
 mod tests {
-    use ffdash::engine::params::{
-        ValidationError, Value, get_encoder, get_param, params_for_encoder, validate_profile,
-    };
     use std::collections::HashMap;
+    use ffdash::engine::params::{
+        get_param, get_encoder, params_for_encoder,
+        validate_profile, ValidationError, Value
+    };
 
     #[test]
     fn test_validate_valid_profile() {
@@ -109,22 +110,16 @@ mod tests {
         assert!(vaapi_params.len() > 0, "vp9_vaapi should have params");
 
         // Software encoder should have crf
-        assert!(
-            vp9_params.iter().any(|p| p.name == "crf"),
-            "libvpx-vp9 should support crf"
-        );
+        assert!(vp9_params.iter().any(|p| p.name == "crf"),
+            "libvpx-vp9 should support crf");
 
         // Hardware encoder should not have crf
-        assert!(
-            !vaapi_params.iter().any(|p| p.name == "crf"),
-            "vp9_vaapi should not support crf"
-        );
+        assert!(!vaapi_params.iter().any(|p| p.name == "crf"),
+            "vp9_vaapi should not support crf");
 
         // Hardware encoder should have global_quality
-        assert!(
-            vaapi_params.iter().any(|p| p.name == "global_quality"),
-            "vp9_vaapi should support global_quality"
-        );
+        assert!(vaapi_params.iter().any(|p| p.name == "global_quality"),
+            "vp9_vaapi should support global_quality");
     }
 
     #[test]
@@ -137,10 +132,8 @@ mod tests {
 
             // Valid enum value should pass
             let result = validate_profile("libvpx-vp9", &params);
-            assert!(
-                result.is_ok() || matches!(result, Err(ValidationError::UnsupportedByEncoder(..))),
-                "Valid enum value should pass or be unsupported"
-            );
+            assert!(result.is_ok() || matches!(result, Err(ValidationError::UnsupportedByEncoder(..  ))),
+                "Valid enum value should pass or be unsupported");
         }
     }
 
@@ -148,24 +141,15 @@ mod tests {
     fn test_all_encoders_accessible() {
         // Test that all 9 encoders are accessible
         let expected_encoders = vec![
-            "libvpx-vp9",
-            "vp9_vaapi",
-            "vp9_qsv",
-            "libsvtav1",
-            "libaom-av1",
-            "av1_qsv",
-            "av1_nvenc",
-            "av1_vaapi",
-            "av1_amf",
+            "libvpx-vp9", "vp9_vaapi", "vp9_qsv",
+            "libsvtav1", "libaom-av1",
+            "av1_qsv", "av1_nvenc", "av1_vaapi", "av1_amf"
         ];
 
         for encoder_id in expected_encoders {
             let encoder = get_encoder(encoder_id);
-            assert!(
-                encoder.is_some(),
-                "Encoder '{}' should be accessible",
-                encoder_id
-            );
+            assert!(encoder.is_some(),
+                "Encoder '{}' should be accessible", encoder_id);
         }
     }
 }

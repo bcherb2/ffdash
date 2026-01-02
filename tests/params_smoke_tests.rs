@@ -9,21 +9,18 @@
 
 #[cfg(feature = "dev-tools")]
 mod tests {
-    use ffdash::engine::params::{Range, params_for_encoder};
-    use std::path::Path;
+    use ffdash::engine::params::{params_for_encoder, Range};
     use std::process::Command;
+    use std::path::Path;
     use tempfile::TempDir;
 
     /// Generate a minimal test video file (1 second, 64x64, solid color)
     fn create_test_video(output_path: &Path) -> Result<(), String> {
         let status = Command::new("ffmpeg")
             .args(&[
-                "-f",
-                "lavfi",
-                "-i",
-                "color=c=black:s=64x64:d=1",
-                "-pix_fmt",
-                "yuv420p",
+                "-f", "lavfi",
+                "-i", "color=c=black:s=64x64:d=1",
+                "-pix_fmt", "yuv420p",
                 "-y",
                 output_path.to_str().unwrap(),
             ])
@@ -250,10 +247,7 @@ mod tests {
         let output = result.unwrap();
         let version = String::from_utf8_lossy(&output.stdout);
 
-        println!(
-            "FFmpeg version: {}",
-            version.lines().next().unwrap_or("unknown")
-        );
+        println!("FFmpeg version: {}", version.lines().next().unwrap_or("unknown"));
 
         assert!(
             version.contains("ffmpeg version"),
@@ -303,16 +297,13 @@ mod tests {
             "video_max_bitrate",
             "gop_length", // Global GOP settings
             "keyint_min",
-            "threads",     // Global FFmpeg option
-            "passes",      // Workflow decision
-            "output_dir",  // Application concern
+            "threads", // Global FFmpeg option
+            "passes", // Workflow decision
+            "output_dir", // Application concern
             "video_codec", // Encoder selection
         ];
 
-        println!(
-            "\nIntentionally excluded ({} total):",
-            intentionally_excluded.len()
-        );
+        println!("\nIntentionally excluded ({} total):", intentionally_excluded.len());
         for field in &intentionally_excluded {
             println!("  ⊝ {} (handled by Profile/application logic)", field);
         }

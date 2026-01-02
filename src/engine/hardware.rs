@@ -168,11 +168,7 @@ pub fn check_libaom_av1_available() -> bool {
 /// 4. av1_amf (AMD)
 ///
 ///    Falls back to libsvtav1 if no hardware encoder is available.
-pub fn select_encoder(
-    codec: &Codec,
-    use_hardware: bool,
-    preferred_encoder: Option<&str>,
-) -> VideoEncoder {
+pub fn select_encoder(codec: &Codec, use_hardware: bool, preferred_encoder: Option<&str>) -> VideoEncoder {
     #[cfg(feature = "dev-logging")]
     {
         // Debug logging
@@ -200,8 +196,7 @@ pub fn select_encoder(
             // QSV encoders may exist in FFmpeg builds even when no Intel GPU runtime is present.
             // On Linux, we require both a /dev/dri render node AND an Intel GPU to avoid
             // selecting QSV on NVIDIA-only or AMD-only systems.
-            let qsv_runtime_ok =
-                !cfg!(target_os = "linux") || (detect_render_device().is_some() && has_intel_gpu());
+            let qsv_runtime_ok = !cfg!(target_os = "linux") || (detect_render_device().is_some() && has_intel_gpu());
 
             if use_hardware {
                 // Check for encoder preference first
@@ -216,10 +211,7 @@ pub fn select_encoder(
                                     .open("/tmp/ffdash_vmaf_debug.log")
                                 {
                                     use std::io::Write;
-                                    let _ = writeln!(
-                                        f,
-                                        "[select_encoder] Using preferred VP9 encoder: vp9_qsv"
-                                    );
+                                    let _ = writeln!(f, "[select_encoder] Using preferred VP9 encoder: vp9_qsv");
                                 }
                             }
                             return VideoEncoder::Vp9Qsv;
@@ -233,10 +225,7 @@ pub fn select_encoder(
                                     .open("/tmp/ffdash_vmaf_debug.log")
                                 {
                                     use std::io::Write;
-                                    let _ = writeln!(
-                                        f,
-                                        "[select_encoder] Using preferred VP9 encoder: vp9_vaapi"
-                                    );
+                                    let _ = writeln!(f, "[select_encoder] Using preferred VP9 encoder: vp9_vaapi");
                                 }
                             }
                             return VideoEncoder::Vp9Vaapi;
@@ -250,11 +239,7 @@ pub fn select_encoder(
                                     .open("/tmp/ffdash_vmaf_debug.log")
                                 {
                                     use std::io::Write;
-                                    let _ = writeln!(
-                                        f,
-                                        "[select_encoder] Preferred VP9 encoder '{}' not available, using fallback",
-                                        pref
-                                    );
+                                    let _ = writeln!(f, "[select_encoder] Preferred VP9 encoder '{}' not available, using fallback", pref);
                                 }
                             }
                         }
@@ -300,8 +285,7 @@ pub fn select_encoder(
                     }
                 }
 
-                let qsv_runtime_ok = !cfg!(target_os = "linux")
-                    || (detect_render_device().is_some() && has_intel_gpu());
+                let qsv_runtime_ok = !cfg!(target_os = "linux") || (detect_render_device().is_some() && has_intel_gpu());
 
                 // Check for encoder preference first
                 if let Some(pref) = preferred_encoder {
@@ -322,11 +306,7 @@ pub fn select_encoder(
                                 .open("/tmp/ffdash_vmaf_debug.log")
                             {
                                 use std::io::Write;
-                                let _ = writeln!(
-                                    f,
-                                    "[select_encoder] Using preferred AV1 encoder: {:?}",
-                                    enc
-                                );
+                                let _ = writeln!(f, "[select_encoder] Using preferred AV1 encoder: {:?}", enc);
                             }
                         }
                         return enc;
@@ -339,11 +319,7 @@ pub fn select_encoder(
                                 .open("/tmp/ffdash_vmaf_debug.log")
                             {
                                 use std::io::Write;
-                                let _ = writeln!(
-                                    f,
-                                    "[select_encoder] Preferred AV1 encoder '{}' not available, using fallback",
-                                    pref
-                                );
+                                let _ = writeln!(f, "[select_encoder] Preferred AV1 encoder '{}' not available, using fallback", pref);
                             }
                         }
                     }
@@ -677,8 +653,7 @@ fn has_intel_gpu() -> bool {
         for line in stdout.lines() {
             let lower = line.to_lowercase();
             if (lower.contains("vga") || lower.contains("display") || lower.contains("3d"))
-                && lower.contains("intel")
-            {
+                && lower.contains("intel") {
                 return true;
             }
         }
@@ -694,10 +669,7 @@ fn has_amd_gpu() -> bool {
         for line in stdout.lines() {
             let lower = line.to_lowercase();
             if (lower.contains("vga") || lower.contains("display") || lower.contains("3d"))
-                && (lower.contains("amd")
-                    || lower.contains("radeon")
-                    || lower.contains("advanced micro devices"))
-            {
+                && (lower.contains("amd") || lower.contains("radeon") || lower.contains("advanced micro devices")) {
                 return true;
             }
         }

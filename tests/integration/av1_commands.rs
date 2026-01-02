@@ -2,8 +2,8 @@ use ffdash::engine::{Codec, Profile};
 
 use crate::common::assertions::assert_cmd_contains;
 use crate::common::helpers::{
-    build_av1_nvenc_cmd_for_test, build_av1_qsv_cmd_for_test, build_av1_software_cmd_for_test,
-    build_av1_vaapi_cmd_for_test,
+    build_av1_nvenc_cmd_for_test, build_av1_qsv_cmd_for_test,
+    build_av1_software_cmd_for_test, build_av1_vaapi_cmd_for_test,
 };
 
 #[test]
@@ -83,10 +83,7 @@ fn test_av1_svt_film_grain_without_denoise() {
 
     // Should contain film-grain but NOT film-grain-denoise
     assert_cmd_contains(&cmd, "film-grain=15");
-    assert!(
-        !cmd.contains("film-grain-denoise"),
-        "Should not contain film-grain-denoise when disabled"
-    );
+    assert!(!cmd.contains("film-grain-denoise"), "Should not contain film-grain-denoise when disabled");
 }
 
 #[test]
@@ -102,8 +99,5 @@ fn test_av1_svt_no_film_grain_denoise_when_grain_zero() {
     let cmd = build_av1_software_cmd_for_test(&profile);
 
     // Should NOT contain film-grain-denoise when film_grain is 0
-    assert!(
-        !cmd.contains("film-grain-denoise"),
-        "Should not contain film-grain-denoise when film_grain=0"
-    );
+    assert!(!cmd.contains("film-grain-denoise"), "Should not contain film-grain-denoise when film_grain=0");
 }

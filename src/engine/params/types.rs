@@ -2,6 +2,7 @@
 ///
 /// These types define the structure of parameter definitions that are
 /// generated from encoder-params.toml at build time.
+
 use std::fmt;
 
 /// The codec family (VP9 or AV1)
@@ -155,7 +156,7 @@ pub enum Value {
     I64(i64),
     Bool(bool),
     String(String),
-    Str(&'static str), // For static contexts (generated code)
+    Str(&'static str),  // For static contexts (generated code)
     F32(f32),
     F64(f64),
 }
@@ -265,11 +266,7 @@ mod tests {
     #[test]
     fn test_range_contains_str() {
         let range = Range::Enum {
-            values: vec![
-                "good".to_string(),
-                "best".to_string(),
-                "realtime".to_string(),
-            ],
+            values: vec!["good".to_string(), "best".to_string(), "realtime".to_string()],
         };
         assert!(range.contains_str("good"));
         assert!(range.contains_str("best"));

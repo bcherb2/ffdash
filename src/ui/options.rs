@@ -107,7 +107,7 @@ pub fn colorspace_preset_to_idx(preset: ColorSpacePreset) -> usize {
 pub fn colorspace_preset_to_values(preset: ColorSpacePreset) -> (i32, i32, i32, i32) {
     match preset {
         ColorSpacePreset::Auto => (-1, -1, -1, -1),
-        ColorSpacePreset::Sdr => (1, 1, 1, 0), // BT709, BT709, BT709, TV
+        ColorSpacePreset::Sdr => (1, 1, 1, 0),    // BT709, BT709, BT709, TV
         ColorSpacePreset::Hdr10 => (9, 9, 16, 0), // BT2020, BT2020, SMPTE2084 (PQ), TV
     }
 }

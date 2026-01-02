@@ -8,7 +8,7 @@
 #[cfg(feature = "dev-tools")]
 mod tests {
     use ffdash::engine::params::{
-        ENCODERS, Range, Value, get_param, params_for_encoder, validate_profile,
+        get_param, params_for_encoder, validate_profile, Range, Value, ENCODERS,
     };
     use proptest::prelude::*;
     use std::collections::HashMap;
@@ -203,7 +203,10 @@ mod tests {
 
                     // Test with invalid enum value
                     let mut params = HashMap::new();
-                    params.insert(param.name.to_string(), Value::Str("invalid_enum_value_xyz"));
+                    params.insert(
+                        param.name.to_string(),
+                        Value::Str("invalid_enum_value_xyz"),
+                    );
 
                     let result = validate_profile(encoder.id, &params);
                     assert!(
@@ -221,8 +224,12 @@ mod tests {
     #[test]
     fn test_cross_encoder_parameter_isolation() {
         // Test that parameters for one encoder don't leak to another
-        let libvpx_params: Vec<_> = params_for_encoder("libvpx-vp9").map(|p| p.name).collect();
-        let vaapi_params: Vec<_> = params_for_encoder("vp9_vaapi").map(|p| p.name).collect();
+        let libvpx_params: Vec<_> = params_for_encoder("libvpx-vp9")
+            .map(|p| p.name)
+            .collect();
+        let vaapi_params: Vec<_> = params_for_encoder("vp9_vaapi")
+            .map(|p| p.name)
+            .collect();
 
         println!("libvpx-vp9 has {} params", libvpx_params.len());
         println!("vp9_vaapi has {} params", vaapi_params.len());

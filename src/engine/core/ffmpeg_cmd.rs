@@ -157,9 +157,7 @@ fn apply_color_metadata(cmd: &mut Command, profile: &Profile) {
         && profile.color_primaries == 9
         && profile.color_trc == 16
     {
-        eprintln!(
-            "Warning: HDR10 output with 8-bit pixel format will cause severe banding. Recommend 10-bit (yuv420p10le) for HDR content."
-        );
+        eprintln!("Warning: HDR10 output with 8-bit pixel format will cause severe banding. Recommend 10-bit (yuv420p10le) for HDR content.");
     }
 
     if profile.colorspace >= 0 {
@@ -613,8 +611,8 @@ fn build_qsv_color_options(profile: &Profile) -> Vec<String> {
     // Color range
     if profile.color_range >= 0 {
         let value = match profile.color_range {
-            0 => "tv",        // limited/16-235
-            1 => "pc",        // full/0-255
+            0 => "tv",      // limited/16-235
+            1 => "pc",      // full/0-255
             _ => return opts, // Unsupported
         };
         opts.push(format!("out_range={}", value));
@@ -677,8 +675,8 @@ fn build_zscale_color_filter(profile: &Profile) -> Option<String> {
     // Range (r=)
     if profile.color_range >= 0 {
         let value = match profile.color_range {
-            0 => "tv",        // limited/16-235
-            1 => "pc",        // full/0-255
+            0 => "tv",  // limited/16-235
+            1 => "pc",  // full/0-255
             _ => return None, // Unsupported
         };
         opts.push(format!("r={}", value));
@@ -847,13 +845,13 @@ pub fn build_vp9_qsv_cmd(
     cmd.arg("-low_power").arg("1");
 
     // Read quality from codec config (source of truth)
-    let quality = hw_config.map(|h| h.global_quality).unwrap_or_else(|| {
-        profile
-            .codec
-            .as_vp9()
-            .map(|vp9| vp9.hw_global_quality)
-            .unwrap_or(profile.hw_global_quality) // Final fallback to synced value
-    });
+    let quality = hw_config
+        .map(|h| h.global_quality)
+        .unwrap_or_else(|| {
+            profile.codec.as_vp9()
+                .map(|vp9| vp9.hw_global_quality)
+                .unwrap_or(profile.hw_global_quality) // Final fallback to synced value
+        });
     // Use -q:v to force CQP mode. The combination "-global_quality -b:v 0" causes FFmpeg
     // to select ICQ mode, which is broken on Intel Arc (error -17: device failed).
     // This is the same issue as AV1 QSV (documented in docs/AV1_QSV_NOTES.md).
@@ -994,8 +992,7 @@ fn build_software_cmd_internal(
     cmd.arg("-lag-in-frames")
         .arg(profile.lag_in_frames.to_string());
     if profile.auto_alt_ref > 0 {
-        cmd.arg("-auto-alt-ref")
-            .arg(profile.auto_alt_ref.to_string());
+        cmd.arg("-auto-alt-ref").arg(profile.auto_alt_ref.to_string());
     }
 
     // Adaptive quantization
@@ -1151,13 +1148,7 @@ pub fn build_av1_software_cmd(job: &VideoJob, profile: &Profile) -> Command {
 
     // Rate control - CRF mode (use AV1-specific svt_crf if set, else fallback to profile.crf)
     let crf = av1_config
-        .map(|cfg| {
-            if cfg.svt_crf > 0 {
-                cfg.svt_crf
-            } else {
-                profile.crf
-            }
-        })
+        .map(|cfg| if cfg.svt_crf > 0 { cfg.svt_crf } else { profile.crf })
         .unwrap_or(profile.crf);
     cmd.arg("-crf").arg(crf.to_string());
 
@@ -1380,11 +1371,7 @@ pub fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile) -> Command {
         // CQP mode (more reliable than ICQ on Arc for AV1)
         cmd.arg("-rc_mode").arg("cqp");
         // Use qsv_cq if set (>0), else fallback to legacy hw_cq
-        let cq = if cfg.qsv_cq > 0 {
-            cfg.qsv_cq
-        } else {
-            cfg.hw_cq
-        };
+        let cq = if cfg.qsv_cq > 0 { cfg.qsv_cq } else { cfg.hw_cq };
         cmd.arg("-q:v").arg(cq.to_string());
 
         // Preset (1-7)
@@ -1511,11 +1498,7 @@ pub fn build_av1_nvenc_cmd(job: &VideoJob, profile: &Profile) -> Command {
         // CQ mode with constant quality
         // NVENC range: 0-63 (lower=better quality)
         // Use nvenc_cq if set (>0), else fallback to legacy hw_cq
-        let cq = if cfg.nvenc_cq > 0 {
-            cfg.nvenc_cq
-        } else {
-            cfg.hw_cq
-        };
+        let cq = if cfg.nvenc_cq > 0 { cfg.nvenc_cq } else { cfg.hw_cq };
         let cq_value = cq.min(63);
         cmd.arg("-rc").arg("vbr");
         cmd.arg("-cq").arg(cq_value.to_string());
@@ -1660,11 +1643,7 @@ pub fn build_av1_vaapi_cmd(job: &VideoJob, profile: &Profile) -> Command {
         .codec
         .as_av1()
         .map(|cfg| {
-            let q = if cfg.vaapi_cq > 0 {
-                cfg.vaapi_cq
-            } else {
-                cfg.hw_cq
-            };
+            let q = if cfg.vaapi_cq > 0 { cfg.vaapi_cq } else { cfg.hw_cq };
             q.clamp(1, 255)
         })
         .unwrap_or(30);
@@ -1706,8 +1685,8 @@ pub fn build_ffmpeg_cmd_with_profile(
     // [Phase 4] Pre-encode validation and clamping (dev-tools only)
     #[cfg(feature = "dev-tools")]
     {
-        use crate::engine::core::log::write_debug_log;
         use crate::engine::params::validate_and_clamp_profile;
+        use crate::engine::core::log::write_debug_log;
 
         let encoder_id = profile.resolved_encoder_id();
         let clamps = validate_and_clamp_profile(&mut profile, &encoder_id);
@@ -1727,8 +1706,7 @@ pub fn build_ffmpeg_cmd_with_profile(
         super::profile::Codec::Vp9(_) => {
             let use_hardware = hw_config.is_some() || profile.use_hardware_encoding;
             // Pass video_codec as preferred_encoder to respect profile encoder choice
-            let encoder =
-                hardware::select_encoder(&profile.codec, use_hardware, Some(&profile.video_codec));
+            let encoder = hardware::select_encoder(&profile.codec, use_hardware, Some(&profile.video_codec));
 
             match encoder {
                 hardware::VideoEncoder::Vp9Qsv => build_vp9_qsv_cmd(job, &profile, hw_config),
@@ -1746,8 +1724,7 @@ pub fn build_ffmpeg_cmd_with_profile(
             // Check both hw_config (caller's explicit request) and profile setting
             let use_hardware = hw_config.is_some() || profile.use_hardware_encoding;
             // Pass video_codec as preferred_encoder to respect profile encoder choice
-            let encoder =
-                hardware::select_encoder(&profile.codec, use_hardware, Some(&profile.video_codec));
+            let encoder = hardware::select_encoder(&profile.codec, use_hardware, Some(&profile.video_codec));
 
             match encoder {
                 hardware::VideoEncoder::LibsvtAv1 | hardware::VideoEncoder::LibaomAv1 => {
@@ -2175,14 +2152,7 @@ where
     }
 
     let (mut status, mut last_parser, mut last_stderr_output, mut failed_pass) =
-        run_cmds_with_progress(
-            job,
-            cmds,
-            silent,
-            cmd_strings.len(),
-            pid_registry.as_ref(),
-            &mut callback,
-        )?;
+        run_cmds_with_progress(job, cmds, silent, cmd_strings.len(), pid_registry.as_ref(), &mut callback)?;
 
     // If QSV fails at initialization (no frames encoded), retry once with VAAPI.
     // Only fallback if:
@@ -2194,11 +2164,7 @@ where
     let encoding_started = last_parser.out_time_us > 0;
     let is_qsv = selected_encoder == "vp9_qsv" || selected_encoder == "av1_qsv";
 
-    if !status.success()
-        && is_qsv
-        && !encoding_started
-        && !was_user_cancelled(&status, &last_stderr_output)
-    {
+    if !status.success() && is_qsv && !encoding_started && !was_user_cancelled(&status, &last_stderr_output) {
         qsv_stderr = Some(last_stderr_output.clone());
 
         if disable_vaapi_fallback {
@@ -2274,14 +2240,8 @@ where
                 fallback_cmd_strings[0]
             ));
 
-            let (new_status, new_parser, new_stderr, new_failed_pass) = run_cmds_with_progress(
-                job,
-                vec![fallback_cmd],
-                silent,
-                1,
-                pid_registry.as_ref(),
-                &mut callback,
-            )?;
+            let (new_status, new_parser, new_stderr, new_failed_pass) =
+                run_cmds_with_progress(job, vec![fallback_cmd], silent, 1, pid_registry.as_ref(), &mut callback)?;
 
             status = new_status;
             last_parser = new_parser;
@@ -2370,10 +2330,7 @@ where
 
         // Clean up partial output file on actual FFmpeg failure (not user cancellation)
         // Only delete if FFmpeg returned non-zero exit code AND wasn't killed by user signal
-        if !status.success()
-            && !was_user_cancelled(&status, &last_stderr_output)
-            && job.output_path.exists()
-        {
+        if !status.success() && !was_user_cancelled(&status, &last_stderr_output) && job.output_path.exists() {
             if let Err(e) = fs::remove_file(&job.output_path) {
                 let _ = write_debug_log(&format!(
                     "[cleanup] Failed to remove partial output {}: {}\n",
@@ -2427,10 +2384,10 @@ mod tests {
     #[test]
     fn test_qsv_color_options_sdr() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 1; // bt709
-        profile.color_primaries = 1; // bt709
-        profile.color_trc = 1; // bt709
-        profile.color_range = 0; // tv/limited
+        profile.colorspace = 1;        // bt709
+        profile.color_primaries = 1;   // bt709
+        profile.color_trc = 1;         // bt709
+        profile.color_range = 0;       // tv/limited
 
         let opts = build_qsv_color_options(&profile);
 
@@ -2444,10 +2401,10 @@ mod tests {
     #[test]
     fn test_qsv_color_options_hdr10() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 9; // bt2020nc
-        profile.color_primaries = 9; // bt2020
-        profile.color_trc = 16; // smpte2084 (PQ)
-        profile.color_range = 0; // tv/limited
+        profile.colorspace = 9;        // bt2020nc
+        profile.color_primaries = 9;   // bt2020
+        profile.color_trc = 16;        // smpte2084 (PQ)
+        profile.color_range = 0;       // tv/limited
 
         let opts = build_qsv_color_options(&profile);
 
@@ -2471,8 +2428,8 @@ mod tests {
     #[test]
     fn test_qsv_color_options_partial() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 1; // bt709
-        profile.color_range = 0; // tv
+        profile.colorspace = 1;        // bt709
+        profile.color_range = 0;       // tv
         // primaries and trc remain -1 (auto)
 
         let opts = build_qsv_color_options(&profile);
@@ -2485,10 +2442,10 @@ mod tests {
     #[test]
     fn test_qsv_color_options_hlg() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 9; // bt2020nc
-        profile.color_primaries = 9; // bt2020
-        profile.color_trc = 18; // arib-std-b67 (HLG)
-        profile.color_range = 0; // tv
+        profile.colorspace = 9;        // bt2020nc
+        profile.color_primaries = 9;   // bt2020
+        profile.color_trc = 18;        // arib-std-b67 (HLG)
+        profile.color_range = 0;       // tv
 
         let opts = build_qsv_color_options(&profile);
 
@@ -2499,7 +2456,7 @@ mod tests {
     #[test]
     fn test_qsv_color_options_unsupported_value() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 999; // Unsupported value
+        profile.colorspace = 999;      // Unsupported value
 
         let opts = build_qsv_color_options(&profile);
 

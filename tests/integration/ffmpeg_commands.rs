@@ -520,11 +520,7 @@ fn test_built_in_profiles_generate_valid_commands() {
         assert!(cmd.contains("ffmpeg"), "Command should start with ffmpeg");
         // Profiles now use AV1 (libsvtav1 for software, av1_qsv for hardware)
         let has_valid_codec = cmd.contains("-c:v libsvtav1") || cmd.contains("-c:v av1_qsv");
-        assert!(
-            has_valid_codec,
-            "Command should use a valid AV1 codec: {}",
-            cmd
-        );
+        assert!(has_valid_codec, "Command should use a valid AV1 codec: {}", cmd);
     }
 }
 
