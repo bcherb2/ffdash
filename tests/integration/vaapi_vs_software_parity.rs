@@ -59,8 +59,8 @@ proptest! {
         audio_bitrate in 64u32..=256,
     ) {
         let mut profile = Profile::get("vp9-good");
-        profile.audio_codec = "libopus".to_string();
-        profile.audio_bitrate = audio_bitrate;
+        profile.audio_primary_codec = "libopus".to_string();
+        profile.audio_primary_bitrate = audio_bitrate;
         profile.video_target_bitrate = 2000;  // VBR mode for VAAPI to allow libopus
 
         let sw_cmd = build_software_cmd_for_test(&profile);
@@ -79,7 +79,7 @@ proptest! {
         gop_length in 30u32..=240,
     ) {
         let mut profile = Profile::get("vp9-good");
-        profile.gop_length = gop_length;
+        profile.gop_length = gop_length.to_string();
 
         let sw_cmd = build_software_cmd_for_test(&profile);
         let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_hw_config());
@@ -216,9 +216,9 @@ fn test_comprehensive_parameter_parity() {
     profile.tile_columns = 2;
     profile.tile_rows = 1;
     profile.frame_parallel = true;
-    profile.gop_length = 120;
-    profile.audio_codec = "libopus".to_string();
-    profile.audio_bitrate = 128;
+    profile.gop_length = 120.to_string();
+    profile.audio_primary_codec = "libopus".to_string();
+    profile.audio_primary_bitrate = 128;
     profile.video_target_bitrate = 2000;
     profile.video_max_bitrate = 3000;
     profile.video_bufsize = 4000;

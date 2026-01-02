@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub startup: StartupConfig,
@@ -49,8 +49,16 @@ pub struct DefaultsConfig {
 
     /// Filename pattern for output files (global setting, not part of profiles)
     /// Supports: {filename}, {basename}, {profile}, {ext}
+    #[serde(default = "default_filename_pattern")]
+    pub filename_pattern: String,
+
+    /// Prefer source bit depth for HW encodes (auto-select p010 for 10-bit, nv12 for 8-bit)
+    #[serde(default = "default_true_config")]
+    pub auto_bit_depth: bool,
+
+    /// Disable VAAPI fallback when QSV fails (fail fast instead of retrying)
     #[serde(default)]
-    pub filename_pattern: Option<String>,
+    pub disable_vaapi_fallback: bool,
 }
 
 fn default_scan_on_launch() -> bool {
@@ -63,6 +71,14 @@ fn default_profile() -> String {
 
 fn default_max_workers() -> u32 {
     1
+}
+
+fn default_true_config() -> bool {
+    true
+}
+
+fn default_filename_pattern() -> String {
+    "{basename}".to_string()
 }
 
 impl Default for StartupConfig {
@@ -82,16 +98,9 @@ impl Default for DefaultsConfig {
             overwrite: false,             // Default to not overwriting
             last_used_profile: None,      // No profile used yet
             use_hardware_encoding: false, // Default to software encoding
-            filename_pattern: None,       // No custom pattern by default
-        }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            startup: StartupConfig::default(),
-            defaults: DefaultsConfig::default(),
+            filename_pattern: default_filename_pattern(),
+            auto_bit_depth: true, // Use source bit depth for HW surfaces
+            disable_vaapi_fallback: false, // Try VAAPI fallback when QSV fails
         }
     }
 }
@@ -196,6 +205,8 @@ mod tests {
         assert_eq!(config.defaults.max_workers, 1);
         assert_eq!(config.defaults.overwrite, false);
         assert_eq!(config.defaults.last_used_profile, None);
+        assert_eq!(config.defaults.auto_bit_depth, true);
+        assert_eq!(config.defaults.disable_vaapi_fallback, false);
     }
 
     #[test]
@@ -211,12 +222,12 @@ mod tests {
 
     #[test]
     fn test_filename_pattern_persistence() {
-        // Create config with custom filename pattern
+        // Create config with default filename pattern
         let mut config = Config::default();
-        assert_eq!(config.defaults.filename_pattern, None);
+        assert_eq!(config.defaults.filename_pattern, "{basename}");
 
         // Set a custom pattern
-        config.defaults.filename_pattern = Some("{basename}_encoded.{ext}".to_string());
+        config.defaults.filename_pattern = "{basename}_encoded.{ext}".to_string();
 
         // Serialize to TOML
         let toml_str = toml::to_string(&config).unwrap();
@@ -229,13 +240,13 @@ mod tests {
         let deserialized: Config = toml::from_str(&toml_str).unwrap();
         assert_eq!(
             deserialized.defaults.filename_pattern,
-            Some("{basename}_encoded.{ext}".to_string())
+            "{basename}_encoded.{ext}"
         );
 
-        // Test with None value (should deserialize as None)
-        let config_without_pattern = Config::default();
-        let toml_str2 = toml::to_string(&config_without_pattern).unwrap();
+        // Test with default value
+        let config_with_default = Config::default();
+        let toml_str2 = toml::to_string(&config_with_default).unwrap();
         let deserialized2: Config = toml::from_str(&toml_str2).unwrap();
-        assert_eq!(deserialized2.defaults.filename_pattern, None);
+        assert_eq!(deserialized2.defaults.filename_pattern, "{basename}");
     }
 }

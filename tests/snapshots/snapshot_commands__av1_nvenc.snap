@@ -1,0 +1,5 @@
+---
+source: tests/snapshot_commands.rs
+expression: to_string(&cmd)
+---
+ffmpeg -hwaccel cuda -i /tmp/input.mp4 -progress - -nostats -c:v av1_nvenc -rc vbr -cq 28 -preset p4 -g:v 240 -map 0:v:0? -map 0:a:0? -c:a:0 libopus -b:a:0 128k -vbr:a:0 on -map 0:s? -map 0:t? -c:s copy -c:t copy -map_metadata 0 -map_chapters 0 -y /tmp/output.mkv

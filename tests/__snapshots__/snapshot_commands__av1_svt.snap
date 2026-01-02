@@ -1,0 +1,2 @@
+---
+- ffmpeg -i /tmp/input.mp4 -progress - -nostats -c:v libsvtav1 -crf 28 -preset 8 -svtav1-params tune=0:enable-overlays=1:scd=1:scm=2 -pix_fmt yuv420p10le -g:v 240 -c:a libopus -b:a 128k -vbr:a on -compression_level:a 10 -y /tmp/output.mkv

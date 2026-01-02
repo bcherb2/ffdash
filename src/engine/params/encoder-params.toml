@@ -1,0 +1,969 @@
+# FFmpeg Encoder Parameter Registry
+# Comprehensive reference database combining best practices from multiple schemas
+# Sources: ffmpeg -h encoder=X, FFmpeg documentation, manual testing
+#
+# See ENCODER_REFERENCE.md for implementation details on how commands differ
+# across encoder types (color metadata, HDR→SDR, hardware init, etc.)
+
+[meta]
+schema_version = "1.0"
+ffmpeg_version = "8.0+"
+last_verified = "2025-12-24"
+architecture = "x86_64 Linux"
+notes = "Hybrid schema: File 3 completeness + File 1 readability + File 2 UI fields"
+reference_doc = "ENCODER_REFERENCE.md"
+
+# =============================================================================
+# Common FFmpeg Video Parameters (Global Options)
+# These apply across most encoders unless specifically overridden
+# =============================================================================
+[common.video]
+
+  [[common.video.params]]
+  id = "b_v"
+  scope = "global"
+  flag = "-b:v"
+  type = "bitrate"
+  range = { min = 0 }
+  ffmpeg_default = 200000
+  description = "Target bitrate in bits/s (0 = use quality mode)"
+
+  [[common.video.params]]
+  id = "maxrate"
+  scope = "global"
+  flag = "-maxrate:v"
+  type = "bitrate"
+  range = { min = 0 }
+  description = "Maximum bitrate (requires bufsize for VBV-style control)"
+
+  [[common.video.params]]
+  id = "minrate"
+  scope = "global"
+  flag = "-minrate:v"
+  type = "bitrate"
+  range = { min = 0 }
+  description = "Minimum bitrate for VBR"
+
+  [[common.video.params]]
+  id = "bufsize"
+  scope = "global"
+  flag = "-bufsize:v"
+  type = "bitrate"
+  range = { min = 0 }
+  description = "Rate control buffer size in bits"
+
+  [[common.video.params]]
+  id = "g"
+  scope = "global"
+  flag = "-g:v"
+  type = "int"
+  range = { min = 0, max = 2147483647 }
+  ffmpeg_default = 12
+  description = "GOP size / keyframe interval in frames"
+
+  [[common.video.params]]
+  id = "bf"
+  scope = "global"
+  flag = "-bf:v"
+  type = "int"
+  range = { min = -1, max = 16 }
+  ffmpeg_default = 0
+  description = "Maximum B-frames between non-B frames (-1 = encoder decides)"
+
+  [[common.video.params]]
+  id = "profile"
+  scope = "global"
+  flag = "-profile:v"
+  type = "string"
+  description = "Codec profile (meaning depends on encoder/codec)"
+
+  [[common.video.params]]
+  id = "pix_fmt"
+  scope = "global"
+  flag = "-pix_fmt"
+  type = "string"
+  description = "Pixel format (must be supported by encoder and pipeline)"
+
+  [[common.video.params]]
+  id = "threads"
+  scope = "global"
+  flag = "-threads"
+  type = "int"
+  range = { min = 0, max = 2147483647 }
+  ffmpeg_default = 0
+  description = "Thread count (0=auto, some HW encoders ignore this)"
+
+  # Color Metadata Parameters
+  # IMPORTANT: See COLOR_METADATA.md for encoder-specific limitations
+  # Summary: ALL encoders ignore color_primaries and color_trc (source passthrough)
+  #          Only colorspace and color_range are respected
+
+  [[common.video.params]]
+  id = "colorspace"
+  scope = "global"
+  flag = "-colorspace:v"
+  type = "int"
+  range = { min = -1, max = 14 }
+  ffmpeg_default = -1
+  description = "Color space / matrix coefficients (-1=auto, 1=bt709, 9=bt2020nc)"
+  warning = "Widely supported by all encoders"
+  verification = { method = "manual-test", date = "2025-12-24" }
+
+  [[common.video.params]]
+  id = "color_primaries"
+  scope = "global"
+  flag = "-color_primaries:v"
+  type = "int"
+  range = { min = -1, max = 22 }
+  ffmpeg_default = -1
+  description = "Color primaries (-1=auto, 1=bt709, 9=bt2020)"
+  warning = "IGNORED by all tested encoders (libsvtav1, VAAPI, QSV, NVENC) - source metadata passes through"
+  verification = { method = "manual-test", date = "2025-12-24" }
+
+  [[common.video.params]]
+  id = "color_trc"
+  scope = "global"
+  flag = "-color_trc:v"
+  type = "int"
+  range = { min = -1, max = 18 }
+  ffmpeg_default = -1
+  description = "Transfer characteristics (-1=auto, 1=bt709, 16=smpte2084/PQ, 18=arib-std-b67/HLG)"
+  warning = "IGNORED by all tested encoders (libsvtav1, VAAPI, QSV, NVENC) - source metadata passes through"
+  verification = { method = "manual-test", date = "2025-12-24" }
+
+  [[common.video.params]]
+  id = "color_range"
+  scope = "global"
+  flag = "-color_range:v"
+  type = "int"
+  range = { min = -1, max = 2 }
+  ffmpeg_default = -1
+  description = "Color range (-1=auto, 0=tv/limited 16-235, 1=pc/full 0-255)"
+  warning = "Widely supported by all encoders"
+  verification = { method = "manual-test", date = "2025-12-24" }
+
+# =============================================================================
+# VP9 SOFTWARE ENCODERS
+# =============================================================================
+
+[[encoders]]
+id = "libvpx-vp9"
+codec = "vp9"
+type = "software"
+ffmpeg_name = "libvpx-vp9"
+display_name = "VP9 (Software / libvpx)"
+description = "VP9 reference software encoder. High efficiency, very slow."
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ❌, color_trc ❌ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "crf"
+  scope = "private"
+  flag = "-crf"
+  type = "int"
+  range = { min = 0, max = 63 }
+  default = 31
+  description = "Constant quality (0=lossless, lower=better quality)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "cpu-used"
+  scope = "private"
+  flag = "-cpu-used"
+  type = "int"
+  range = { min = 0, max = 5 }
+  default = 1
+  description = "Speed preset (0=slowest/best, 5=fastest for VOD)"
+  warning = "Values 6-8 exist but are realtime-only (lower quality)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "deadline"
+  scope = "private"
+  flag = "-deadline"
+  type = "enum"
+  values = ["good", "best", "realtime"]
+  default = "good"
+  field_path = "quality_mode"
+  description = "Encoding deadline mode"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "quality"
+  scope = "private"
+  flag = "-quality"
+  type = "enum"
+  values = ["good", "best", "realtime"]
+  default = "good"
+  field_path = "quality_mode"
+  description = "Quality mode (alias for deadline)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "row-mt"
+  scope = "private"
+  flag = "-row-mt"
+  type = "bool"
+  default = true
+  description = "Row-based multithreading (recommended)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "tile-columns"
+  scope = "private"
+  flag = "-tile-columns"
+  type = "int"
+  range = { min = 0, max = 6 }
+  default = 0
+  description = "Log2 of tile columns (0=1 tile, 6=64 tiles)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "tile-rows"
+  scope = "private"
+  flag = "-tile-rows"
+  type = "int"
+  range = { min = 0, max = 2 }
+  default = 0
+  description = "Log2 of tile rows"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "lag-in-frames"
+  scope = "private"
+  flag = "-lag-in-frames"
+  type = "int"
+  range = { min = 0, max = 25 }
+  default = 25
+  description = "Lookahead frames for rate control"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "auto-alt-ref"
+  scope = "private"
+  flag = "-auto-alt-ref"
+  type = "int"
+  range = { min = 0, max = 2 }
+  default = 1
+  description = "Automatic alternate reference frames"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "aq-mode"
+  scope = "private"
+  flag = "-aq-mode"
+  type = "int"
+  range = { min = 0, max = 3 }
+  default = 0
+  description = "Adaptive quantization (0=off, 1=variance, 2=complexity, 3=cyclic)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "arnr-maxframes"
+  scope = "private"
+  flag = "-arnr-maxframes"
+  type = "int"
+  range = { min = 0, max = 15 }
+  default = 7
+  description = "Maximum frames for temporal filtering (alt-ref noise reduction)"
+  field_path = "arnr_max_frames"
+  verification = { method = "ffmpeg-help", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "arnr-strength"
+  scope = "private"
+  flag = "-arnr-strength"
+  type = "int"
+  range = { min = 0, max = 6 }
+  default = 5
+  description = "Temporal filter strength (alt-ref noise reduction)"
+  field_path = "arnr_strength"
+  verification = { method = "ffmpeg-help", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "frame-parallel"
+  scope = "private"
+  flag = "-frame-parallel"
+  type = "bool"
+  default = false
+  description = "Enable frame parallel decoding"
+  verification = { method = "ffmpeg-help", date = "2025-12-23" }
+
+# =============================================================================
+# VP9 HARDWARE ENCODERS
+# =============================================================================
+
+[[encoders]]
+id = "vp9_vaapi"
+codec = "vp9"
+type = "hardware"
+ffmpeg_name = "vp9_vaapi"
+hw_api = "vaapi"
+display_name = "VP9 (VAAPI / Intel & AMD)"
+description = "VP9 VAAPI hardware encoder (driver-dependent features)"
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ❌, color_trc ❌ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "rc_mode"
+  scope = "vaapi_standard"
+  flag = "-rc_mode:v"
+  type = "enum"
+  values = ["auto", "CQP", "CBR", "VBR", "ICQ", "QVBR", "AVBR"]
+  default = "CQP"
+  description = "Rate control mode (driver may support only a subset)"
+  warning = "Intel Arc: Only CQP stable (VBR/CBR/ICQ have driver bugs)"
+  verification = { method = "docs", source = "ffmpeg-vaapi-encoders" }
+
+  [[encoders.params]]
+  id = "global_quality"
+  scope = "vaapi_standard"
+  flag = "-global_quality:v"
+  type = "int"
+  range = { min = 1, max = 255 }
+  default = 100
+  field_path = "hw_global_quality"
+  description = "VP9 q_idx for P-frames (1=best/largest, 255=worst/smallest)"
+  verification = { method = "manual-test", date = "2025-12-22", notes = "Tested on Intel Arc A770" }
+
+  [[encoders.params]]
+  id = "compression_level"
+  scope = "vaapi_standard"
+  flag = "-compression_level:v"
+  type = "int"
+  range = { min = 0, max = 7 }
+  default = 4
+  field_path = "hw_compression_level"
+  description = "Compression effort (0=fast, 7=slow/best)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "loop_filter_level"
+  scope = "private"
+  flag = "-loop_filter_level:v"
+  type = "int"
+  range = { min = 0, max = 63 }
+  default = 16
+  field_path = "hw_loop_filter_level"
+  description = "Loop filter strength"
+  verification = { method = "ffmpeg-help", source = "vp9_vaapi" }
+
+  [[encoders.params]]
+  id = "loop_filter_sharpness"
+  scope = "private"
+  flag = "-loop_filter_sharpness:v"
+  type = "int"
+  range = { min = 0, max = 15 }
+  default = 4
+  field_path = "hw_loop_filter_sharpness"
+  description = "Loop filter sharpness"
+  verification = { method = "ffmpeg-help", source = "vp9_vaapi" }
+
+  [[encoders.params]]
+  id = "bf"
+  scope = "global"
+  flag = "-bf:v"
+  type = "int"
+  range = { min = 0, max = 3 }
+  default = 0
+  description = "B-frames (requires -bsf:v vp9_raw_reorder,vp9_superframe if >0)"
+  warning = "B-frames output in encode order, needs bitstream filters"
+  verification = { method = "manual-test", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "denoise"
+  scope = "private"
+  flag = "-denoise_vaapi"
+  type = "int"
+  range = { min = 0, max = 64 }
+  default = 0
+  field_path = "hw_denoise"
+  description = "Hardware denoise strength (0=off, filter not encoder flag)"
+  verification = { method = "docs", source = "ffmpeg-filters", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "detail"
+  scope = "private"
+  flag = "-sharpness_vaapi"
+  type = "int"
+  range = { min = 0, max = 64 }
+  default = 0
+  field_path = "hw_detail"
+  description = "Hardware sharpening strength (0=off, filter not encoder flag)"
+  verification = { method = "docs", source = "ffmpeg-filters", date = "2025-12-23" }
+
+[[encoders]]
+id = "vp9_qsv"
+codec = "vp9"
+type = "hardware"
+ffmpeg_name = "vp9_qsv"
+hw_api = "qsv"
+display_name = "VP9 (Intel Quick Sync)"
+description = "VP9 Intel Quick Sync hardware encoder"
+color_metadata_notes = "Uses vpp_qsv filter options for all 4 fields ✅ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "q"
+  scope = "private"
+  flag = "-q:v"
+  type = "int"
+  range = { min = 1, max = 255 }
+  default = 25
+  field_path = "hw_global_quality"
+  description = "Quality for CQP mode (lower=better)"
+  warning = "CRITICAL: Must use -q:v NOT -global_quality to avoid ICQ driver bug"
+  verification = { method = "manual-test", date = "2025-12-22", notes = "Arc A770 tested" }
+
+  [[encoders.params]]
+  id = "preset"
+  scope = "private"
+  flag = "-preset"
+  type = "int"
+  range = { min = 0, max = 7 }
+  default = 4
+  description = "Speed preset (0=veryslow/best, 7=veryfast/lowest)"
+  verification = { method = "ffmpeg-help", source = "vp9_qsv" }
+
+  [[encoders.params]]
+  id = "look_ahead"
+  scope = "private"
+  flag = "-look_ahead"
+  type = "bool"
+  default = true
+  field_path = "qsv_look_ahead"
+  description = "Enable lookahead for better rate control"
+  verification = { method = "ffmpeg-help", source = "vp9_qsv" }
+
+  [[encoders.params]]
+  id = "look_ahead_depth"
+  scope = "private"
+  flag = "-look_ahead_depth"
+  type = "int"
+  range = { min = 10, max = 100 }
+  default = 40
+  field_path = "qsv_look_ahead_depth"
+  description = "Lookahead depth in frames"
+  verification = { method = "ffmpeg-help", source = "vp9_qsv" }
+
+  [[encoders.params]]
+  id = "low_power"
+  scope = "private"
+  flag = "-low_power"
+  type = "bool"
+  description = "Low power mode / VDENC (often required on Linux/Arc)"
+  verification = { method = "ffmpeg-help", source = "vp9_qsv" }
+
+  [[encoders.params]]
+  id = "async_depth"
+  scope = "private"
+  flag = "-async_depth"
+  type = "int"
+  range = { min = 1, max = 2147483647 }
+  default = 4
+  description = "Maximum processing parallelism"
+  verification = { method = "ffmpeg-help", source = "vp9_qsv" }
+
+  [[encoders.params]]
+  id = "tile_cols"
+  scope = "private"
+  flag = "-tile_cols"
+  type = "int"
+  range = { min = 0, max = 32 }
+  default = 0
+  description = "Number of tile columns"
+  verification = { method = "ffmpeg-help", source = "vp9_qsv" }
+
+  [[encoders.params]]
+  id = "tile_rows"
+  scope = "private"
+  flag = "-tile_rows"
+  type = "int"
+  range = { min = 0, max = 4 }
+  default = 0
+  description = "Number of tile rows"
+  verification = { method = "ffmpeg-help", source = "vp9_qsv" }
+
+  [[encoders.params]]
+  id = "denoise"
+  scope = "private"
+  flag = "-vpp_qsv"
+  type = "int"
+  range = { min = 0, max = 100 }
+  default = 0
+  field_path = "hw_denoise"
+  description = "VPP denoise strength (0=off, part of vpp_qsv filter)"
+  verification = { method = "docs", source = "ffmpeg-vpp-qsv", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "detail"
+  scope = "private"
+  flag = "-vpp_qsv"
+  type = "int"
+  range = { min = 0, max = 100 }
+  default = 0
+  field_path = "hw_detail"
+  description = "VPP detail/sharpening strength (0=off, part of vpp_qsv filter)"
+  verification = { method = "docs", source = "ffmpeg-vpp-qsv", date = "2025-12-23" }
+
+# =============================================================================
+# AV1 SOFTWARE ENCODERS
+# =============================================================================
+
+[[encoders]]
+id = "libsvtav1"
+codec = "av1"
+type = "software"
+ffmpeg_name = "libsvtav1"
+display_name = "AV1 (SVT-AV1)"
+description = "Production-grade AV1 software encoder (recommended for AV1)"
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ❌, color_trc ❌ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "crf"
+  scope = "private"
+  flag = "-crf"
+  type = "int"
+  range = { min = 0, max = 63 }
+  default = 30
+  description = "Constant quality (0=lossless, lower=better)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "preset"
+  scope = "private"
+  flag = "-preset"
+  type = "int"
+  range = { min = 0, max = 13 }
+  default = 8
+  description = "Speed preset (0=slowest/archival, 8=balanced, 13=fastest)"
+  warning = "0-4: archival, 5-7: streaming, 8-10: realtime, 11-13: low latency"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "tune"
+  scope = "private"
+  flag = "-tune"
+  type = "int"
+  range = { min = 0, max = 2 }
+  default = 0
+  description = "Tuning mode (0=visual/PSNR, 1=SSIM, 2=VMAF)"
+  verification = { method = "ffmpeg-help", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "film-grain"
+  scope = "private"
+  flag = "-svtav1-params"
+  flag_format = "film-grain={value}"
+  type = "int"
+  range = { min = 0, max = 50 }
+  default = 0
+  description = "Film grain synthesis (0=off, higher=more grain). Passed via -svtav1-params."
+  field_path = "film_grain"
+  verification = { method = "tested", date = "2025-12-27", note = "Uses svtav1-params composite flag" }
+
+  [[encoders.params]]
+  id = "film-grain-denoise"
+  scope = "private"
+  flag = "-svtav1-params"
+  flag_format = "film-grain-denoise={value}"
+  type = "int"
+  range = { min = 0, max = 1 }
+  default = 0
+  description = "Denoise before grain synthesis (0=off, 1=on). Only applies when film-grain > 0."
+  verification = { method = "tested", date = "2025-12-27", note = "Uses svtav1-params composite flag" }
+
+  [[encoders.params]]
+  id = "svtav1-params"
+  scope = "private"
+  flag = "-svtav1-params"
+  type = "string"
+  description = "Additional SVT-AV1 params (key=value:key=value)"
+  verification = { method = "docs", source = "svt-av1-guide" }
+
+[[encoders]]
+id = "libaom-av1"
+codec = "av1"
+type = "software"
+ffmpeg_name = "libaom-av1"
+display_name = "AV1 (libaom / Reference)"
+description = "AV1 reference encoder. VERY slow, highest quality."
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ❌, color_trc ❌ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "crf"
+  scope = "private"
+  flag = "-crf"
+  type = "int"
+  range = { min = 0, max = 63 }
+  default = 32
+  description = "Constant quality"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "cpu-used"
+  scope = "private"
+  flag = "-cpu-used"
+  type = "int"
+  range = { min = 0, max = 8 }
+  default = 4
+  description = "Speed preset (0=slowest, 8=fastest)"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "row-mt"
+  scope = "private"
+  flag = "-row-mt"
+  type = "bool"
+  default = false
+  description = "Row-based multithreading"
+  verification = { method = "ffmpeg-help", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "tune"
+  scope = "private"
+  flag = "-tune"
+  type = "enum"
+  values = ["psnr", "ssim"]
+  default = "psnr"
+  description = "Tuning mode (psnr or ssim)"
+  verification = { method = "ffmpeg-help", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "denoise-noise-level"
+  scope = "private"
+  flag = "-denoise-noise-level"
+  type = "int"
+  range = { min = 0, max = 50 }
+  default = 0
+  description = "Denoising level (0=off)"
+  verification = { method = "ffmpeg-help", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "denoise-block-size"
+  scope = "private"
+  flag = "-denoise-block-size"
+  type = "int"
+  range = { min = 0, max = 64 }
+  default = 0
+  description = "Denoise block size (0=auto, typical: 8, 16, 32, 64)"
+  verification = { method = "ffmpeg-help", date = "2025-12-27" }
+
+  [[encoders.params]]
+  id = "arnr-max-frames"
+  scope = "private"
+  flag = "-arnr-max-frames"
+  type = "int"
+  range = { min = 0, max = 15 }
+  default = 0
+  description = "Alt-ref noise reduction max frames (0=auto)"
+  field_path = "arnr_max_frames"
+  verification = { method = "ffmpeg-help", date = "2025-12-27" }
+
+  [[encoders.params]]
+  id = "arnr-strength"
+  scope = "private"
+  flag = "-arnr-strength"
+  type = "int"
+  range = { min = 0, max = 6 }
+  default = 0
+  description = "Alt-ref noise reduction strength (0=auto)"
+  field_path = "arnr_strength"
+  verification = { method = "ffmpeg-help", date = "2025-12-27" }
+
+# =============================================================================
+# AV1 HARDWARE ENCODERS
+# =============================================================================
+
+[[encoders]]
+id = "av1_qsv"
+codec = "av1"
+type = "hardware"
+ffmpeg_name = "av1_qsv"
+hw_api = "qsv"
+display_name = "AV1 (Intel Quick Sync / Arc)"
+description = "AV1 Intel Quick Sync (Arc A-series, 12th+ gen). Excellent quality/speed."
+color_metadata_notes = "Uses vpp_qsv filter options for all 4 fields ✅ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "q"
+  scope = "private"
+  flag = "-q:v"
+  type = "int"
+  range = { min = 1, max = 63 }
+  default = 23
+  field_path = "hw_global_quality"
+  description = "Quality for CQP mode (lower=better)"
+  verification = { method = "manual-test", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "preset"
+  scope = "private"
+  flag = "-preset"
+  type = "int"
+  range = { min = 0, max = 7 }
+  default = 4
+  description = "Speed preset (0=veryslow, 7=veryfast)"
+  verification = { method = "ffmpeg-help", source = "av1_qsv" }
+
+  [[encoders.params]]
+  id = "look_ahead"
+  scope = "private"
+  flag = "-look_ahead"
+  type = "bool"
+  default = true
+  field_path = "qsv_look_ahead"
+  description = "Enable lookahead"
+  verification = { method = "ffmpeg-help", source = "av1_qsv" }
+
+  [[encoders.params]]
+  id = "look_ahead_depth"
+  scope = "private"
+  flag = "-look_ahead_depth"
+  type = "int"
+  range = { min = 10, max = 100 }
+  default = 40
+  field_path = "qsv_look_ahead_depth"
+  description = "Lookahead depth in frames"
+  verification = { method = "ffmpeg-help", source = "av1_qsv" }
+
+  [[encoders.params]]
+  id = "async_depth"
+  scope = "private"
+  flag = "-async_depth"
+  type = "int"
+  range = { min = 1, max = 2147483647 }
+  default = 4
+  description = "Maximum processing parallelism"
+  verification = { method = "ffmpeg-help", source = "av1_qsv" }
+
+  [[encoders.params]]
+  id = "tile_cols"
+  scope = "private"
+  flag = "-tile_cols"
+  type = "int"
+  range = { min = 0, max = 65535 }
+  default = 0
+  description = "Number of tile columns"
+  verification = { method = "ffmpeg-help", source = "av1_qsv" }
+
+  [[encoders.params]]
+  id = "tile_rows"
+  scope = "private"
+  flag = "-tile_rows"
+  type = "int"
+  range = { min = 0, max = 65535 }
+  default = 0
+  description = "Number of tile rows"
+  verification = { method = "ffmpeg-help", source = "av1_qsv" }
+
+  [[encoders.params]]
+  id = "denoise"
+  scope = "private"
+  flag = "-vpp_qsv"
+  type = "int"
+  range = { min = 0, max = 100 }
+  default = 0
+  field_path = "hw_denoise"
+  description = "VPP denoise strength (0=off, part of vpp_qsv filter)"
+  verification = { method = "docs", source = "ffmpeg-vpp-qsv", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "detail"
+  scope = "private"
+  flag = "-vpp_qsv"
+  type = "int"
+  range = { min = 0, max = 100 }
+  default = 0
+  field_path = "hw_detail"
+  description = "VPP detail/sharpening strength (0=off, part of vpp_qsv filter)"
+  verification = { method = "docs", source = "ffmpeg-vpp-qsv", date = "2025-12-23" }
+
+[[encoders]]
+id = "av1_nvenc"
+codec = "av1"
+type = "hardware"
+ffmpeg_name = "av1_nvenc"
+hw_api = "nvenc"
+display_name = "AV1 (NVIDIA NVENC)"
+description = "AV1 NVIDIA NVENC (RTX 40-series required)"
+color_metadata_notes = "Uses zscale filter for all 4 fields ✅ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "cq"
+  scope = "private"
+  flag = "-cq"
+  type = "float"
+  range = { min = 0.0, max = 51.0 }
+  default = 23.0
+  field_path = "hw_global_quality"
+  description = "Constant quality (0=auto, lower=better)"
+  verification = { method = "ffmpeg-help", source = "av1_nvenc" }
+
+  [[encoders.params]]
+  id = "preset"
+  scope = "private"
+  flag = "-preset"
+  type = "enum"
+  values = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+  default = "p4"
+  description = "Speed preset (p1=fastest/lowest, p7=slowest/best)"
+  warning = "Semantics INVERTED from QSV: p1=fastest, p7=slowest"
+  verification = { method = "ffmpeg-help", source = "av1_nvenc" }
+
+  [[encoders.params]]
+  id = "tune"
+  scope = "private"
+  flag = "-tune"
+  type = "enum"
+  values = ["hq", "ll", "ull", "lossless"]
+  default = "hq"
+  description = "Tuning (hq=high quality, ll=low latency, ull=ultra low latency)"
+  verification = { method = "ffmpeg-help", source = "av1_nvenc" }
+
+  [[encoders.params]]
+  id = "multipass"
+  scope = "private"
+  flag = "-multipass"
+  type = "enum"
+  values = ["disabled", "qres", "fullres"]
+  default = "disabled"
+  description = "Multipass mode"
+  verification = { method = "ffmpeg-help", source = "av1_nvenc" }
+
+  [[encoders.params]]
+  id = "rc-lookahead"
+  scope = "private"
+  flag = "-rc-lookahead"
+  type = "int"
+  range = { min = 0, max = 32 }
+  default = 0
+  field_path = "hw_lookahead"
+  description = "Rate control lookahead frames"
+  verification = { method = "ffmpeg-help", source = "av1_nvenc" }
+
+  [[encoders.params]]
+  id = "spatial-aq"
+  scope = "private"
+  flag = "-spatial-aq"
+  type = "bool"
+  default = false
+  description = "Spatial adaptive quantization"
+  verification = { method = "ffmpeg-help", source = "av1_nvenc" }
+
+  [[encoders.params]]
+  id = "temporal-aq"
+  scope = "private"
+  flag = "-temporal-aq"
+  type = "bool"
+  default = false
+  description = "Temporal adaptive quantization"
+  verification = { method = "ffmpeg-help", source = "av1_nvenc" }
+
+[[encoders]]
+id = "av1_vaapi"
+codec = "av1"
+type = "hardware"
+ffmpeg_name = "av1_vaapi"
+hw_api = "vaapi"
+display_name = "AV1 (VAAPI / Intel & AMD)"
+description = "AV1 VAAPI hardware encoder (Intel Arc, AMD)"
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ❌, color_trc ❌ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "rc_mode"
+  scope = "vaapi_standard"
+  flag = "-rc_mode:v"
+  type = "enum"
+  values = ["auto", "CQP", "CBR", "VBR", "ICQ", "QVBR", "AVBR"]
+  default = "CQP"
+  description = "Rate control mode (driver support varies)"
+  verification = { method = "docs", source = "ffmpeg-vaapi-encoders" }
+
+  [[encoders.params]]
+  id = "global_quality"
+  scope = "vaapi_standard"
+  flag = "-global_quality:v"
+  type = "int"
+  range = { min = 1, max = 255 }
+  default = 120
+  field_path = "hw_global_quality"
+  description = "Quality level (1=best/largest, 255=worst/smallest)"
+  verification = { method = "manual-test", date = "2025-12-22" }
+
+  [[encoders.params]]
+  id = "compression_level"
+  scope = "vaapi_standard"
+  flag = "-compression_level:v"
+  type = "int"
+  range = { min = 0, max = 7 }
+  description = "Speed/quality tradeoff (driver-dependent)"
+  verification = { method = "docs", source = "ffmpeg-vaapi-encoders" }
+
+  [[encoders.params]]
+  id = "denoise"
+  scope = "private"
+  flag = "-denoise_vaapi"
+  type = "int"
+  range = { min = 0, max = 64 }
+  default = 0
+  field_path = "hw_denoise"
+  description = "Hardware denoise strength (0=off, filter not encoder flag)"
+  verification = { method = "docs", source = "ffmpeg-filters", date = "2025-12-23" }
+
+  [[encoders.params]]
+  id = "detail"
+  scope = "private"
+  flag = "-sharpness_vaapi"
+  type = "int"
+  range = { min = 0, max = 64 }
+  default = 0
+  field_path = "hw_detail"
+  description = "Hardware sharpening strength (0=off, filter not encoder flag)"
+  verification = { method = "docs", source = "ffmpeg-filters", date = "2025-12-23" }
+
+[[encoders]]
+id = "av1_amf"
+codec = "av1"
+type = "hardware"
+ffmpeg_name = "av1_amf"
+hw_api = "amf"
+display_name = "AV1 (AMD AMF)"
+description = "AMD Advanced Media Framework AV1 encoder"
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ❌, color_trc ❌ (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "usage"
+  scope = "private"
+  flag = "-usage"
+  type = "enum"
+  values = ["transcoding", "lowlatency", "ultralowlatency", "webcam", "high_quality", "lowlatency_high_quality"]
+  description = "Encoding usage preset"
+  verification = { method = "ffmpeg-help", source = "av1_amf" }
+
+  [[encoders.params]]
+  id = "quality"
+  scope = "private"
+  flag = "-quality"
+  type = "enum"
+  values = ["high_quality", "quality", "balanced", "speed"]
+  description = "Quality preset"
+  verification = { method = "ffmpeg-help", source = "av1_amf" }
+
+  [[encoders.params]]
+  id = "rc"
+  scope = "private"
+  flag = "-rc"
+  type = "enum"
+  values = ["cqp", "vbr_latency", "vbr_peak", "cbr", "qvbr", "hqvbr", "hqcbr"]
+  description = "Rate control mode"
+  verification = { method = "ffmpeg-help", source = "av1_amf" }
+
+# =============================================================================
+# Verification Source Map
+# =============================================================================
+[sources]
+ffmpeg-vaapi-encoders = "FFmpeg VAAPI encoders documentation"
+vp9_vaapi = "ffmpeg -h encoder=vp9_vaapi"
+vp9_qsv = "ffmpeg -h encoder=vp9_qsv"
+av1_qsv = "ffmpeg -h encoder=av1_qsv"
+av1_nvenc = "ffmpeg -h encoder=av1_nvenc"
+av1_amf = "ffmpeg -h encoder=av1_amf"
+svt-av1-guide = "SVT-AV1 encoder guide"

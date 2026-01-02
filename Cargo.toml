@@ -1,6 +1,6 @@
 [package]
 name = "ffdash"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 authors = ["Ben H <bcherb2@users.noreply.github.com>"]
 description = "FFMPEG video encoder with live dashboard, hardware acceleration, and batch processing"
@@ -9,14 +9,19 @@ repository = "https://github.com/bcherb2/ffdash"
 homepage = "https://github.com/bcherb2/ffdash"
 documentation = "https://github.com/bcherb2/ffdash"
 readme = "README.md"
-keywords = ["video", "encoder", "vp9", "ffmpeg", "vaapi"]
+keywords = ["video", "encoder", "vp9", "av1", "ffmpeg"]
 categories = ["command-line-utilities", "multimedia::video", "multimedia::encoding"]
 rust-version = "1.85"
+
+[features]
+dev-logging = []
+dev-tools = []
 
 [dependencies]
 walkdir = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+shlex = "1.3"
 toml = "0.8"
 uuid = { version = "1", features = ["v4", "serde"] }
 anyhow = "1"
@@ -34,11 +39,17 @@ dirs = "5"
 clap = { version = "4", features = ["derive"] }
 tui-piechart = "0.2"
 chrono = "0.4"
+libc = "0.2"
+
+[build-dependencies]
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 proptest = "1.5"
 tempfile = "3"
 anyhow = "1"
+insta = { version = "1.40", features = ["json", "toml"] }
 
 # Configuration for cargo-deb (Debian package generation)
 [package.metadata.deb]
@@ -46,10 +57,10 @@ maintainer = "Ben H <bcherb2@users.noreply.github.com>"
 copyright = "2025, Ben H <bcherb2@users.noreply.github.com>"
 license-file = ["LICENSE", "0"]
 extended-description = """\
-ffdash is a VP9 video encoder with a live TUI dashboard, hardware acceleration \
-support (VA-API, NVENC), and efficient batch processing capabilities. It provides \
+ffdash is a video encoder (VP9, AV1) with a live TUI dashboard, hardware acceleration \
+support (VA-API, QSV, NVENC), and efficient batch processing capabilities. It provides \
 real-time encoding statistics, queue management, and customizable encoding profiles."""
-depends = "ffmpeg (>= 7.0)"
+depends = "ffmpeg (>= 8.0)"
 section = "video"
 priority = "optional"
 assets = [

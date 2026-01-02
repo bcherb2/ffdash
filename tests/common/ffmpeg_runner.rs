@@ -214,12 +214,15 @@ pub fn generate_test_video(
             "testsrc=duration={}:size={}x{}:rate=30",
             duration_secs, width, height
         ))
-        .arg("-f")
-        .arg("lavfi")
-        .arg("-i")
-        .arg(format!("sine=frequency=1000:duration={}", duration_secs))
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-preset")
+        .arg("ultrafast")
+        .arg("-threads")
+        .arg("1")
         .arg("-pix_fmt")
         .arg("yuv420p")
+        .arg("-an")
         .arg(output_path);
 
     let output = cmd.output().context("Failed to generate test video")?;

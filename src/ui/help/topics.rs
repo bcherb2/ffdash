@@ -185,17 +185,17 @@ impl HelpModal {
         if let Some(hw_result) = &state.hw_preflight_result {
             // Overall status
             let status_line = if hw_result.available {
-                format!("  Overall:        Available")
+                "  Overall:        Available".to_string()
             } else {
-                format!("  Overall:        Not Available")
+                "  Overall:        Not Available".to_string()
             };
             lines.push(Line::from(status_line));
 
             // Platform check
             let platform_line = if hw_result.platform_ok {
-                format!("  Platform:       ✓ Linux")
+                "  Platform:       ✓ Linux".to_string()
             } else {
-                format!("  Platform:       ✗ Unsupported OS")
+                "  Platform:       ✗ Unsupported OS".to_string()
             };
             lines.push(Line::from(platform_line));
 
@@ -204,52 +204,87 @@ impl HelpModal {
                 if let Some(model) = &hw_result.gpu_model {
                     format!("  GPU:            ✓ {}", model)
                 } else {
-                    format!("  GPU:            ✓ Detected")
+                    "  GPU:            ✓ Detected".to_string()
                 }
             } else {
-                format!("  GPU:            ✗ Not detected")
+                "  GPU:            ✗ Not detected".to_string()
             };
             lines.push(Line::from(gpu_line));
 
-            // Driver path check
-            let driver_line = if let Some(path) = &hw_result.driver_path {
-                format!("  Driver Path:    ✓ {}", path)
-            } else {
-                format!("  Driver Path:    ✗ iHD driver not found")
+            // Driver path check - vendor aware
+            let driver_line = match hw_result.gpu_vendor {
+                crate::engine::hardware::GpuVendor::Nvidia => {
+                    if hw_result.gpu_detected {
+                        "  Driver Path:    ✓ NVIDIA driver detected".to_string()
+                    } else {
+                        "  Driver Path:    ✗ NVIDIA driver not found".to_string()
+                    }
+                }
+                crate::engine::hardware::GpuVendor::Intel => {
+                    if let Some(path) = &hw_result.driver_path {
+                        format!("  Driver Path:    ✓ {}", path)
+                    } else {
+                        "  Driver Path:    ✗ iHD driver not found".to_string()
+                    }
+                }
+                _ => "  Driver Path:    - N/A".to_string(),
             };
             lines.push(Line::from(driver_line));
 
             // VA-API check
             let vaapi_line = if hw_result.vaapi_ok {
-                format!("  VA-API VP9:     ✓ Supported")
+                "  VA-API VP9:     ✓ Supported".to_string()
             } else {
-                format!("  VA-API VP9:     ✗ Not available")
+                "  VA-API VP9:     ✗ Not available".to_string()
             };
             lines.push(Line::from(vaapi_line));
 
-            // FFmpeg encoder check
-            let encoder_line = if hw_result.encoder_ok {
-                format!("  FFmpeg Encoder: ✓ vp9_vaapi available")
-            } else {
-                format!("  FFmpeg Encoder: ✗ vp9_vaapi not found")
+            // FFmpeg encoder check - vendor aware
+            let encoder_line = match hw_result.gpu_vendor {
+                crate::engine::hardware::GpuVendor::Nvidia => {
+                    if hw_result.encoder_ok {
+                        "  FFmpeg Encoder: ✓ av1_nvenc available".to_string()
+                    } else {
+                        "  FFmpeg Encoder: ✗ av1_nvenc not found".to_string()
+                    }
+                }
+                crate::engine::hardware::GpuVendor::Intel => {
+                    if hw_result.encoder_ok {
+                        "  FFmpeg Encoder: ✓ vp9_vaapi available".to_string()
+                    } else {
+                        "  FFmpeg Encoder: ✗ vp9_vaapi not found".to_string()
+                    }
+                }
+                _ => "  FFmpeg Encoder: ✗ No hardware encoder".to_string(),
             };
             lines.push(Line::from(encoder_line));
 
-            // GPU metrics dependency
-            let gpu_stats_line = if state.gpu_metrics_available {
-                "  GPU Metrics:     ✓ xpu-smi available (GPU/VRAM graphs enabled)".to_string()
-            } else {
-                "  GPU Metrics:     ✗ xpu-smi not found (install Intel xpu-smi for GPU graphs)"
-                    .to_string()
+            // GPU metrics dependency - vendor aware
+            let gpu_stats_line = match hw_result.gpu_vendor {
+                crate::engine::hardware::GpuVendor::Nvidia => {
+                    if state.gpu_metrics_available {
+                        "  GPU Metrics:    ✓ nvidia-smi available".to_string()
+                    } else {
+                        "  GPU Metrics:    ✗ nvidia-smi not found".to_string()
+                    }
+                }
+                crate::engine::hardware::GpuVendor::Intel => {
+                    if state.gpu_metrics_available {
+                        "  GPU Metrics:    ✓ xpu-smi available".to_string()
+                    } else {
+                        "  GPU Metrics:    ✗ xpu-smi not found".to_string()
+                    }
+                }
+                _ => "  GPU Metrics:    - N/A".to_string(),
             };
             lines.push(Line::from(gpu_stats_line));
 
             // HuC firmware check (required for VBR/CBR modes)
             if let Some(huc_loaded) = state.huc_available {
                 let huc_line = if huc_loaded {
-                    format!("  HuC Firmware:   ✓ Loaded (VBR/CBR available)")
+                    "  HuC Firmware:   ✓ Loaded (VBR/CBR available)".to_string()
                 } else {
-                    format!("  HuC Firmware:   ✗ Not loaded (CQP only)")
+                    "  HuC Firmware:   ✗ Not loaded (CQP only)".to_string()
                 };
                 lines.push(Line::from(huc_line));
             } else {
@@ -548,7 +583,7 @@ impl HelpModal {
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )]),
-            Line::from("  Enable two-pass encoding"),
+            Line::from("  Enable two-pass encoding (VP9 software only)"),
             Line::from("  Pass 1: Fast analysis • Pass 2: Optimized encode"),
             Line::from("  Impact: ~5-10% better quality for target bitrate"),
             Line::from("  Recommended: On for distribution, Off for quick encodes"),

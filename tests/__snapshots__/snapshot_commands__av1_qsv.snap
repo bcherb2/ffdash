@@ -1,0 +1,2 @@
+---
+- ffmpeg -analyzeduration 200M -probesize 200M -init_hw_device qsv=qs:/dev/dri/renderD128 -hwaccel qsv -hwaccel_output_format qsv -filter_hw_device qs -i /tmp/input.mp4 -progress - -nostats -vf vpp_qsv=format=auto -c:v av1_qsv -rc_mode cqp -q:v 26 -preset medium -low_power 1 -b_strategy 0 -bf 2 -look_ahead 1 -look_ahead_depth 30 -g:v 120 -pix_fmt nv12 -c:a libopus -b:a 128k -vbr:a on -compression_level:a 10 -y /tmp/output.mkv

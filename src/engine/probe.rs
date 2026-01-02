@@ -10,6 +10,9 @@ pub struct InputInfo {
     pub height: u32,
     pub fps: f64,
     pub duration: Option<f64>,
+    pub codec_name: Option<String>,
+    pub bit_depth: Option<u32>,
+    pub is_hdr: bool,
 }
 
 impl Default for InputInfo {
@@ -19,6 +22,9 @@ impl Default for InputInfo {
             height: 1080,
             fps: 30.0,
             duration: None,
+            codec_name: None,
+            bit_depth: None,
+            is_hdr: false,
         }
     }
 }
@@ -88,11 +94,31 @@ pub fn probe_input_info(input_path: &Path) -> Result<InputInfo, String> {
         .as_str()
         .and_then(|s| s.parse::<f64>().ok());
 
+    // Bit depth (if reported)
+    let bit_depth = video_stream["bits_per_raw_sample"]
+        .as_str()
+        .and_then(|s| s.parse::<u32>().ok())
+        .or_else(|| {
+            video_stream["bits_per_raw_sample"]
+                .as_u64()
+                .map(|v| v as u32)
+        });
+
+    let codec_name = video_stream["codec_name"].as_str().map(|s| s.to_string());
+
+    // Detect HDR from color_transfer metadata
+    // HDR sources use PQ (smpte2084) or HLG (arib-std-b67) transfer characteristics
+    let color_transfer = video_stream["color_transfer"].as_str();
+    let is_hdr = matches!(color_transfer, Some("smpte2084") | Some("arib-std-b67"));
+
     Ok(InputInfo {
         width,
         height,
         fps,
         duration,
+        codec_name,
+        bit_depth,
+        is_hdr,
     })
 }
 

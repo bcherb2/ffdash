@@ -1,0 +1,5 @@
+---
+source: tests/snapshot_commands.rs
+expression: to_string(&cmd)
+---
+ffmpeg -init_hw_device vaapi=va:/dev/dri/renderD128 -filter_hw_device va -i /tmp/input.mp4 -progress - -nostats -vf format=nv12,hwupload -c:v av1_vaapi -rc_mode:v CQP -global_quality:v 70 -g:v 240 -map 0:v:0? -map 0:a:0? -c:a:0 libopus -b:a:0 128k -vbr:a:0 on -map 0:s? -map 0:t? -c:s copy -c:t copy -map_metadata 0 -map_chapters 0 -y /tmp/output.mkv

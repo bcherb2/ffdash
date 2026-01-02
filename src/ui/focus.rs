@@ -28,6 +28,12 @@ pub enum ConfigFocus {
     UndershootPctInput,
     OvershootPctInput,
 
+    // Auto-VMAF
+    AutoVmafCheckbox,
+    AutoVmafTargetInput,
+    AutoVmafStepInput,
+    AutoVmafMaxAttemptsInput,
+
     // Speed & quality
     QualityMode,
     CpuUsedSlider,
@@ -42,10 +48,35 @@ pub enum ConfigFocus {
     VaapiBFramesInput,
     VaapiLoopFilterLevelInput,
     VaapiLoopFilterSharpnessInput,
+    HwDenoiseInput,
+    HwDetailInput,
+    Vp9QsvPresetSlider,
+    Vp9QsvLookaheadCheckbox,
+    Vp9QsvLookaheadDepthInput,
+
+    // Video codec selector (VP9/AV1)
+    VideoCodecDropdown,
 
     // VP9 settings
     ProfileDropdown,
     PixFmtDropdown,
+
+    // AV1 software settings (libsvtav1)
+    Av1PresetSlider,
+    Av1TuneDropdown,
+    Av1FilmGrainSlider,
+    Av1FilmGrainDenoiseCheckbox,
+    Av1EnableOverlaysCheckbox,
+    Av1ScdCheckbox,
+    Av1ScmDropdown,
+    Av1EnableTfCheckbox,
+
+    // AV1 hardware settings
+    Av1HwPresetSlider,
+    Av1HwCqSlider,
+    Av1HwLookaheadInput,
+    Av1HwTileColsInput,
+    Av1HwTileRowsInput,
 
     // Parallelism
     RowMtCheckbox,
@@ -79,15 +110,20 @@ pub enum ConfigFocus {
     MaxIntraRateInput,
 
     // Color / HDR
-    ColorspaceDropdown,
-    ColorPrimariesDropdown,
-    ColorTrcDropdown,
-    ColorRangeDropdown,
+    ColorSpacePresetDropdown,
 
-    // Audio
-    AudioCodec,
-    AudioBitrateSlider,
-    ForceStereoCheckbox,
+    // Audio - multi-track support
+    AudioPrimaryCodec,
+    AudioPrimaryBitrate,
+    AudioPrimaryDownmix,
+    AudioAc3Checkbox,
+    AudioAc3Bitrate,
+    AudioStereoCheckbox,
+    AudioStereoCodec,
+    AudioStereoBitrate,
+
+    // Additional FFmpeg arguments
+    AdditionalArgsInput,
 }
 
 impl ConfigFocus {
@@ -109,7 +145,11 @@ impl ConfigFocus {
             Self::VideoMaxBitrateInput => Self::VideoBufsizeInput,
             Self::VideoBufsizeInput => Self::UndershootPctInput,
             Self::UndershootPctInput => Self::OvershootPctInput,
-            Self::OvershootPctInput => Self::QualityMode,
+            Self::OvershootPctInput => Self::AutoVmafCheckbox,
+            Self::AutoVmafCheckbox => Self::AutoVmafTargetInput,
+            Self::AutoVmafTargetInput => Self::AutoVmafStepInput,
+            Self::AutoVmafStepInput => Self::AutoVmafMaxAttemptsInput,
+            Self::AutoVmafMaxAttemptsInput => Self::QualityMode,
             Self::QualityMode => Self::CpuUsedSlider,
             Self::CpuUsedSlider => Self::CpuUsedPass1Slider,
             Self::CpuUsedPass1Slider => Self::CpuUsedPass2Slider,
@@ -120,9 +160,28 @@ impl ConfigFocus {
             Self::VaapiCompressionLevelSlider => Self::VaapiBFramesInput,
             Self::VaapiBFramesInput => Self::VaapiLoopFilterLevelInput,
             Self::VaapiLoopFilterLevelInput => Self::VaapiLoopFilterSharpnessInput,
-            Self::VaapiLoopFilterSharpnessInput => Self::ProfileDropdown,
+            Self::VaapiLoopFilterSharpnessInput => Self::HwDenoiseInput,
+            Self::HwDenoiseInput => Self::HwDetailInput,
+            Self::HwDetailInput => Self::Vp9QsvPresetSlider,
+            Self::Vp9QsvPresetSlider => Self::Vp9QsvLookaheadCheckbox,
+            Self::Vp9QsvLookaheadCheckbox => Self::Vp9QsvLookaheadDepthInput,
+            Self::Vp9QsvLookaheadDepthInput => Self::VideoCodecDropdown,
+            Self::VideoCodecDropdown => Self::ProfileDropdown,
             Self::ProfileDropdown => Self::PixFmtDropdown,
-            Self::PixFmtDropdown => Self::RowMtCheckbox,
+            Self::PixFmtDropdown => Self::Av1PresetSlider,
+            Self::Av1PresetSlider => Self::Av1TuneDropdown,
+            Self::Av1TuneDropdown => Self::Av1FilmGrainSlider,
+            Self::Av1FilmGrainSlider => Self::Av1FilmGrainDenoiseCheckbox,
+            Self::Av1FilmGrainDenoiseCheckbox => Self::Av1EnableOverlaysCheckbox,
+            Self::Av1EnableOverlaysCheckbox => Self::Av1ScdCheckbox,
+            Self::Av1ScdCheckbox => Self::Av1ScmDropdown,
+            Self::Av1ScmDropdown => Self::Av1EnableTfCheckbox,
+            Self::Av1EnableTfCheckbox => Self::Av1HwPresetSlider,
+            Self::Av1HwPresetSlider => Self::Av1HwCqSlider,
+            Self::Av1HwCqSlider => Self::Av1HwLookaheadInput,
+            Self::Av1HwLookaheadInput => Self::Av1HwTileColsInput,
+            Self::Av1HwTileColsInput => Self::Av1HwTileRowsInput,
+            Self::Av1HwTileRowsInput => Self::RowMtCheckbox,
             Self::RowMtCheckbox => Self::TileColumnsSlider,
             Self::TileColumnsSlider => Self::TileRowsSlider,
             Self::TileRowsSlider => Self::ThreadsInput,
@@ -143,20 +202,23 @@ impl ConfigFocus {
             Self::SharpnessSlider => Self::NoiseSensitivitySlider,
             Self::NoiseSensitivitySlider => Self::StaticThreshInput,
             Self::StaticThreshInput => Self::MaxIntraRateInput,
-            Self::MaxIntraRateInput => Self::ColorspaceDropdown,
-            Self::ColorspaceDropdown => Self::ColorPrimariesDropdown,
-            Self::ColorPrimariesDropdown => Self::ColorTrcDropdown,
-            Self::ColorTrcDropdown => Self::ColorRangeDropdown,
-            Self::ColorRangeDropdown => Self::AudioCodec,
-            Self::AudioCodec => Self::ForceStereoCheckbox,
-            Self::ForceStereoCheckbox => Self::AudioBitrateSlider,
-            Self::AudioBitrateSlider => Self::ProfileList, // Wrap around
+            Self::MaxIntraRateInput => Self::ColorSpacePresetDropdown,
+            Self::ColorSpacePresetDropdown => Self::AudioPrimaryCodec,
+            Self::AudioPrimaryCodec => Self::AudioPrimaryBitrate,
+            Self::AudioPrimaryBitrate => Self::AudioPrimaryDownmix,
+            Self::AudioPrimaryDownmix => Self::AudioAc3Checkbox,
+            Self::AudioAc3Checkbox => Self::AudioAc3Bitrate,
+            Self::AudioAc3Bitrate => Self::AudioStereoCheckbox,
+            Self::AudioStereoCheckbox => Self::AudioStereoCodec,
+            Self::AudioStereoCodec => Self::AudioStereoBitrate,
+            Self::AudioStereoBitrate => Self::AdditionalArgsInput,
+            Self::AdditionalArgsInput => Self::ProfileList, // Wrap around
         }
     }
 
     pub fn previous(&self) -> Self {
         match self {
-            Self::ProfileList => Self::AudioBitrateSlider, // Wrap around
+            Self::ProfileList => Self::AdditionalArgsInput, // Wrap around
             Self::SaveButton => Self::ProfileList,
             Self::DeleteButton => Self::SaveButton,
             Self::OutputDirectory => Self::DeleteButton,
@@ -173,7 +235,11 @@ impl ConfigFocus {
             Self::VideoBufsizeInput => Self::VideoMaxBitrateInput,
             Self::UndershootPctInput => Self::VideoBufsizeInput,
             Self::OvershootPctInput => Self::UndershootPctInput,
-            Self::QualityMode => Self::OvershootPctInput,
+            Self::AutoVmafCheckbox => Self::OvershootPctInput,
+            Self::AutoVmafTargetInput => Self::AutoVmafCheckbox,
+            Self::AutoVmafStepInput => Self::AutoVmafTargetInput,
+            Self::AutoVmafMaxAttemptsInput => Self::AutoVmafStepInput,
+            Self::QualityMode => Self::AutoVmafMaxAttemptsInput,
             Self::CpuUsedSlider => Self::QualityMode,
             Self::CpuUsedPass1Slider => Self::CpuUsedSlider,
             Self::CpuUsedPass2Slider => Self::CpuUsedPass1Slider,
@@ -184,9 +250,28 @@ impl ConfigFocus {
             Self::VaapiBFramesInput => Self::VaapiCompressionLevelSlider,
             Self::VaapiLoopFilterLevelInput => Self::VaapiBFramesInput,
             Self::VaapiLoopFilterSharpnessInput => Self::VaapiLoopFilterLevelInput,
-            Self::ProfileDropdown => Self::VaapiLoopFilterSharpnessInput,
+            Self::HwDenoiseInput => Self::VaapiLoopFilterSharpnessInput,
+            Self::HwDetailInput => Self::HwDenoiseInput,
+            Self::Vp9QsvPresetSlider => Self::HwDetailInput,
+            Self::Vp9QsvLookaheadCheckbox => Self::Vp9QsvPresetSlider,
+            Self::Vp9QsvLookaheadDepthInput => Self::Vp9QsvLookaheadCheckbox,
+            Self::VideoCodecDropdown => Self::Vp9QsvLookaheadDepthInput,
+            Self::ProfileDropdown => Self::VideoCodecDropdown,
             Self::PixFmtDropdown => Self::ProfileDropdown,
-            Self::RowMtCheckbox => Self::PixFmtDropdown,
+            Self::Av1PresetSlider => Self::PixFmtDropdown,
+            Self::Av1TuneDropdown => Self::Av1PresetSlider,
+            Self::Av1FilmGrainSlider => Self::Av1TuneDropdown,
+            Self::Av1FilmGrainDenoiseCheckbox => Self::Av1FilmGrainSlider,
+            Self::Av1EnableOverlaysCheckbox => Self::Av1FilmGrainDenoiseCheckbox,
+            Self::Av1ScdCheckbox => Self::Av1EnableOverlaysCheckbox,
+            Self::Av1ScmDropdown => Self::Av1ScdCheckbox,
+            Self::Av1EnableTfCheckbox => Self::Av1ScmDropdown,
+            Self::Av1HwPresetSlider => Self::Av1EnableTfCheckbox,
+            Self::Av1HwCqSlider => Self::Av1HwPresetSlider,
+            Self::Av1HwLookaheadInput => Self::Av1HwCqSlider,
+            Self::Av1HwTileColsInput => Self::Av1HwLookaheadInput,
+            Self::Av1HwTileRowsInput => Self::Av1HwTileColsInput,
+            Self::RowMtCheckbox => Self::Av1HwTileRowsInput,
             Self::TileColumnsSlider => Self::RowMtCheckbox,
             Self::TileRowsSlider => Self::TileColumnsSlider,
             Self::ThreadsInput => Self::TileRowsSlider,
@@ -207,13 +292,16 @@ impl ConfigFocus {
             Self::NoiseSensitivitySlider => Self::SharpnessSlider,
             Self::StaticThreshInput => Self::NoiseSensitivitySlider,
             Self::MaxIntraRateInput => Self::StaticThreshInput,
-            Self::ColorspaceDropdown => Self::MaxIntraRateInput,
-            Self::ColorPrimariesDropdown => Self::ColorspaceDropdown,
-            Self::ColorTrcDropdown => Self::ColorPrimariesDropdown,
-            Self::ColorRangeDropdown => Self::ColorTrcDropdown,
-            Self::AudioCodec => Self::ColorRangeDropdown,
-            Self::ForceStereoCheckbox => Self::AudioCodec,
-            Self::AudioBitrateSlider => Self::ForceStereoCheckbox,
+            Self::ColorSpacePresetDropdown => Self::MaxIntraRateInput,
+            Self::AudioPrimaryCodec => Self::ColorSpacePresetDropdown,
+            Self::AudioPrimaryBitrate => Self::AudioPrimaryCodec,
+            Self::AudioPrimaryDownmix => Self::AudioPrimaryBitrate,
+            Self::AudioAc3Checkbox => Self::AudioPrimaryDownmix,
+            Self::AudioAc3Bitrate => Self::AudioAc3Checkbox,
+            Self::AudioStereoCheckbox => Self::AudioAc3Bitrate,
+            Self::AudioStereoCodec => Self::AudioStereoCheckbox,
+            Self::AudioStereoBitrate => Self::AudioStereoCodec,
+            Self::AdditionalArgsInput => Self::AudioStereoBitrate,
         }
     }
 }

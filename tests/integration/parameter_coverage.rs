@@ -251,8 +251,8 @@ fn test_software_uses_hyphens_for_tile_parameters() {
 #[test]
 fn test_audio_settings_in_both_commands() {
     let mut profile = Profile::get("vp9-good");
-    profile.audio_codec = "libopus".to_string();
-    profile.audio_bitrate = 128;
+    profile.audio_primary_codec = "libopus".to_string();
+    profile.audio_primary_bitrate = 128;
 
     // Test software command
     let sw_cmd = build_software_cmd_for_test(&profile);
@@ -271,7 +271,7 @@ fn test_audio_settings_in_both_commands() {
 #[test]
 fn test_gop_settings_in_both_commands() {
     let mut profile = Profile::get("vp9-good");
-    profile.gop_length = 120;
+    profile.gop_length = 120.to_string();
 
     // Test software command
     let sw_cmd = build_software_cmd_for_test(&profile);

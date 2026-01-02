@@ -41,16 +41,14 @@ fn generate_test_video_with_fps(
             "testsrc=duration={}:size={}x{}:rate={}",
             duration_secs, width, height, fps
         ))
-        .arg("-f")
-        .arg("lavfi")
-        .arg("-i")
-        .arg(format!("sine=frequency=440:duration={}", duration_secs))
         .arg("-c:v")
         .arg("libx264")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg("-threads")
+        .arg("1")
         .arg("-preset")
         .arg("ultrafast")
-        .arg("-c:a")
-        .arg("aac")
         .arg(path);
 
     let output = cmd.output()?;

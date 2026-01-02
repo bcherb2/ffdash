@@ -28,6 +28,26 @@ pub fn run(cli: Cli) {
                 overwrite,
             } => handle_encode_one(directory, overwrite),
             Commands::InitConfig => handle_init_config(),
+            #[cfg(feature = "dev-tools")]
+            Commands::SmokeTest {
+                profiles,
+                format,
+                validate_only,
+                max_frames,
+                input,
+                output_dir,
+            } => handle_smoke_test(
+                profiles,
+                format,
+                validate_only,
+                max_frames,
+                input,
+                output_dir,
+            ),
+            #[cfg(feature = "dev-tools")]
+            Commands::ValidateProfile { profiles, format } => {
+                handle_validate_profile(profiles, format)
+            }
         }
         return;
     }
@@ -217,6 +237,171 @@ fn handle_scan(directory: Option<std::path::PathBuf>, overwrite: bool) {
             process::exit(1);
         }
     }
+}
+
+#[cfg(feature = "dev-tools")]
+fn handle_smoke_test(
+    profiles: Vec<String>,
+    format: crate::cli::SmokeFormat,
+    validate_only: bool,
+    max_frames: u32,
+    input: Option<std::path::PathBuf>,
+    output_dir: Option<std::path::PathBuf>,
+) {
+    let opts = engine::smoke::SmokeTestOptions {
+        profiles,
+        validate_only,
+        max_frames: max_frames.max(1),
+        input_override: input,
+        output_dir,
+    };
+
+    match engine::smoke::run_smoke_tests(opts) {
+        Ok(summary) => {
+            match format {
+                crate::cli::SmokeFormat::Pretty => engine::smoke::print_pretty(&summary),
+                crate::cli::SmokeFormat::Json => match serde_json::to_string_pretty(&summary) {
+                    Ok(json) => println!("{}", json),
+                    Err(e) => {
+                        eprintln!("Failed to serialize JSON: {}", e);
+                        process::exit(1);
+                    }
+                },
+            }
+
+            if summary.has_failures() {
+                process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("Smoke test failed: {:#}", e);
+            process::exit(1);
+        }
+    }
+}
+
+#[cfg(feature = "dev-tools")]
+fn handle_validate_profile(profiles: Vec<String>, format: crate::cli::ValidationFormat) {
+    use engine::validate::{HardwareAvailability, validate_profile};
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct ValidationResult {
+        profile: String,
+        valid: bool,
+        errors: Vec<engine::validate::ValidationError>,
+    }
+
+    #[derive(Serialize)]
+    struct ValidationSummary {
+        total: usize,
+        valid: usize,
+        invalid: usize,
+        results: Vec<ValidationResult>,
+    }
+
+    let hw = HardwareAvailability::default();
+    let mut results = Vec::new();
+
+    for profile_name in &profiles {
+        // Load profile using the same logic as smoke tests
+        let profile = match load_profile_for_validation(profile_name) {
+            Ok(p) => p,
+            Err(e) => {
+                results.push(ValidationResult {
+                    profile: profile_name.clone(),
+                    valid: false,
+                    errors: vec![engine::validate::ValidationError {
+                        field: "profile".to_string(),
+                        message: format!("Failed to load profile: {}", e),
+                        encoder: "unknown".to_string(),
+                    }],
+                });
+                continue;
+            }
+        };
+
+        match validate_profile(&profile, hw) {
+            Ok(()) => results.push(ValidationResult {
+                profile: profile.name.clone(),
+                valid: true,
+                errors: vec![],
+            }),
+            Err(errors) => results.push(ValidationResult {
+                profile: profile.name.clone(),
+                valid: false,
+                errors,
+            }),
+        }
+    }
+
+    let valid_count = results.iter().filter(|r| r.valid).count();
+    let summary = ValidationSummary {
+        total: results.len(),
+        valid: valid_count,
+        invalid: results.len() - valid_count,
+        results,
+    };
+
+    match format {
+        crate::cli::ValidationFormat::Pretty => {
+            println!("=== Profile Validation ===");
+            println!(
+                "Total: {} | Valid: {} | Invalid: {}",
+                summary.total, summary.valid, summary.invalid
+            );
+            println!();
+            for result in &summary.results {
+                if result.valid {
+                    println!("✓ {} - VALID", result.profile);
+                } else {
+                    println!("✗ {} - INVALID", result.profile);
+                    for err in &result.errors {
+                        println!("  - [{}] {}: {}", err.encoder, err.field, err.message);
+                    }
+                }
+            }
+        }
+        crate::cli::ValidationFormat::Json => match serde_json::to_string_pretty(&summary) {
+            Ok(json) => println!("{}", json),
+            Err(e) => {
+                eprintln!("Failed to serialize JSON: {}", e);
+                process::exit(1);
+            }
+        },
+    }
+
+    if summary.invalid > 0 {
+        process::exit(1);
+    }
+}
+
+#[cfg(feature = "dev-tools")]
+fn load_profile_for_validation(name: &str) -> anyhow::Result<engine::core::Profile> {
+    use anyhow::anyhow;
+
+    // Check built-in user-facing names first
+    if engine::core::Profile::builtin_names()
+        .iter()
+        .any(|p| p == name)
+    {
+        return Ok(engine::core::Profile::get_builtin(name)
+            .unwrap_or_else(|| engine::core::Profile::get("vp9-good")));
+    }
+
+    // Try internal short names
+    if let Ok(profile) = std::panic::catch_unwind(|| engine::core::Profile::get(name)) {
+        return Ok(profile);
+    }
+
+    // Try loading from saved profiles directory
+    if let Ok(dir) = engine::core::Profile::profiles_dir() {
+        if let Ok(profile) = engine::core::Profile::load(&dir, name) {
+            return Ok(profile);
+        }
+    }
+
+    Err(anyhow!("Profile '{}' not found", name))
 }
 
 fn handle_dry_run(directory: Option<std::path::PathBuf>, overwrite: bool) {

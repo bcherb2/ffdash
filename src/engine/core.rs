@@ -1,24 +1,33 @@
+mod av1_config;
+mod builtin_profiles;
 mod ffmpeg_cmd;
 mod ffmpeg_info;
+mod hw_config;
 mod log;
 mod profile;
 mod scan;
 mod state;
 mod types;
+mod vp9_config;
 
+pub use av1_config::{Av1Config, Codec};
 pub use ffmpeg_cmd::{
-    build_ffmpeg_cmd, build_ffmpeg_cmd_with_profile, build_software_cmd, build_vaapi_cmd,
-    encode_job, encode_job_with_callback, encode_job_with_callback_and_profile, format_ffmpeg_cmd,
+    build_av1_nvenc_cmd, build_av1_qsv_cmd, build_av1_software_cmd, build_av1_vaapi_cmd,
+    build_ffmpeg_cmd, build_ffmpeg_cmd_with_profile, build_ffmpeg_cmds_with_profile,
+    build_software_cmd, build_vaapi_cmd, encode_job, encode_job_with_callback,
+    encode_job_with_callback_and_profile, format_ffmpeg_cmd, two_pass_log_prefix,
     validate_vaapi_config,
 };
 pub use ffmpeg_info::{
     ffmpeg_version, ffprobe_version, parse_ffprobe_duration, probe_duration, vmaf_filter_available,
 };
+pub use hw_config::HwEncodingConfig;
 pub use log::write_debug_log;
-pub use profile::{HwEncodingConfig, Profile, derive_output_path};
+pub use profile::{Profile, derive_output_path};
 pub use scan::{build_job_from_path, build_job_queue, is_video_file, scan, scan_streaming};
 pub use state::EncState;
 pub use types::{JobStatus, ProgressParser, VideoJob};
+pub use vp9_config::Vp9Config;
 
 #[cfg(test)]
 mod tests {
@@ -426,8 +435,8 @@ mod tests {
         let hw_config = HwEncodingConfig::default();
 
         let mut profile = Profile::get("vp9-good");
-        profile.audio_codec = "libopus".to_string();
-        profile.audio_bitrate = 128;
+        profile.audio_primary_codec = "libopus".to_string();
+        profile.audio_primary_bitrate = 128;
         profile.crf = 31;
         profile.video_target_bitrate = 0; // CQP mode
 
@@ -451,6 +460,12 @@ mod tests {
             displayed_eta_seconds: None,
             attempts: 0,
             last_error: None,
+            vmaf_target: None,
+            vmaf_result: None,
+            calibrated_quality: None,
+            vmaf_partial_scores: Vec::new(),
+            calibrating_total_steps: None,
+            calibrating_completed_steps: 0,
         };
 
         let cmd = build_vaapi_cmd(&job, &profile, &hw_config);
@@ -485,11 +500,11 @@ mod tests {
         // Test 4: Should force CQP mode (rc_mode = 1) for reliability
         // hw_config.global_quality = 70 (default) passed directly to FFmpeg in CQP mode
         assert!(
-            full_cmd.contains("-rc_mode 1"),
+            full_cmd.contains("-rc_mode:v 1"),
             "VAAPI command should force CQP (rc_mode 1) as default mode"
         );
         assert!(
-            full_cmd.contains("-global_quality 70"),
+            full_cmd.contains("-global_quality:v 70"),
             "VAAPI command should use global_quality 70 (passed directly)"
         );
 
@@ -514,7 +529,7 @@ mod tests {
         let mut profile = Profile::get("vp9-good");
         profile.crf = 31;
         profile.video_target_bitrate = 0; // CQP mode
-        profile.audio_codec = "libvorbis".to_string(); // Use libvorbis for CQP (libopus incompatible)
+        profile.audio_primary_codec = "vorbis".to_string(); // Use vorbis for CQP (libopus incompatible)
 
         let job = VideoJob {
             id: uuid::Uuid::new_v4(),
@@ -536,6 +551,12 @@ mod tests {
             displayed_eta_seconds: None,
             attempts: 0,
             last_error: None,
+            vmaf_target: None,
+            vmaf_result: None,
+            calibrated_quality: None,
+            vmaf_partial_scores: Vec::new(),
+            calibrating_total_steps: None,
+            calibrating_completed_steps: 0,
         };
 
         let cmd = build_vaapi_cmd(&job, &profile, &hw_config);
@@ -547,17 +568,17 @@ mod tests {
 
         // Test 1: Should NOT contain libopus-specific VBR parameters when using libvorbis
         assert!(
-            !full_cmd.contains("-vbr"),
-            "VAAPI with libvorbis should not contain libopus '-vbr' flag"
+            !full_cmd.contains("-vbr:a"),
+            "VAAPI with libvorbis should not contain libopus '-vbr:a' flag"
         );
         assert!(
-            !full_cmd.contains("-compression_level 10"),
-            "VAAPI with libvorbis should not contain libopus '-compression_level 10'"
+            !full_cmd.contains("-compression_level:a 10"),
+            "VAAPI with libvorbis should not contain libopus '-compression_level:a 10'"
         );
 
         // Test 2: Should contain VAAPI video compression_level (always present for vp9_vaapi)
         assert!(
-            full_cmd.contains("-compression_level 4"),
+            full_cmd.contains("-compression_level:v 4"),
             "VAAPI should contain video encoder compression_level"
         );
 
@@ -567,7 +588,7 @@ mod tests {
             "VAAPI should use libvorbis audio codec"
         );
         assert!(
-            full_cmd.contains("-b:a 128k"),
+            full_cmd.contains("-b:a:0 128k"),
             "VAAPI command should set audio bitrate"
         );
     }
@@ -581,8 +602,8 @@ mod tests {
         hw_config.rc_mode = 3; // Explicitly set VBR mode
 
         let mut profile = Profile::get("vp9-good");
-        profile.audio_codec = "libopus".to_string();
-        profile.audio_bitrate = 128;
+        profile.audio_primary_codec = "libopus".to_string();
+        profile.audio_primary_bitrate = 128;
         profile.crf = 31;
         profile.video_target_bitrate = 5000; // VBR bitrate target
         profile.video_max_bitrate = 8000;
@@ -608,6 +629,12 @@ mod tests {
             displayed_eta_seconds: None,
             attempts: 0,
             last_error: None,
+            vmaf_target: None,
+            vmaf_result: None,
+            calibrated_quality: None,
+            vmaf_partial_scores: Vec::new(),
+            calibrating_total_steps: None,
+            calibrating_completed_steps: 0,
         };
 
         let cmd = build_vaapi_cmd(&job, &profile, &hw_config);
@@ -619,7 +646,7 @@ mod tests {
 
         // Test 1: Even when VBR is requested, we force CQP (rc_mode = 1) for reliability
         assert!(
-            full_cmd.contains("-rc_mode 1"),
+            full_cmd.contains("-rc_mode:v 1"),
             "VAAPI command should force CQP (rc_mode 1) even when VBR is requested"
         );
 
@@ -639,8 +666,217 @@ mod tests {
 
         // Test 3: Should include global_quality in forced CQP mode
         assert!(
-            full_cmd.contains("-global_quality 70"),
+            full_cmd.contains("-global_quality:v 70"),
             "VAAPI command should include global_quality when forcing CQP"
         );
+    }
+
+    #[test]
+    fn test_av1_vaapi_uses_global_quality_and_opus_has_vbr_and_bitrate() {
+        use super::Profile;
+        use std::path::PathBuf;
+
+        let mut profile = Profile::get("YouTube 4K");
+        profile.use_hardware_encoding = true;
+        profile.codec = super::profile::Codec::Av1(super::profile::Av1Config {
+            hw_cq: 65,
+            ..Default::default()
+        });
+        profile.audio_primary_codec = "libopus".to_string();
+        profile.audio_primary_bitrate = 128;
+        profile.colorspace = 1;
+        profile.color_primaries = 1;
+        profile.color_trc = 1;
+
+        let job = VideoJob {
+            id: uuid::Uuid::new_v4(),
+            input_path: PathBuf::from("/tmp/test.mkv"),
+            output_path: PathBuf::from("/tmp/test.mkv"),
+            profile: "test".to_string(),
+            status: JobStatus::Pending,
+            overwrite: true,
+            progress_pct: 0.0,
+            duration_s: None,
+            out_time_s: 0.0,
+            fps: None,
+            speed: None,
+            smoothed_speed: None,
+            bitrate_kbps: None,
+            size_bytes: None,
+            started_at: None,
+            last_speed_update: None,
+            displayed_eta_seconds: None,
+            attempts: 0,
+            last_error: None,
+            vmaf_target: None,
+            vmaf_result: None,
+            calibrated_quality: None,
+            vmaf_partial_scores: Vec::new(),
+            calibrating_total_steps: None,
+            calibrating_completed_steps: 0,
+        };
+
+        let cmd = super::ffmpeg_cmd::build_av1_vaapi_cmd(&job, &profile);
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
+        let full_cmd = args.join(" ");
+
+        assert!(
+            full_cmd.contains("-rc_mode:v CQP"),
+            "AV1 VAAPI should use rc_mode CQP"
+        );
+        assert!(
+            full_cmd.contains("-global_quality:v 65"),
+            "AV1 VAAPI should use global_quality for quality"
+        );
+        assert!(
+            !full_cmd.contains("-qp:v"),
+            "AV1 VAAPI should not use qp (maps to an unrelated 0-7 quality level)"
+        );
+        assert!(
+            full_cmd.contains("-colorspace:v 1"),
+            "AV1 VAAPI should include configured colorspace metadata"
+        );
+        assert!(
+            full_cmd.contains("-color_primaries:v 1"),
+            "AV1 VAAPI should include configured color primaries metadata"
+        );
+        assert!(
+            full_cmd.contains("-color_trc:v 1"),
+            "AV1 VAAPI should include configured transfer characteristics metadata"
+        );
+
+        assert!(
+            full_cmd.contains("-c:a:0 libopus"),
+            "Expected libopus when requested for mkv"
+        );
+        assert!(
+            full_cmd.contains("-b:a:0 128k"),
+            "Opus should be configured with bitrate"
+        );
+        assert!(
+            full_cmd.contains("-vbr:a:0 on"),
+            "Opus should be configured with VBR"
+        );
+    }
+
+    #[test]
+    fn test_av1_vaapi_mp4_forces_aac_not_opus() {
+        use super::Profile;
+        use std::path::PathBuf;
+
+        let mut profile = Profile::get("YouTube 4K");
+        profile.use_hardware_encoding = true;
+        profile.codec = super::profile::Codec::Av1(super::profile::Av1Config {
+            hw_cq: 65,
+            ..Default::default()
+        });
+        profile.audio_primary_codec = "libopus".to_string();
+        profile.audio_primary_bitrate = 128;
+
+        let job = VideoJob {
+            id: uuid::Uuid::new_v4(),
+            input_path: PathBuf::from("/tmp/test.mkv"),
+            output_path: PathBuf::from("/tmp/test.mp4"),
+            profile: "test".to_string(),
+            status: JobStatus::Pending,
+            overwrite: true,
+            progress_pct: 0.0,
+            duration_s: None,
+            out_time_s: 0.0,
+            fps: None,
+            speed: None,
+            smoothed_speed: None,
+            bitrate_kbps: None,
+            size_bytes: None,
+            started_at: None,
+            last_speed_update: None,
+            displayed_eta_seconds: None,
+            attempts: 0,
+            last_error: None,
+            vmaf_target: None,
+            vmaf_result: None,
+            calibrated_quality: None,
+            vmaf_partial_scores: Vec::new(),
+            calibrating_total_steps: None,
+            calibrating_completed_steps: 0,
+        };
+
+        let cmd = super::ffmpeg_cmd::build_av1_vaapi_cmd(&job, &profile);
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
+        let full_cmd = args.join(" ");
+
+        assert!(
+            full_cmd.contains("-c:a:0 aac"),
+            "MP4 output should force AAC audio"
+        );
+        assert!(
+            !full_cmd.contains("-c:a:0 libopus"),
+            "MP4 output should not use Opus audio"
+        );
+    }
+
+    #[test]
+    fn test_vp9_two_pass_builds_two_commands_with_passlog() {
+        use std::path::PathBuf;
+
+        let mut profile = Profile::get("vp9-good");
+        profile.use_hardware_encoding = false;
+        profile.two_pass = true;
+        profile.video_target_bitrate = 2000;
+        profile.video_min_bitrate = 1000;
+        profile.video_max_bitrate = 3000;
+        profile.video_bufsize = 4000;
+        profile.cpu_used_pass1 = 4;
+        profile.cpu_used_pass2 = 1;
+
+        let job = VideoJob::new(
+            PathBuf::from("/tmp/input.mp4"),
+            PathBuf::from("/tmp/output.webm"),
+            "vp9-good".to_string(),
+        );
+
+        let cmds = build_ffmpeg_cmds_with_profile(&job, None, Some(&profile));
+        assert_eq!(cmds.len(), 2, "Expected pass 1 + pass 2 commands");
+
+        let to_string = |cmd: &std::process::Command| {
+            format!(
+                "{} {}",
+                cmd.get_program().to_string_lossy(),
+                cmd.get_args()
+                    .map(|arg| arg.to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        };
+
+        let cmd1 = to_string(&cmds[0]);
+        let cmd2 = to_string(&cmds[1]);
+
+        let prefix = std::env::temp_dir()
+            .join("ffdash_2pass")
+            .join(job.id.to_string())
+            .join("ffmpeg2pass");
+        let prefix_str = prefix.to_string_lossy();
+
+        assert!(cmd1.contains("-pass 1"), "Pass 1 cmd missing -pass 1");
+        assert!(
+            cmd1.contains(&format!("-passlogfile {}", prefix_str)),
+            "Pass 1 cmd missing expected -passlogfile"
+        );
+        assert!(cmd1.contains("-an"), "Pass 1 should disable audio");
+        assert!(cmd1.contains("-f null"), "Pass 1 should use null muxer");
+
+        assert!(cmd2.contains("-pass 2"), "Pass 2 cmd missing -pass 2");
+        assert!(
+            cmd2.contains(&format!("-passlogfile {}", prefix_str)),
+            "Pass 2 cmd missing expected -passlogfile"
+        );
+        assert!(cmd2.contains("-c:a"), "Pass 2 should include audio");
     }
 }

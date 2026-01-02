@@ -26,11 +26,13 @@ impl Dashboard {
             let points_to_show = available_width.min(data_len);
             let start_index = data_len.saturating_sub(points_to_show);
 
+            // Apply floor to prevent graph disappearing at 0%, while keeping stats accurate
+            // 5% minimum required for at least 1 dot to show in braille rendering
             let gpu_data: Vec<f64> = state
                 .gpu_data
                 .iter()
                 .skip(start_index)
-                .map(|&val| val as f64 / 100.0)
+                .map(|&val| (val as f64 / 100.0).max(0.05))
                 .collect();
 
             let (secondary_data, secondary_label, secondary_color) =
@@ -39,16 +41,16 @@ impl Dashboard {
                         .gpu_mem_data
                         .iter()
                         .skip(state.gpu_mem_data.len().saturating_sub(points_to_show))
-                        .map(|&val| val as f64 / 100.0)
+                        .map(|&val| (val as f64 / 100.0).max(0.05))
                         .collect();
-                    (gpu_mem, "GPU Mem", Color::Magenta)
+                    (gpu_mem, "VRAM", Color::Magenta)
                 } else {
                     // Fallback to CPU if GPU memory unavailable
                     let cpu_data: Vec<f64> = state
                         .cpu_data
                         .iter()
                         .skip(start_index)
-                        .map(|&val| val as f64 / 100.0)
+                        .map(|&val| (val as f64 / 100.0).max(0.05))
                         .collect();
                     (cpu_data, "CPU", Color::Cyan)
                 };
@@ -61,10 +63,8 @@ impl Dashboard {
                     Self::calculate_stats(&state.cpu_data)
                 };
 
-            let gpu_model_str = state.gpu_model.as_deref().unwrap_or("GPU");
             let title = format!(
-                "{}: {}% (Avg: {}%, Max: {}%) | {}: {}% (Avg: {}%, Max: {}%)",
-                gpu_model_str,
+                "GPU: {}% (Avg: {}%, Max: {}%) | {}: {}% (Avg: {}%, Max: {}%)",
                 gpu_current,
                 gpu_avg,
                 gpu_max,
@@ -97,11 +97,13 @@ impl Dashboard {
             let start_index = data_len.saturating_sub(points_to_show);
 
             // Convert CPU data from VecDeque<u64> to Vec<f64> normalized to 0.0-1.0
+            // Apply floor to prevent graph disappearing at 0%, while keeping stats accurate
+            // 5% minimum required for at least 1 dot to show in braille rendering
             let cpu_data: Vec<f64> = state
                 .cpu_data
                 .iter()
                 .skip(start_index)
-                .map(|&val| val as f64 / 100.0)
+                .map(|&val| (val as f64 / 100.0).max(0.05))
                 .collect();
 
             // Convert Memory data from VecDeque<u64> to Vec<f64> normalized to 0.0-1.0
@@ -109,7 +111,7 @@ impl Dashboard {
                 .mem_data
                 .iter()
                 .skip(start_index)
-                .map(|&val| val as f64 / 100.0)
+                .map(|&val| (val as f64 / 100.0).max(0.05))
                 .collect();
 
             // Calculate statistics
@@ -195,6 +197,11 @@ impl Dashboard {
             .iter()
             .filter(|j| j.status == JobStatus::Done)
             .count();
+        let analyzing = state
+            .jobs
+            .iter()
+            .filter(|j| j.status == JobStatus::Calibrating)
+            .count();
         let running = state
             .jobs
             .iter()
@@ -216,17 +223,27 @@ impl Dashboard {
             .filter(|j| j.status == JobStatus::Skipped)
             .count();
 
-        // Stats line (show skipped count if any jobs are skipped)
+        // Stats line (show analyzing and skipped counts if any jobs are in those states)
         let mut stats_spans = vec![
             Span::raw("Files: "),
             Span::styled(format!("{}", total), Style::default().bold()),
             Span::raw(" total • Completed: "),
             Span::styled(format!("{}", completed), Style::default().fg(Color::Green)),
+        ];
+
+        if analyzing > 0 {
+            stats_spans.extend(vec![
+                Span::raw(" • Calibrating: "),
+                Span::styled(format!("{}", analyzing), Style::default().fg(Color::Cyan)),
+            ]);
+        }
+
+        stats_spans.extend(vec![
             Span::raw(" • Running: "),
             Span::styled(format!("{}", running), Style::default().fg(Color::Yellow)),
             Span::raw(" • Pending: "),
-            Span::styled(format!("{}", pending), Style::default().fg(Color::Cyan)),
-        ];
+            Span::styled(format!("{}", pending), Style::default().fg(Color::DarkGray)),
+        ]);
 
         if skipped > 0 {
             stats_spans.extend(vec![
@@ -326,8 +343,8 @@ impl Dashboard {
 
         for job in &state.jobs {
             match job.status {
-                JobStatus::Running => {
-                    // Calculate remaining time for running job
+                JobStatus::Calibrating | JobStatus::Running => {
+                    // Calculate remaining time for running/analyzing job
                     // Use time-weighted speed (most accurate) > smoothed > raw
                     let effective_speed = Self::calculate_time_weighted_speed(job)
                         .or(job.smoothed_speed)
@@ -337,6 +354,11 @@ impl Dashboard {
                         if speed > 0.0 {
                             let remaining = duration - job.out_time_s;
                             total_seconds += remaining / speed;
+                        }
+                    } else if job.status == JobStatus::Calibrating {
+                        // Calibrating jobs don't have speed yet, estimate small overhead
+                        if let Some(duration) = job.duration_s {
+                            total_seconds += duration * 0.1; // ~10% overhead estimate
                         }
                     }
                 }
@@ -351,11 +373,11 @@ impl Dashboard {
         }
 
         if total_seconds > 0.0 {
-            // Count running and pending jobs to estimate parallelism
-            let running_count = state
+            // Count running/analyzing and pending jobs to estimate parallelism
+            let active_count = state
                 .jobs
                 .iter()
-                .filter(|j| j.status == JobStatus::Running)
+                .filter(|j| j.status == JobStatus::Running || j.status == JobStatus::Calibrating)
                 .count();
             let pending_count = state
                 .jobs
@@ -365,9 +387,9 @@ impl Dashboard {
 
             // Effective workers is the minimum of:
             // - max_workers (hardware limit)
-            // - running + pending jobs (actual work available)
+            // - active + pending jobs (actual work available)
             // - at least 1 (avoid division by zero)
-            let work_available = (running_count + pending_count).max(1);
+            let work_available = (active_count + pending_count).max(1);
             let effective_workers = (max_workers as usize).min(work_available).max(1) as f64;
 
             Self::format_duration((total_seconds / effective_workers) as u64)
@@ -376,7 +398,12 @@ impl Dashboard {
         }
     }
 
-    pub(super) fn render_active_jobs(frame: &mut Frame, area: Rect, state: &mut DashboardState) {
+    pub(super) fn render_active_jobs(
+        frame: &mut Frame,
+        area: Rect,
+        state: &mut DashboardState,
+        auto_vmaf_enabled: bool,
+    ) {
         use crate::engine::JobStatus;
 
         let block = Block::default().borders(Borders::ALL).title("Active Jobs");
@@ -393,32 +420,39 @@ impl Dashboard {
 
         frame.render_widget(block, area);
 
-        // Add ETA column to header
-        let header = Row::new(vec![
+        // Build header columns based on auto_vmaf_enabled
+        let mut header_cells = vec![
             "#", "STATUS", "SOURCE", "IN SIZE", "OUT SIZE", "SPEED", "PROGRESS", "ETA",
-        ])
-        .style(Style::default().add_modifier(Modifier::BOLD))
-        .bottom_margin(1);
+        ];
+        if auto_vmaf_enabled {
+            header_cells.push("VMAF");
+        }
+
+        let header = Row::new(header_cells)
+            .style(Style::default().add_modifier(Modifier::BOLD))
+            .bottom_margin(1);
 
         let job_count = state.jobs.len();
         if job_count == 0 {
-            let table = Table::new(
-                Vec::<Row>::new(),
-                [
-                    Constraint::Length(3),
-                    Constraint::Length(12),
-                    Constraint::Min(20),
-                    Constraint::Length(10),
-                    Constraint::Length(10),
-                    Constraint::Length(8),
-                    Constraint::Length(25),
-                    Constraint::Length(10),
-                ],
-            )
-            .header(header)
-            .column_spacing(2)
-            .row_highlight_style(Style::default().reversed())
-            .highlight_symbol(">> ");
+            let mut empty_widths = vec![
+                Constraint::Length(3),  // #
+                Constraint::Length(12), // STATUS
+                Constraint::Min(20),    // SOURCE
+                Constraint::Length(10), // IN SIZE
+                Constraint::Length(10), // OUT SIZE
+                Constraint::Length(8),  // SPEED
+                Constraint::Length(25), // PROGRESS
+                Constraint::Length(10), // ETA
+            ];
+            if auto_vmaf_enabled {
+                empty_widths.push(Constraint::Length(10)); // VMAF
+            }
+
+            let table = Table::new(Vec::<Row>::new(), empty_widths)
+                .header(header)
+                .column_spacing(2)
+                .row_highlight_style(Style::default().reversed())
+                .highlight_symbol(">> ");
 
             let mut render_state = state.table_state.clone();
             frame.render_stateful_widget(table, inner, &mut render_state);
@@ -496,7 +530,7 @@ impl Dashboard {
                 // Format output size
                 let out_size = job
                     .size_bytes
-                    .map(|s| Self::format_size(s))
+                    .map(Self::format_size)
                     .unwrap_or_else(|| "—".to_string());
 
                 // Format speed
@@ -507,6 +541,9 @@ impl Dashboard {
 
                 // Get status info
                 let (status_icon, status_text, status_color, progress_state) = match job.status {
+                    JobStatus::Calibrating => {
+                        ("⚙", "Calibrating", Color::Cyan, ProgressState::Running)
+                    }
                     JobStatus::Running => ("▶", "Running", Color::Yellow, ProgressState::Running),
                     JobStatus::Done => ("✓", "Done", Color::Green, ProgressState::Done),
                     JobStatus::Failed => ("✗", "Failed", Color::Red, ProgressState::Done),
@@ -518,8 +555,8 @@ impl Dashboard {
                 let progress_pct = job.progress_pct.min(100.0) as u16;
                 let progress_bar = Self::render_progress_bar(progress_pct, progress_state, 20);
 
-                // Get ETA from pre-calculated list
-                let mut row = Row::new(vec![
+                // Build row cells
+                let mut cells = vec![
                     Cell::from(format!("{}", idx + 1)),
                     Cell::from(format!("{} {}", status_icon, status_text))
                         .style(Style::default().fg(status_color)),
@@ -529,7 +566,25 @@ impl Dashboard {
                     Cell::from(Line::from(speed).right_aligned()),
                     Cell::from(progress_bar),
                     Cell::from(eta.clone()),
-                ]);
+                ];
+
+                // Add VMAF cell only if Auto-VMAF enabled
+                if auto_vmaf_enabled {
+                    let vmaf_text = if let Some(vmaf_result) = job.vmaf_result {
+                        if let Some(vmaf_target) = job.vmaf_target {
+                            format!("{:.1}/{:.0}", vmaf_result, vmaf_target)
+                        } else {
+                            format!("{:.1}", vmaf_result)
+                        }
+                    } else if let Some(vmaf_target) = job.vmaf_target {
+                        format!("—/{:.0}", vmaf_target)
+                    } else {
+                        "—".to_string()
+                    };
+                    cells.push(Cell::from(format!("{:^10}", vmaf_text)));
+                }
+
+                let mut row = Row::new(cells);
 
                 // Add hover effect
                 if state.hovered_row == Some(idx) {
@@ -540,7 +595,7 @@ impl Dashboard {
             })
             .collect();
 
-        let widths = [
+        let mut widths = vec![
             Constraint::Length(3),  // #
             Constraint::Length(12), // STATUS (with icon)
             Constraint::Min(20),    // SOURCE
@@ -550,6 +605,10 @@ impl Dashboard {
             Constraint::Length(25), // PROGRESS (wider for bar + percentage)
             Constraint::Length(10), // ETA
         ];
+
+        if auto_vmaf_enabled {
+            widths.push(Constraint::Length(10)); // VMAF (result/target)
+        }
 
         // Render using a temporary TableState scoped to the visible slice
         let mut render_state = ratatui::widgets::TableState::default();
@@ -571,6 +630,14 @@ impl Dashboard {
         use crate::engine::JobStatus;
 
         match job.status {
+            JobStatus::Calibrating => {
+                // Calibrating jobs show estimated calibration time
+                if let Some(duration) = job.duration_s {
+                    // Estimate ~10% overhead for calibration
+                    return Some((duration * 0.1) as u64);
+                }
+                None
+            }
             JobStatus::Running => {
                 // Use time-weighted speed (most accurate) > smoothed > raw
                 let effective_speed = Self::calculate_time_weighted_speed(job)
@@ -704,6 +771,12 @@ mod tests {
             displayed_eta_seconds: None,
             attempts: 0,
             last_error: None,
+            vmaf_target: None,
+            vmaf_result: None,
+            calibrated_quality: None,
+            vmaf_partial_scores: Vec::new(),
+            calibrating_total_steps: None,
+            calibrating_completed_steps: 0,
         }
     }
 

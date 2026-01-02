@@ -49,7 +49,7 @@ COLOR_GREEN := \033[32m
 COLOR_YELLOW := \033[33m
 COLOR_BLUE := \033[34m
 
-.PHONY: all build release debug install uninstall clean test check fmt clippy help deps install-rust install-ffmpeg docker-build docker-run docker-push check-ui
+.PHONY: all build release debug install uninstall clean test check fmt clippy help deps install-rust install-ffmpeg docker-build docker-build-dev docker-run docker-dev-shell docker-push check-ui validate-profiles remote-smoke remote-test
 
 # Default target
 all: release
@@ -76,15 +76,23 @@ help:
 	@echo "  $(COLOR_GREEN)make deps$(COLOR_RESET)           - Install all dependencies"
 	@echo "  $(COLOR_GREEN)make install-rust$(COLOR_RESET)   - Install Rust toolchain"
 	@echo "  $(COLOR_GREEN)make install-ffmpeg$(COLOR_RESET) - Install FFmpeg"
-	@echo "  $(COLOR_GREEN)make docker-build$(COLOR_RESET)   - Build Docker image"
-	@echo "  $(COLOR_GREEN)make docker-run$(COLOR_RESET)     - Run Docker container"
+	@echo "  $(COLOR_GREEN)make docker-build$(COLOR_RESET)   - Build runtime Docker image (ffmpeg + ffdash)"
+	@echo "  $(COLOR_GREEN)make docker-build-dev$(COLOR_RESET) - Build dev Docker image (toolchain inside)"
+	@echo "  $(COLOR_GREEN)make docker-run$(COLOR_RESET)     - Run runtime Docker container"
+	@echo "  $(COLOR_GREEN)make docker-dev-shell$(COLOR_RESET) - Shell into dev container via docker compose"
 	@echo "  $(COLOR_GREEN)make help$(COLOR_RESET)           - Show this help message"
+	@echo "  $(COLOR_GREEN)make validate-profiles$(COLOR_RESET) - Validate profiles before remote deployment"
+	@echo "  $(COLOR_GREEN)make remote-smoke$(COLOR_RESET) - Run smoke test on remote hardware host"
+	@echo "  $(COLOR_GREEN)make remote-test$(COLOR_RESET)  - Deploy + test with real clips on remote host"
 	@echo ""
 	@echo "$(COLOR_BOLD)Examples:$(COLOR_RESET)"
 	@echo "  make deps                    # Install all dependencies"
 	@echo "  make release                 # Build optimized binary"
 	@echo "  sudo make install            # Install to system"
 	@echo "  make release USE_GIT_CLI=1   # Build using system git (for private repos)"
+	@echo "  make validate-profiles PROFILES=av1-qsv,av1-vaapi  # Validate profiles"
+	@echo "  make remote-smoke HOST=hw-container  # Test on hardware container"
+	@echo "  make remote-test HOST=hw-container CLIPS=clip1.mp4  # Test with real clip"
 	@echo ""
 	@echo "$(COLOR_BOLD)Private Git Dependencies:$(COLOR_RESET)"
 	@echo "  If you have private git dependencies, use:"
@@ -223,22 +231,69 @@ update:
 DOCKER_IMAGE_NAME := ffdash
 DOCKER_TAG := latest
 
-docker-build:
-	@echo "$(COLOR_BLUE)Building Docker image...$(COLOR_RESET)"
+DOCKER_IMAGE_NAME := ffdash
+DOCKER_RUNTIME_TAG := latest
+DOCKER_DEV_TAG := dev
+DOCKER_FILE := docker/Dockerfile
+
+docker-build: docker-build-runtime
+
+docker-build-runtime:
+	@echo "$(COLOR_BLUE)Building Docker runtime image...$(COLOR_RESET)"
 	$(MAKE) release
-	docker build -f docker/Dockerfile -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) .
-	@echo "$(COLOR_GREEN)✓ Docker image built: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)$(COLOR_RESET)"
+	docker build -f $(DOCKER_FILE) --target runtime -t $(DOCKER_IMAGE_NAME):$(DOCKER_RUNTIME_TAG) .
+	@echo "$(COLOR_GREEN)✓ Docker runtime image built: $(DOCKER_IMAGE_NAME):$(DOCKER_RUNTIME_TAG)$(COLOR_RESET)"
+
+docker-build-dev:
+	@echo "$(COLOR_BLUE)Building Docker dev image...$(COLOR_RESET)"
+	docker build -f $(DOCKER_FILE) --target dev -t $(DOCKER_IMAGE_NAME):$(DOCKER_DEV_TAG) .
+	@echo "$(COLOR_GREEN)✓ Docker dev image built: $(DOCKER_IMAGE_NAME):$(DOCKER_DEV_TAG)$(COLOR_RESET)"
 
 docker-run:
-	@echo "$(COLOR_BLUE)Running Docker container...$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)Running Docker runtime container...$(COLOR_RESET)"
 	docker run -it --rm \
 		--device /dev/dri:/dev/dri \
-		-v /path/to/videos:/videos \
-		$(DOCKER_IMAGE_NAME):$(DOCKER_TAG)
+		-v /path/to/videos:/video \
+		$(DOCKER_IMAGE_NAME):$(DOCKER_RUNTIME_TAG)
+
+docker-dev-shell:
+	@echo "$(COLOR_BLUE)Starting Docker dev shell (docker compose)...$(COLOR_RESET)"
+	docker compose -f docker/docker-compose.dev.yml run --rm ffdash-dev
 
 docker-push:
 	@echo "$(COLOR_BLUE)Pushing Docker image to registry...$(COLOR_RESET)"
 	@echo "$(COLOR_YELLOW)Note: GitHub Actions handles this automatically$(COLOR_RESET)"
 	@echo "For manual push, tag and push to your registry:"
-	@echo "  docker tag $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) ghcr.io/YOUR_USERNAME/$(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
-	@echo "  docker push ghcr.io/YOUR_USERNAME/$(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
+	@echo "  docker tag $(DOCKER_IMAGE_NAME):$(DOCKER_RUNTIME_TAG) ghcr.io/YOUR_USERNAME/$(DOCKER_IMAGE_NAME):$(DOCKER_RUNTIME_TAG)"
+	@echo "  docker push ghcr.io/YOUR_USERNAME/$(DOCKER_IMAGE_NAME):$(DOCKER_RUNTIME_TAG)"
+	@echo "  docker tag $(DOCKER_IMAGE_NAME):$(DOCKER_DEV_TAG) ghcr.io/YOUR_USERNAME/$(DOCKER_IMAGE_NAME):$(DOCKER_DEV_TAG)"
+	@echo "  docker push ghcr.io/YOUR_USERNAME/$(DOCKER_IMAGE_NAME):$(DOCKER_DEV_TAG)"
+
+# Remote testing targets
+validate-profiles:
+	@if [ -z "$(PROFILES)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make validate-profiles PROFILES=profile1,profile2$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_BLUE)Validating profiles: $(PROFILES)...$(COLOR_RESET)"
+	$(CARGO) run --bin ffdash --release --features dev-tools -- validate-profile $$(echo $(PROFILES) | tr ',' ' ')
+
+remote-smoke:
+	@if [ -z "$(HOST)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make remote-smoke HOST=<hostname> [FORMAT=json|pretty]$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_BLUE)Running remote smoke test on host: $(HOST)...$(COLOR_RESET)"
+	./scripts/remote-smoke.sh --host $(HOST) --format $(or $(FORMAT),json)
+
+remote-test:
+	@if [ -z "$(HOST)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make remote-test HOST=<hostname> [CLIPS=clip1.mp4,clip2.mkv]$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_BLUE)Running remote test on host: $(HOST)...$(COLOR_RESET)"
+	@if [ -n "$(CLIPS)" ]; then \
+		CLIPS=$(CLIPS) ./scripts/remote-smoke.sh --host $(HOST) --format pretty; \
+	else \
+		./scripts/remote-smoke.sh --host $(HOST) --format pretty; \
+	fi

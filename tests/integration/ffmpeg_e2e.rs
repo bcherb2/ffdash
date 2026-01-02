@@ -277,7 +277,7 @@ fn e2e_test_short_gop() {
     let output = temp_dir.path().join("output_short_gop.webm");
 
     let mut config = default_config();
-    config.gop_length = 30; // Short GOP (1 second at 30fps)
+    config.gop_length = 30.to_string(); // Short GOP (1 second at 30fps)
     config.fixed_gop = true;
 
     let cmd = build_test_cmd(&config, "E2E_ShortGOP");
@@ -458,4 +458,124 @@ fn e2e_test_built_in_profiles() {
         .expect("Failed to run FFmpeg with profile");
 
     assert_ffmpeg_success(&result, "Built-in profile");
+}
+
+// ============================================================================
+// E2E TESTS: Failed Encodes Return Error (not success)
+// ============================================================================
+
+/// Test that encoding a non-existent file returns an error, not success.
+/// This catches a bug where encode_job_with_callback returns Ok(()) even when
+/// the job fails, causing failed jobs to be counted as successes.
+#[test]
+fn e2e_test_failed_encode_returns_error() {
+    use ffdash::engine::{JobStatus, VideoJob, encode_job_with_callback};
+    use std::path::PathBuf;
+
+    require_ffmpeg!();
+
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a job with a non-existent input file
+    let nonexistent_input = PathBuf::from("/nonexistent/path/to/video.mp4");
+    let output = temp_dir.path().join("output_should_fail.webm");
+
+    let mut job = VideoJob::new(
+        nonexistent_input.clone(),
+        output.clone(),
+        "test".to_string(),
+    );
+
+    // Try to encode
+    let result = encode_job_with_callback(&mut job, true, None, |_, _| {});
+
+    // The encode should return an error, not Ok
+    assert!(
+        result.is_err(),
+        "Encoding a non-existent file should return Err, not Ok. \
+         Job status: {:?}, result: {:?}",
+        job.status,
+        result
+    );
+
+    // And the job status should be Failed
+    assert_eq!(
+        job.status,
+        JobStatus::Failed,
+        "Job status should be Failed after failed encode"
+    );
+}
+
+/// Test that encoding to a non-existent output directory creates the directory.
+#[test]
+fn e2e_test_creates_output_directory() {
+    use ffdash::engine::{JobStatus, VideoJob, encode_job_with_callback};
+
+    require_ffmpeg!();
+
+    let temp_dir = TempDir::new().unwrap();
+    let input = create_test_video(&temp_dir);
+
+    // Create a deeply nested output path that doesn't exist
+    let nonexistent_dir = temp_dir.path().join("deeply").join("nested").join("output");
+    let output = nonexistent_dir.join("encoded.webm");
+
+    // Verify the directory doesn't exist yet
+    assert!(
+        !nonexistent_dir.exists(),
+        "Test setup error: directory should not exist"
+    );
+
+    let mut job = VideoJob::new(input.clone(), output.clone(), "test".to_string());
+
+    // Encode should succeed and create the directory
+    let result = encode_job_with_callback(&mut job, true, None, |_, _| {});
+
+    assert!(
+        result.is_ok(),
+        "Encoding to non-existent directory should succeed: {:?}",
+        result
+    );
+    assert_eq!(job.status, JobStatus::Done, "Job should be Done");
+    assert!(
+        nonexistent_dir.exists(),
+        "Output directory should have been created"
+    );
+    assert!(output.exists(), "Output file should exist");
+}
+
+/// Test that encoding with invalid FFmpeg parameters returns an error.
+#[test]
+fn e2e_test_invalid_encode_returns_error() {
+    use ffdash::engine::{JobStatus, Profile, VideoJob, encode_job_with_callback_and_profile};
+
+    require_ffmpeg!();
+
+    let temp_dir = TempDir::new().unwrap();
+    let input = create_test_video(&temp_dir);
+    let output = temp_dir.path().join("output_invalid.webm");
+
+    let mut job = VideoJob::new(input.clone(), output.clone(), "test".to_string());
+
+    // Create a profile with invalid settings that will cause FFmpeg to fail
+    let mut profile = Profile::get_builtin("1080p Shrinker").unwrap();
+    // Set an invalid CRF that's way out of range for VP9 (valid: 0-63)
+    profile.crf = 999;
+
+    let result =
+        encode_job_with_callback_and_profile(&mut job, true, None, Some(&profile), None, |_, _| {});
+
+    // If FFmpeg fails due to invalid parameters, the result should be Err
+    // Note: Some versions of FFmpeg may clamp invalid CRF values instead of failing
+    // So we check both the result and job status
+    if job.status == JobStatus::Failed {
+        assert!(
+            result.is_err(),
+            "When job status is Failed, encode should return Err, not Ok. \
+             This bug causes failed encodes to be counted as successes. \
+             Job status: {:?}, result: {:?}",
+            job.status,
+            result
+        );
+    }
 }

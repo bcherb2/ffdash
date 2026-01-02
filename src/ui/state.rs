@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{ListState, TableState},
 };
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::time::Instant;
 use sysinfo::System;
 
@@ -34,6 +34,109 @@ pub enum InputMode {
     Editing, // Text editing mode - character input active, global shortcuts inactive
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CodecSelection {
+    #[default]
+    Vp9,
+    Av1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorSpacePreset {
+    #[default]
+    Auto, // Passthrough: -1, -1, -1, -1
+    Sdr,   // BT709: 1, 1, 1, 0
+    Hdr10, // BT2020+PQ: 9, 9, 16, 0
+}
+
+/// Audio primary track codec selection
+/// Passthrough copies audio without re-encoding, others transcode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AudioPrimaryCodec {
+    #[default]
+    Passthrough, // -c:a copy
+    Opus,   // libopus
+    Aac,    // aac
+    Mp3,    // mp3
+    Vorbis, // vorbis
+}
+
+impl AudioPrimaryCodec {
+    pub fn is_passthrough(&self) -> bool {
+        matches!(self, Self::Passthrough)
+    }
+
+    pub fn ffmpeg_codec(&self) -> Option<&'static str> {
+        match self {
+            Self::Passthrough => None,
+            Self::Opus => Some("libopus"),
+            Self::Aac => Some("aac"),
+            Self::Mp3 => Some("mp3"),
+            Self::Vorbis => Some("vorbis"),
+        }
+    }
+
+    pub fn from_index(idx: usize) -> Self {
+        match idx {
+            0 => Self::Passthrough,
+            1 => Self::Opus,
+            2 => Self::Aac,
+            3 => Self::Mp3,
+            4 => Self::Vorbis,
+            _ => Self::Opus,
+        }
+    }
+
+    pub fn to_index(self) -> usize {
+        match self {
+            Self::Passthrough => 0,
+            Self::Opus => 1,
+            Self::Aac => 2,
+            Self::Mp3 => 3,
+            Self::Vorbis => 4,
+        }
+    }
+}
+
+/// Audio stereo compatibility track codec (no passthrough option)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AudioStereoCodec {
+    #[default]
+    Aac, // aac (best compatibility)
+    Opus, // libopus
+}
+
+impl AudioStereoCodec {
+    pub fn ffmpeg_codec(&self) -> &'static str {
+        match self {
+            Self::Aac => "aac",
+            Self::Opus => "libopus",
+        }
+    }
+
+    pub fn from_index(idx: usize) -> Self {
+        match idx {
+            0 => Self::Aac,
+            1 => Self::Opus,
+            _ => Self::Aac,
+        }
+    }
+
+    pub fn to_index(self) -> usize {
+        match self {
+            Self::Aac => 0,
+            Self::Opus => 1,
+        }
+    }
+}
+
+/// State for the quit confirmation modal
+#[derive(Debug, Clone)]
+pub struct QuitConfirmationState {
+    /// Number of encodes currently in progress
+    pub running_count: usize,
+}
+
 pub struct AppState {
     pub current_screen: Screen,
     pub dashboard: DashboardState,
@@ -41,10 +144,11 @@ pub struct AppState {
     pub stats: StatsState,
     pub last_metrics_update: Instant,
     pub viewport: Rect,
-    pub worker_pool: Option<Arc<crate::engine::worker::WorkerPool>>,
+    pub worker_pool: Option<Rc<crate::engine::worker::WorkerPool>>,
     pub enc_state: Option<crate::engine::EncState>,
     pub root_path: Option<std::path::PathBuf>,
     pub help_modal: Option<HelpModalState>,
+    pub quit_confirmation: Option<QuitConfirmationState>, // Quit confirmation modal
     pub app_version: String,
     pub ffmpeg_version: Option<String>,
     pub ffprobe_version: Option<String>,
@@ -63,10 +167,11 @@ impl Default for AppState {
             stats: StatsState::default(),
             last_metrics_update: Instant::now(),
             viewport: Rect::default(),
-            worker_pool: None, // Initialized when encoding starts
-            enc_state: None,   // Initialized when encoding starts
-            root_path: None,   // Set when user provides a directory to encode
-            help_modal: None,  // Opened when 'H' key is pressed
+            worker_pool: None,       // Initialized when encoding starts
+            enc_state: None,         // Initialized when encoding starts
+            root_path: None,         // Set when user provides a directory to encode
+            help_modal: None,        // Opened when 'H' key is pressed
+            quit_confirmation: None, // Opened when 'q' pressed with active encodes
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             ffmpeg_version: None,      // Cached when help is first opened
             ffprobe_version: None,     // Cached when help is first opened
@@ -93,11 +198,12 @@ pub struct DashboardState {
     // Job data (if available)
     pub jobs: Vec<crate::engine::VideoJob>,
 
-    // GPU monitoring (xpu-smi only)
+    // GPU monitoring
     pub gpu_data: VecDeque<u64>,     // GPU usage % ring buffer
     pub gpu_mem_data: VecDeque<u64>, // GPU memory % ring buffer
-    pub gpu_available: bool,         // xpu-smi detected
-    pub gpu_model: Option<String>,   // e.g., "Intel Arc A770"
+    pub gpu_available: bool,         // GPU monitoring tool detected
+    pub gpu_model: Option<String>,   // e.g., "Intel Arc A770" or "NVIDIA GeForce RTX 4060"
+    pub gpu_vendor: crate::engine::hardware::GpuVendor, // Detected GPU vendor
 
     // Uptime tracking
     pub start_time: Instant,
@@ -124,6 +230,7 @@ impl Default for DashboardState {
             gpu_mem_data: VecDeque::with_capacity(240),
             gpu_available: false,
             gpu_model: None,
+            gpu_vendor: crate::engine::hardware::GpuVendor::Unknown,
 
             start_time: Instant::now(),
         }
@@ -135,17 +242,41 @@ pub struct ConfigState {
     pub profile_list_state: ListState,
     pub quality_mode_state: ListState,
     pub profile_dropdown_state: ListState,
-    pub codec_list_state: ListState,
     pub pix_fmt_state: ListState,
     pub aq_mode_state: ListState,
     pub tune_content_state: ListState,
-    pub colorspace_state: ListState,
-    pub color_primaries_state: ListState,
-    pub color_trc_state: ListState,
-    pub color_range_state: ListState,
+    pub colorspace_preset_state: ListState,
     pub arnr_type_state: ListState,
     pub fps_dropdown_state: ListState,
     pub resolution_dropdown_state: ListState,
+
+    // Video codec selection (VP9 vs AV1)
+    pub video_codec_state: ListState,
+    pub codec_selection: CodecSelection,
+
+    // AV1 software settings (libsvtav1)
+    pub av1_preset: u32,              // 0-13, default 8
+    pub av1_tune_state: ListState,    // Visual Quality, SSIM, VMAF
+    pub av1_film_grain: u32,          // 0-50, default 0
+    pub av1_film_grain_denoise: bool, // denoise before grain synthesis
+    pub av1_enable_overlays: bool,
+    pub av1_scd: bool,            // Scene change detection
+    pub av1_scm_state: ListState, // Screen content mode: Off, On, Auto
+    pub av1_enable_tf: bool,      // Temporal filtering
+
+    // AV1 hardware settings
+    pub av1_hw_preset: u32, // Hardware preset: 1-7 (QSV numeric, NVENC adds 'p' prefix)
+    pub av1_hw_cq: u32,     // Legacy: use per-encoder fields below
+
+    // Per-encoder quality (AV1) - these take precedence over av1_hw_cq
+    pub av1_svt_crf: u32,  // Software SVT-AV1: 0-63, lower=better
+    pub av1_qsv_cq: u32,   // Intel QSV: 1-255, lower=better
+    pub av1_nvenc_cq: u32, // NVIDIA: 0-63, lower=better
+    pub av1_vaapi_cq: u32, // VAAPI: 1-255, lower=better
+
+    pub av1_hw_lookahead: u32, // Lookahead frames
+    pub av1_hw_tile_cols: u32, // Tile columns
+    pub av1_hw_tile_rows: u32, // Tile rows
 
     // Profile tracking
     pub current_profile_name: Option<String>, // None = Custom
@@ -159,8 +290,11 @@ pub struct ConfigState {
 
     // Filename customization (template-based)
     // Supports: {filename}, {basename}, {profile}, {ext}
-    pub filename_pattern: Option<String>,
+    pub filename_pattern: String,
     pub container_dropdown_state: ListState, // For selecting container extension
+
+    // Additional FFmpeg arguments (appended to command before output file)
+    pub additional_args: String,
 
     // Video output constraints (max FPS, max resolution)
     pub fps: u32,          // 0 = source (no limit), >0 = max fps cap
@@ -191,11 +325,11 @@ pub struct ConfigState {
     pub frame_parallel: bool,
 
     // GOP & keyframes
-    pub gop_length: u32,
-    pub keyint_min: u32, // Minimum keyframe interval (0 = auto)
+    pub gop_length: String,
+    pub keyint_min: String, // Minimum keyframe interval ("0" = auto)
     pub fixed_gop: bool,
     pub lag_in_frames: u32,
-    pub auto_alt_ref: bool,
+    pub auto_alt_ref: u32,
 
     // Adaptive quantization
     // (aq_mode_state ListState above, selected index determines mode)
@@ -209,29 +343,59 @@ pub struct ConfigState {
     pub enable_tpl: bool,
     pub sharpness: i32,
     pub noise_sensitivity: u32,
-    pub static_thresh: u32, // Skip encoding blocks below this threshold (0 = disabled)
-    pub max_intra_rate: u32, // Max I-frame bitrate percentage (0 = disabled)
+    pub static_thresh: String, // Skip encoding blocks below this threshold ("0" = disabled)
+    pub max_intra_rate: String, // Max I-frame bitrate percentage ("0" = disabled)
 
     // Color / HDR settings
     pub colorspace: i32,      // -1 = Auto, or specific colorspace value
     pub color_primaries: i32, // -1 = Auto, or specific primaries value
     pub color_trc: i32,       // -1 = Auto (transfer characteristics)
     pub color_range: i32,     // -1 = Auto, 0 = TV/limited, 1 = PC/full
+    pub colorspace_preset: ColorSpacePreset, // UI preset combining the 4 above
 
-    // Audio settings
-    pub audio_bitrate: u32,
-    pub force_stereo: bool,
+    // Audio settings - multi-track support
+    // Primary track: passthrough or transcode
+    pub audio_primary_codec: AudioPrimaryCodec,
+    pub audio_primary_codec_state: ListState, // For dropdown UI
+    pub audio_primary_bitrate: u32,           // Ignored when passthrough
+    pub audio_primary_downmix: bool,          // Downmix to stereo (2ch)
+
+    // Compatibility track: AC3 5.1 for legacy receivers
+    pub audio_add_ac3: bool,
+    pub audio_ac3_bitrate: u32, // 384-640, default 448
+
+    // Compatibility track: Stereo for mobile/web
+    pub audio_add_stereo: bool,
+    pub audio_stereo_codec: AudioStereoCodec,
+    pub audio_stereo_codec_state: ListState, // For dropdown UI
+    pub audio_stereo_bitrate: u32,           // 64-256, default 128
 
     // Hardware encoding settings (Intel Arc VAAPI)
     pub use_hardware_encoding: bool,
     pub hw_encoding_available: Option<bool>, // None=unchecked, Some=result
     pub hw_availability_message: Option<String>,
+    pub gpu_vendor: crate::engine::hardware::GpuVendor, // Detected GPU vendor
     pub vaapi_rc_mode: String, // 1=CQP only (ICQ/VBR/CBR removed due to Arc driver bugs)
     pub qsv_global_quality: u32, // 1-255 (lower=better quality/larger files, higher=worse quality/smaller files), default 70
     pub vaapi_compression_level: String, // 0-7 (0=fastest, 7=slowest/best), default "4"
     pub vaapi_b_frames: String,  // 0-4, default "0"
     pub vaapi_loop_filter_level: String, // 0-63, default "16"
     pub vaapi_loop_filter_sharpness: String, // 0-15, default "4"
+
+    // Hardware VPP filters (QSV: 0-100, VAAPI: 0-64)
+    pub hw_denoise: String, // 0=off
+    pub hw_detail: String,  // 0=off (sharpening)
+
+    // VP9 QSV-specific controls (only apply when `vp9_qsv` is used)
+    pub vp9_qsv_preset: u32, // 1-7 (1=best quality, 7=fastest)
+    pub vp9_qsv_lookahead: bool,
+    pub vp9_qsv_lookahead_depth: u32,
+
+    // Auto-VAMF settings (quality calibration)
+    pub auto_vmaf_enabled: bool,
+    pub auto_vmaf_target: String, // Target VMAF score (e.g., "93.0")
+    pub auto_vmaf_step: String,   // Quality step size per iteration (e.g., "2")
+    pub auto_vmaf_max_attempts: String, // Maximum calibration attempts (e.g., "3")
 
     // Popup dropdown state
     pub active_dropdown: Option<ConfigFocus>,
@@ -264,7 +428,6 @@ pub struct ConfigState {
     pub profile_list_area: Option<Rect>,
     pub quality_mode_area: Option<Rect>,
     pub vp9_profile_list_area: Option<Rect>,
-    pub codec_list_area: Option<Rect>,
     pub pix_fmt_area: Option<Rect>,
     pub aq_mode_area: Option<Rect>,
     pub tune_content_area: Option<Rect>,
@@ -288,12 +451,16 @@ pub struct ConfigState {
     pub video_min_bitrate_area: Option<Rect>,
     pub video_max_bitrate_area: Option<Rect>,
     pub video_bufsize_area: Option<Rect>,
-    pub audio_bitrate_slider_area: Option<Rect>,
-    pub force_stereo_checkbox_area: Option<Rect>,
-    pub colorspace_area: Option<Rect>,
-    pub color_primaries_area: Option<Rect>,
-    pub color_trc_area: Option<Rect>,
-    pub color_range_area: Option<Rect>,
+    // Audio areas
+    pub audio_primary_codec_area: Option<Rect>,
+    pub audio_primary_bitrate_area: Option<Rect>,
+    pub audio_primary_downmix_area: Option<Rect>,
+    pub audio_ac3_checkbox_area: Option<Rect>,
+    pub audio_ac3_bitrate_area: Option<Rect>,
+    pub audio_stereo_checkbox_area: Option<Rect>,
+    pub audio_stereo_codec_area: Option<Rect>,
+    pub audio_stereo_bitrate_area: Option<Rect>,
+    pub colorspace_preset_area: Option<Rect>,
     pub arnr_type_area: Option<Rect>,
     pub static_thresh_area: Option<Rect>,
     pub max_intra_rate_area: Option<Rect>,
@@ -307,6 +474,42 @@ pub struct ConfigState {
     pub vaapi_b_frames_area: Option<Rect>,
     pub vaapi_loop_filter_level_area: Option<Rect>,
     pub vaapi_loop_filter_sharpness_area: Option<Rect>,
+    pub hw_denoise_area: Option<Rect>,
+    pub hw_detail_area: Option<Rect>,
+
+    // Video codec selector area
+    pub video_codec_area: Option<Rect>,
+
+    // AV1 software areas
+    pub av1_preset_slider_area: Option<Rect>,
+    pub av1_tune_area: Option<Rect>,
+    pub av1_film_grain_slider_area: Option<Rect>,
+    pub av1_film_grain_denoise_checkbox_area: Option<Rect>,
+    pub av1_enable_overlays_checkbox_area: Option<Rect>,
+    pub av1_scd_checkbox_area: Option<Rect>,
+    pub av1_scm_area: Option<Rect>,
+    pub av1_enable_tf_checkbox_area: Option<Rect>,
+
+    // AV1 hardware areas
+    pub av1_hw_preset_area: Option<Rect>,
+    pub av1_hw_cq_slider_area: Option<Rect>,
+    pub av1_hw_lookahead_area: Option<Rect>,
+    pub av1_hw_tile_cols_area: Option<Rect>,
+    pub av1_hw_tile_rows_area: Option<Rect>,
+
+    // VP9 QSV areas
+    pub vp9_qsv_preset_area: Option<Rect>,
+    pub vp9_qsv_lookahead_checkbox_area: Option<Rect>,
+    pub vp9_qsv_lookahead_depth_area: Option<Rect>,
+
+    // Auto-VMAF areas
+    pub auto_vmaf_checkbox_area: Option<Rect>,
+    pub auto_vmaf_target_area: Option<Rect>,
+    pub auto_vmaf_step_area: Option<Rect>,
+    pub auto_vmaf_max_attempts_area: Option<Rect>,
+
+    // Additional args area
+    pub additional_args_area: Option<Rect>,
 
     // Status message (message text, timestamp when shown)
     pub status_message: Option<(String, Instant)>,
@@ -323,9 +526,6 @@ impl Default for ConfigState {
         let mut profile_dropdown_state = ListState::default();
         profile_dropdown_state.select(Some(0)); // Profile 0 (8-bit)
 
-        let mut codec_list_state = ListState::default();
-        codec_list_state.select(Some(0)); // libopus
-
         let mut pix_fmt_state = ListState::default();
         pix_fmt_state.select(Some(0)); // yuv420p (8-bit)
 
@@ -335,17 +535,8 @@ impl Default for ConfigState {
         let mut tune_content_state = ListState::default();
         tune_content_state.select(Some(0)); // default
 
-        let mut colorspace_state = ListState::default();
-        colorspace_state.select(Some(0)); // Auto
-
-        let mut color_primaries_state = ListState::default();
-        color_primaries_state.select(Some(0)); // Auto
-
-        let mut color_trc_state = ListState::default();
-        color_trc_state.select(Some(0)); // Auto
-
-        let mut color_range_state = ListState::default();
-        color_range_state.select(Some(0)); // Auto
+        let mut colorspace_preset_state = ListState::default();
+        colorspace_preset_state.select(Some(0)); // Auto preset
 
         let mut arnr_type_state = ListState::default();
         arnr_type_state.select(Some(0)); // Auto
@@ -359,23 +550,58 @@ impl Default for ConfigState {
         let mut container_dropdown_state = ListState::default();
         container_dropdown_state.select(Some(0)); // webm
 
+        // Video codec selection (AV1 by default)
+        let mut video_codec_state = ListState::default();
+        video_codec_state.select(Some(1)); // AV1
+
+        // AV1 software settings
+        let mut av1_tune_state = ListState::default();
+        av1_tune_state.select(Some(0)); // Visual Quality
+
+        let mut av1_scm_state = ListState::default();
+        av1_scm_state.select(Some(0)); // Off
+
         Self {
             focus: ConfigFocus::default(),
             profile_list_state,
             quality_mode_state,
             profile_dropdown_state,
-            codec_list_state,
             pix_fmt_state,
             aq_mode_state,
             tune_content_state,
-            colorspace_state,
-            color_primaries_state,
-            color_trc_state,
-            color_range_state,
+            colorspace_preset_state,
             arnr_type_state,
             fps_dropdown_state,
             resolution_dropdown_state,
             container_dropdown_state,
+
+            // Video codec selection
+            video_codec_state,
+            codec_selection: CodecSelection::Av1,
+
+            // AV1 software settings
+            av1_preset: 8,
+            av1_tune_state,
+            av1_film_grain: 0,
+            av1_film_grain_denoise: false,
+            av1_enable_overlays: false,
+            av1_scd: true,
+            av1_scm_state,
+            av1_enable_tf: true,
+
+            // AV1 hardware settings
+            av1_hw_preset: 4, // Default: 4 (Balanced)
+            av1_hw_cq: 30,    // Legacy fallback
+
+            // Per-encoder quality defaults (calibrated for balanced quality)
+            av1_svt_crf: 28,  // SVT-AV1 default CRF
+            av1_qsv_cq: 65,   // Intel QSV balanced
+            av1_nvenc_cq: 16, // NVIDIA (65/255*63 ≈ 16)
+            av1_vaapi_cq: 65, // VAAPI same as QSV
+
+            av1_hw_lookahead: 0,
+            av1_hw_tile_cols: 0,
+            av1_hw_tile_rows: 0,
 
             // Profile tracking
             current_profile_name: Some("YouTube 4K".to_string()), // Default profile
@@ -390,8 +616,11 @@ impl Default for ConfigState {
             overwrite: true,
             max_workers: 1, // Default to sequential processing
 
-            // Filename customization (initially None = use default behavior)
-            filename_pattern: None,
+            // Filename customization
+            filename_pattern: "{basename}".to_string(),
+
+            // Additional FFmpeg arguments (empty by default)
+            additional_args: String::new(),
 
             // Video output constraints
             fps: 0,           // Source (no fps limit)
@@ -422,11 +651,11 @@ impl Default for ConfigState {
             frame_parallel: false,
 
             // GOP & keyframes (10 seconds at 25fps = 240)
-            gop_length: 240,
-            keyint_min: 0, // Auto (0 means no minimum constraint)
+            gop_length: "240".to_string(),
+            keyint_min: "0".to_string(), // Auto (0 means no minimum constraint)
             fixed_gop: false,
             lag_in_frames: 25,
-            auto_alt_ref: true,
+            auto_alt_ref: 1,
 
             // Alt-ref denoising (ARNR)
             arnr_max_frames: 7,
@@ -437,29 +666,60 @@ impl Default for ConfigState {
             enable_tpl: true, // Recommended for 2-pass efficiency
             sharpness: -1,    // Auto
             noise_sensitivity: 0,
-            static_thresh: 0,  // Disabled (no block skipping)
-            max_intra_rate: 0, // Disabled (no I-frame bitrate cap)
+            static_thresh: "0".to_string(), // Disabled (no block skipping)
+            max_intra_rate: "0".to_string(), // Disabled (no I-frame bitrate cap)
 
             // Color / HDR settings (all Auto by default)
             colorspace: -1,
             color_primaries: -1,
             color_trc: -1,
             color_range: -1,
+            colorspace_preset: ColorSpacePreset::Auto,
 
-            // Audio settings
-            audio_bitrate: 128,
-            force_stereo: false,
+            // Audio settings - multi-track
+            audio_primary_codec: AudioPrimaryCodec::Opus,
+            audio_primary_codec_state: {
+                let mut state = ListState::default();
+                state.select(Some(1)); // Opus is index 1
+                state
+            },
+            audio_primary_bitrate: 128,
+            audio_primary_downmix: false,
+            audio_add_ac3: false,
+            audio_ac3_bitrate: 448,
+            audio_add_stereo: false,
+            audio_stereo_codec: AudioStereoCodec::Aac,
+            audio_stereo_codec_state: {
+                let mut state = ListState::default();
+                state.select(Some(0)); // AAC
+                state
+            },
+            audio_stereo_bitrate: 128,
 
             // Hardware encoding settings
             use_hardware_encoding: false,
             hw_encoding_available: None,
             hw_availability_message: None,
+            gpu_vendor: crate::engine::hardware::GpuVendor::Unknown,
             qsv_global_quality: 70,
             vaapi_rc_mode: "1".to_string(), // CQP mode (only supported mode)
             vaapi_compression_level: "4".to_string(),
             vaapi_b_frames: "0".to_string(),
             vaapi_loop_filter_level: "16".to_string(),
             vaapi_loop_filter_sharpness: "4".to_string(),
+            hw_denoise: "0".to_string(),
+            hw_detail: "0".to_string(),
+
+            // VP9 QSV controls
+            vp9_qsv_preset: 4,
+            vp9_qsv_lookahead: true,
+            vp9_qsv_lookahead_depth: 40,
+
+            // Auto-VAMF settings (disabled by default)
+            auto_vmaf_enabled: false,
+            auto_vmaf_target: "93.0".to_string(),
+            auto_vmaf_step: "2".to_string(),
+            auto_vmaf_max_attempts: "3".to_string(),
 
             // Popup dropdown state
             active_dropdown: None,
@@ -492,7 +752,6 @@ impl Default for ConfigState {
             profile_list_area: None,
             quality_mode_area: None,
             vp9_profile_list_area: None,
-            codec_list_area: None,
             pix_fmt_area: None,
             aq_mode_area: None,
             tune_content_area: None,
@@ -516,12 +775,16 @@ impl Default for ConfigState {
             video_min_bitrate_area: None,
             video_max_bitrate_area: None,
             video_bufsize_area: None,
-            audio_bitrate_slider_area: None,
-            force_stereo_checkbox_area: None,
-            colorspace_area: None,
-            color_primaries_area: None,
-            color_trc_area: None,
-            color_range_area: None,
+            // Audio areas
+            audio_primary_codec_area: None,
+            audio_primary_bitrate_area: None,
+            audio_primary_downmix_area: None,
+            audio_ac3_checkbox_area: None,
+            audio_ac3_bitrate_area: None,
+            audio_stereo_checkbox_area: None,
+            audio_stereo_codec_area: None,
+            audio_stereo_bitrate_area: None,
+            colorspace_preset_area: None,
             arnr_type_area: None,
             static_thresh_area: None,
             max_intra_rate_area: None,
@@ -535,6 +798,42 @@ impl Default for ConfigState {
             vaapi_b_frames_area: None,
             vaapi_loop_filter_level_area: None,
             vaapi_loop_filter_sharpness_area: None,
+            hw_denoise_area: None,
+            hw_detail_area: None,
+
+            // Video codec selector area
+            video_codec_area: None,
+
+            // AV1 software areas
+            av1_preset_slider_area: None,
+            av1_tune_area: None,
+            av1_film_grain_slider_area: None,
+            av1_film_grain_denoise_checkbox_area: None,
+            av1_enable_overlays_checkbox_area: None,
+            av1_scd_checkbox_area: None,
+            av1_scm_area: None,
+            av1_enable_tf_checkbox_area: None,
+
+            // AV1 hardware areas
+            av1_hw_preset_area: None,
+            av1_hw_cq_slider_area: None,
+            av1_hw_lookahead_area: None,
+            av1_hw_tile_cols_area: None,
+            av1_hw_tile_rows_area: None,
+
+            // VP9 QSV areas
+            vp9_qsv_preset_area: None,
+            vp9_qsv_lookahead_checkbox_area: None,
+            vp9_qsv_lookahead_depth_area: None,
+
+            // Auto-VMAF areas
+            auto_vmaf_checkbox_area: None,
+            auto_vmaf_target_area: None,
+            auto_vmaf_step_area: None,
+            auto_vmaf_max_attempts_area: None,
+
+            // Additional args area
+            additional_args_area: None,
 
             status_message: None,
         }
@@ -566,7 +865,8 @@ mod tests {
         assert!(state.profile_list_state.selected().is_some());
         assert!(state.quality_mode_state.selected().is_some());
         assert!(state.profile_dropdown_state.selected().is_some());
-        assert!(state.codec_list_state.selected().is_some());
+        assert!(state.audio_primary_codec_state.selected().is_some());
+        assert!(state.audio_stereo_codec_state.selected().is_some());
         assert!(state.pix_fmt_state.selected().is_some());
         assert!(state.aq_mode_state.selected().is_some());
         assert!(state.tune_content_state.selected().is_some());
@@ -583,7 +883,8 @@ mod tests {
             "Profile 2 (10-bit)",
             "Profile 3 (10-bit)",
         ];
-        let codecs = vec!["libopus", "aac", "mp3", "vorbis"];
+        let primary_codecs = vec!["Passthrough", "Opus", "AAC", "MP3", "Vorbis"];
+        let stereo_codecs = vec!["AAC", "Opus"];
         let pix_fmts = vec!["yuv420p (8-bit)", "yuv420p10le (10-bit)"];
         let aq_modes = vec![
             "Auto",
@@ -598,7 +899,8 @@ mod tests {
         assert_eq!(profiles.len(), 4);
         assert_eq!(quality_modes.len(), 3);
         assert_eq!(vp9_profiles.len(), 4);
-        assert_eq!(codecs.len(), 4);
+        assert_eq!(primary_codecs.len(), 5);
+        assert_eq!(stereo_codecs.len(), 2);
         assert_eq!(pix_fmts.len(), 2);
         assert_eq!(aq_modes.len(), 6);
         assert_eq!(tune_contents.len(), 3);

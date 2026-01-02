@@ -2,7 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::Path;
 
-// Default values for hardware encoding profile fields (backward compatibility)
+use crate::engine::validate::{HardwareAvailability, validate_profile};
+
+// Re-export codec-specific configs from their dedicated modules
+pub use super::av1_config::{Av1Config, Codec};
+pub use super::hw_config::HwEncodingConfig;
+pub use super::vp9_config::Vp9Config;
+
+// Default values for Profile fields (hardware encoding)
 fn default_hw_quality() -> u32 {
     70
 }
@@ -13,11 +20,74 @@ fn default_hw_loop_filter_sharpness() -> u32 {
     4
 }
 fn default_hw_rc_mode() -> u32 {
-    4
-} // ICQ mode (best quality/size ratio)
+    1
+} // CQP mode (only supported - ICQ/VBR/CBR removed due to Arc driver bugs)
 fn default_hw_compression_level() -> u32 {
     4
 } // Balanced speed/compression
+
+fn default_zero_string() -> String {
+    "0".to_string()
+}
+
+fn default_240_string() -> String {
+    "240".to_string()
+}
+
+fn default_output_dir() -> String {
+    ".".to_string() // Current directory
+}
+
+fn default_filename_pattern() -> String {
+    "{basename}".to_string()
+}
+
+fn default_audio_primary_codec() -> String {
+    "libopus".to_string()
+}
+
+fn default_audio_primary_bitrate() -> u32 {
+    128
+}
+
+fn default_audio_ac3_bitrate() -> u32 {
+    448
+}
+
+fn default_audio_stereo_codec() -> String {
+    "aac".to_string()
+}
+
+fn default_audio_stereo_bitrate() -> u32 {
+    128
+}
+
+// ============================================================================
+// Default values for VMAF (Auto-VAMF) feature
+// ============================================================================
+
+fn default_vmaf_target() -> f32 {
+    93.0
+}
+fn default_vmaf_window_duration_sec() -> u32 {
+    10
+}
+fn default_vmaf_analysis_budget_sec() -> u32 {
+    60
+}
+fn default_vmaf_n_subsample() -> u32 {
+    30
+}
+fn default_vmaf_max_attempts() -> u8 {
+    3
+}
+fn default_vmaf_step() -> u8 {
+    2
+}
+
+// ============================================================================
+// Profile struct (with codec-specific config)
+// ============================================================================
 
 /// Encoding profile configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,10 +96,43 @@ pub struct Profile {
     pub suffix: String,
     pub container: String,
     pub video_codec: String,
-    pub audio_codec: String,
-    pub audio_bitrate: u32,
+    // Audio - multi-track support
+    #[serde(default = "default_audio_primary_codec")]
+    pub audio_primary_codec: String, // "passthrough", "libopus", "aac", "mp3", "vorbis"
+    #[serde(default = "default_audio_primary_bitrate")]
+    pub audio_primary_bitrate: u32,
     #[serde(default)]
-    pub downmix_stereo: bool,
+    pub audio_primary_downmix: bool, // Downmix primary track to stereo (2ch)
+    #[serde(default)]
+    pub audio_add_ac3: bool,
+    #[serde(default = "default_audio_ac3_bitrate")]
+    pub audio_ac3_bitrate: u32,
+    #[serde(default)]
+    pub audio_add_stereo: bool,
+    #[serde(default = "default_audio_stereo_codec")]
+    pub audio_stereo_codec: String, // "aac", "libopus"
+    #[serde(default = "default_audio_stereo_bitrate")]
+    pub audio_stereo_bitrate: u32,
+
+    // Legacy fields for backward compatibility (deprecated)
+    #[serde(default, skip_serializing)]
+    pub audio_codec: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub audio_bitrate: Option<u32>,
+    #[serde(default, skip_serializing)]
+    pub downmix_stereo: Option<bool>,
+    #[serde(default, skip_serializing)]
+    pub audio_passthrough: Option<bool>,
+
+    // Output settings
+    #[serde(default = "default_output_dir")]
+    pub output_dir: String,
+    #[serde(default = "default_filename_pattern")]
+    pub filename_pattern: String,
+    #[serde(default)]
+    pub overwrite: bool,
+    #[serde(default)]
+    pub additional_args: String,
 
     // Video output constraints (max FPS, max resolution)
     pub fps: u32,          // 0 = source (no fps cap)
@@ -65,11 +168,13 @@ pub struct Profile {
     pub max_workers: u32, // Number of concurrent encoding jobs
 
     // GOP & keyframes
-    pub gop_length: u32,
-    pub keyint_min: u32,
+    #[serde(default = "default_240_string")]
+    pub gop_length: String,
+    #[serde(default = "default_zero_string")]
+    pub keyint_min: String,
     pub fixed_gop: bool,
     pub lag_in_frames: u32,
-    pub auto_alt_ref: bool,
+    pub auto_alt_ref: u32,
 
     // Alt-ref denoising (ARNR)
     pub arnr_max_frames: u32,
@@ -80,8 +185,10 @@ pub struct Profile {
     pub enable_tpl: bool,
     pub sharpness: i32,
     pub noise_sensitivity: u32,
-    pub static_thresh: u32,
-    pub max_intra_rate: u32,
+    #[serde(default = "default_zero_string")]
+    pub static_thresh: String,
+    #[serde(default = "default_zero_string")]
+    pub max_intra_rate: String,
     pub aq_mode: i32,
     pub tune_content: String,
 
@@ -112,528 +219,96 @@ pub struct Profile {
 
     #[serde(default = "default_hw_compression_level")]
     pub hw_compression_level: u32,
-}
 
-/// Configuration for VAAPI hardware encoding
-#[derive(Debug, Clone)]
-pub struct HwEncodingConfig {
-    /// Rate control mode: 1=CQP (Constant Quality), 2=CBR (Constant Bitrate),
-    /// 3=VBR (Variable Bitrate), 4=ICQ (Intelligent Constant Quality)
-    /// Default: 4 (ICQ - best quality/size ratio)
-    pub rc_mode: u32,
+    // Codec-specific configuration (VP9 or AV1)
+    // When loading old profiles without this field, defaults to VP9
+    #[serde(default)]
+    pub codec: Codec,
 
-    /// Quality setting (1-255): Lower = better quality/bigger files, Higher = worse quality/smaller files
-    /// This value is passed DIRECTLY to FFmpeg's -global_quality parameter (no mapping)
-    /// Recommended: 40=high quality, 70=good quality, 100=medium, 120+=low quality/small files
-    /// Only used with CQP (rc_mode=1) or ICQ (rc_mode=4)
-    pub global_quality: u32,
+    // Auto-VAMF settings (quality calibration via VMAF)
+    #[serde(default)]
+    pub vmaf_enabled: bool,
 
-    /// Number of B-frames (0-4): Higher = better compression but slower
-    /// 0 = no B-frames (safest for Intel Arc), 1 = moderate compression
-    /// Requires bitstream filters when > 0
-    pub b_frames: u32,
+    #[serde(default = "default_vmaf_target")]
+    pub vmaf_target: f32,
 
-    /// Loop filter level (0-63): Controls deblocking filter strength
-    /// Lower = more detail/blockier, Higher = smoother/less detail
-    /// Default: 16
-    pub loop_filter_level: u32,
+    #[serde(default = "default_vmaf_window_duration_sec")]
+    pub vmaf_window_duration_sec: u32,
 
-    /// Loop filter sharpness (0-15): Controls edge filtering aggressiveness
-    /// Lower = gentler, Higher = sharper edges
-    /// Default: 4
-    pub loop_filter_sharpness: u32,
+    #[serde(default = "default_vmaf_analysis_budget_sec")]
+    pub vmaf_analysis_budget_sec: u32,
 
-    /// Compression level (0-7): Speed vs compression tradeoff
-    /// 0 = fastest/least compression, 7 = slowest/most compression
-    /// Default: 4 (balanced)
-    pub compression_level: u32,
-}
+    #[serde(default = "default_vmaf_n_subsample")]
+    pub vmaf_n_subsample: u32,
 
-impl Default for HwEncodingConfig {
-    fn default() -> Self {
-        Self {
-            rc_mode: 4,               // ICQ mode (best quality/size ratio)
-            global_quality: 70,       // Good quality (balanced)
-            b_frames: 0,              // No B-frames (safest for Intel Arc)
-            loop_filter_level: 16,    // Default VP9 loop filter level
-            loop_filter_sharpness: 4, // Default VP9 loop filter sharpness
-            compression_level: 4,     // Balanced speed/compression
-        }
-    }
+    #[serde(default = "default_vmaf_max_attempts")]
+    pub vmaf_max_attempts: u8,
+
+    #[serde(default = "default_vmaf_step")]
+    pub vmaf_step: u8,
 }
 
 impl Profile {
-    /// Get built-in profile by name
-    pub fn get(name: &str) -> Self {
-        match name {
-            "vp9-good" => Self {
-                name: "vp9-good".to_string(),
-                suffix: "vp9good".to_string(),
-                container: "webm".to_string(),
-                video_codec: "libvpx-vp9".to_string(),
-                audio_codec: "libopus".to_string(),
-                audio_bitrate: 128,
-                downmix_stereo: false,
-                fps: 0,           // Source
-                scale_width: -2,  // Source
-                scale_height: -2, // Source
-                crf: 31,
-                video_target_bitrate: 0,
-                video_min_bitrate: 0,
-                video_max_bitrate: 0,
-                video_bufsize: 0,
-                undershoot_pct: -1,
-                overshoot_pct: -1,
-                cpu_used: 2,
-                cpu_used_pass1: 4,
-                cpu_used_pass2: 1,
-                two_pass: false,
-                quality_mode: "good".to_string(),
-                vp9_profile: 0,
-                pix_fmt: "yuv420p".to_string(),
-                row_mt: true,
-                tile_columns: 2,
-                tile_rows: 0,
-                threads: 0,
-                frame_parallel: false,
-                max_workers: 1, // Conservative default - sequential processing
-                gop_length: 240,
-                keyint_min: 0,
-                fixed_gop: false,
-                lag_in_frames: 25,
-                auto_alt_ref: true,
-                arnr_max_frames: 7,
-                arnr_strength: 3,
-                arnr_type: -1,
-                enable_tpl: true,
-                sharpness: -1,
-                noise_sensitivity: 0,
-                static_thresh: 0,
-                max_intra_rate: 0,
-                aq_mode: 1, // Variance AQ
-                tune_content: "default".to_string(),
-                colorspace: -1,
-                color_primaries: -1,
-                color_trc: -1,
-                color_range: -1,
-                // Hardware encoding (default to software)
-                use_hardware_encoding: false,
-                hw_rc_mode: 4, // ICQ
-                hw_global_quality: 70,
-                hw_b_frames: 0,
-                hw_loop_filter_level: 16,
-                hw_loop_filter_sharpness: 4,
-                hw_compression_level: 4,
-            },
-            "vp9-best" => Self {
-                name: "vp9-best".to_string(),
-                suffix: "vp9best".to_string(),
-                container: "webm".to_string(),
-                video_codec: "libvpx-vp9".to_string(),
-                audio_codec: "libopus".to_string(),
-                audio_bitrate: 128,
-                downmix_stereo: false,
-                fps: 0,           // Source
-                scale_width: -2,  // Source
-                scale_height: -2, // Source
-                crf: 24,
-                video_target_bitrate: 0,
-                video_min_bitrate: 0,
-                video_max_bitrate: 0,
-                video_bufsize: 0,
-                undershoot_pct: -1,
-                overshoot_pct: -1,
-                cpu_used: 0,
-                cpu_used_pass1: 4,
-                cpu_used_pass2: 0,
-                two_pass: true,
-                quality_mode: "good".to_string(),
-                vp9_profile: 0,
-                pix_fmt: "yuv420p".to_string(),
-                row_mt: true,
-                tile_columns: 2,
-                tile_rows: 0,
-                threads: 0,
-                frame_parallel: false,
-                max_workers: 1, // Conservative default - sequential processing
-                gop_length: 240,
-                keyint_min: 0,
-                fixed_gop: false,
-                lag_in_frames: 25,
-                auto_alt_ref: true,
-                arnr_max_frames: 7,
-                arnr_strength: 3,
-                arnr_type: -1,
-                enable_tpl: true,
-                sharpness: -1,
-                noise_sensitivity: 0,
-                static_thresh: 0,
-                max_intra_rate: 0,
-                aq_mode: 1,
-                tune_content: "default".to_string(),
-                colorspace: -1,
-                color_primaries: -1,
-                color_trc: -1,
-                color_range: -1,
-                // Hardware encoding (default to software)
-                use_hardware_encoding: false,
-                hw_rc_mode: 4, // ICQ
-                hw_global_quality: 70,
-                hw_b_frames: 0,
-                hw_loop_filter_level: 16,
-                hw_loop_filter_sharpness: 4,
-                hw_compression_level: 4,
-            },
-            "vp9-fast-preview" => Self {
-                name: "vp9-fast-preview".to_string(),
-                suffix: "vp9fast".to_string(),
-                container: "webm".to_string(),
-                video_codec: "libvpx-vp9".to_string(),
-                audio_codec: "libopus".to_string(),
-                audio_bitrate: 96,
-                downmix_stereo: false,
-                fps: 0,           // Source
-                scale_width: -2,  // Source
-                scale_height: -2, // Source
-                crf: 40,
-                video_target_bitrate: 0,
-                video_min_bitrate: 0,
-                video_max_bitrate: 0,
-                video_bufsize: 0,
-                undershoot_pct: -1,
-                overshoot_pct: -1,
-                cpu_used: 5,
-                cpu_used_pass1: 5,
-                cpu_used_pass2: 5,
-                two_pass: false,
-                quality_mode: "good".to_string(),
-                vp9_profile: 0,
-                pix_fmt: "yuv420p".to_string(),
-                row_mt: true,
-                tile_columns: 2,
-                tile_rows: 0,
-                threads: 0,
-                frame_parallel: false,
-                max_workers: 1, // Conservative default - sequential processing
-                gop_length: 240,
-                keyint_min: 0,
-                fixed_gop: false,
-                lag_in_frames: 25,
-                auto_alt_ref: true,
-                arnr_max_frames: 7,
-                arnr_strength: 3,
-                arnr_type: -1,
-                enable_tpl: false,
-                sharpness: -1,
-                noise_sensitivity: 0,
-                static_thresh: 0,
-                max_intra_rate: 0,
-                aq_mode: 1, // Variance AQ (community default)
-                tune_content: "default".to_string(),
-                colorspace: -1,
-                color_primaries: -1,
-                color_trc: -1,
-                color_range: -1,
-                // Hardware encoding (default to software)
-                use_hardware_encoding: false,
-                hw_rc_mode: 4, // ICQ
-                hw_global_quality: 70,
-                hw_b_frames: 0,
-                hw_loop_filter_level: 16,
-                hw_loop_filter_sharpness: 4,
-                hw_compression_level: 4,
-            },
-            _ => Self::get("vp9-good"), // default
-        }
-    }
-
-    /// List built-in profile names (user-friendly display names)
-    pub fn builtin_names() -> Vec<String> {
-        vec![
-            "1080p Shrinker".to_string(),
-            "Efficient 4K".to_string(),
-            "Daily Driver".to_string(),
-        ]
-    }
-
-    /// Get built-in profile by user-friendly name
-    pub fn get_builtin(name: &str) -> Option<Self> {
-        match name {
-            "1080p Shrinker" => Some(Self {
-                name: "1080p Shrinker".to_string(),
-                suffix: "1080p_shrinker".to_string(),
-                container: "webm".to_string(),
-                video_codec: "libvpx-vp9".to_string(),
-                audio_codec: "libopus".to_string(),
-                audio_bitrate: 64, // Low bitrate for maximum space savings
-                downmix_stereo: false,
-                fps: 30,            // Limit to 30fps for space savings
-                scale_width: 1920,  // 1080p width
-                scale_height: 1080, // 1080p height
-                crf: 37,            // Aggressive compression for maximum space savings
-                video_target_bitrate: 0,
-                video_min_bitrate: 0,
-                video_max_bitrate: 0,
-                video_bufsize: 0,
-                undershoot_pct: -1,
-                overshoot_pct: -1,
-                cpu_used: 2, // Slower encoding for 5-10% more size reduction
-                cpu_used_pass1: 4,
-                cpu_used_pass2: 2,
-                two_pass: false, // CQ mode - single pass is sufficient
-                quality_mode: "good".to_string(),
-                vp9_profile: 0,
-                pix_fmt: "yuv420p".to_string(),
-                row_mt: true,    // ESSENTIAL: 30-50% speedup with no quality loss
-                tile_columns: 2, // Standard for 1080p
-                tile_rows: 0,
-                threads: 0, // Auto - let encoder manage based on tiles
-                frame_parallel: true,
-                max_workers: 1, // Conservative default - sequential processing
-                gop_length: 240,
-                keyint_min: 0,
-                fixed_gop: false,
-                lag_in_frames: 25,
-                auto_alt_ref: true,
-                arnr_max_frames: 7,
-                arnr_strength: 3,
-                arnr_type: -1,
-                enable_tpl: true, // Quality improvement
-                sharpness: -1,
-                noise_sensitivity: 0,
-                static_thresh: 0,
-                max_intra_rate: 0,
-                aq_mode: 1, // Variance AQ (community default)
-                tune_content: "default".to_string(),
-                colorspace: -1,
-                color_primaries: -1,
-                color_trc: -1,
-                color_range: -1,
-                // Hardware encoding (default to software)
-                use_hardware_encoding: false,
-                hw_rc_mode: 4, // ICQ
-                hw_global_quality: 70,
-                hw_b_frames: 0,
-                hw_loop_filter_level: 16,
-                hw_loop_filter_sharpness: 4,
-                hw_compression_level: 4,
-            }),
-            "Efficient 4K" => Some(Self {
-                name: "Efficient 4K".to_string(),
-                suffix: "efficient_4k".to_string(),
-                container: "webm".to_string(),
-                video_codec: "libvpx-vp9".to_string(),
-                audio_codec: "libopus".to_string(),
-                audio_bitrate: 128, // Higher quality audio for 4K content
-                downmix_stereo: false,
-                fps: 0,             // Source
-                scale_width: 3840,  // 4K width
-                scale_height: 2160, // 4K height
-                crf: 26,            // Higher quality to preserve 4K details
-                video_target_bitrate: 0,
-                video_min_bitrate: 0,
-                video_max_bitrate: 0,
-                video_bufsize: 0,
-                undershoot_pct: -1,
-                overshoot_pct: -1,
-                cpu_used: 4, // Speed 4 is necessary compromise for 4K
-                cpu_used_pass1: 4,
-                cpu_used_pass2: 4,
-                two_pass: false, // CQ mode - single pass is sufficient
-                quality_mode: "good".to_string(),
-                vp9_profile: 0,
-                pix_fmt: "yuv420p".to_string(),
-                row_mt: true,    // ESSENTIAL: 30-50% speedup with no quality loss
-                tile_columns: 3, // For 4K: 2^3 = 8 columns (3840px / 8 = 480px per tile)
-                tile_rows: 0,
-                threads: 0, // Auto - let encoder manage based on tiles
-                frame_parallel: true,
-                max_workers: 1, // Conservative default - sequential processing
-                gop_length: 240,
-                keyint_min: 0,
-                fixed_gop: false,
-                lag_in_frames: 25,
-                auto_alt_ref: true,
-                arnr_max_frames: 7,
-                arnr_strength: 3,
-                arnr_type: -1,
-                enable_tpl: true, // Quality improvement
-                sharpness: -1,
-                noise_sensitivity: 0,
-                static_thresh: 0,
-                max_intra_rate: 0,
-                aq_mode: 1, // Variance AQ (community default)
-                tune_content: "default".to_string(),
-                colorspace: -1,
-                color_primaries: -1,
-                color_trc: -1,
-                color_range: -1,
-                // Hardware encoding (default to software)
-                use_hardware_encoding: false,
-                hw_rc_mode: 4, // ICQ
-                hw_global_quality: 70,
-                hw_b_frames: 0,
-                hw_loop_filter_level: 16,
-                hw_loop_filter_sharpness: 4,
-                hw_compression_level: 4,
-            }),
-            "Daily Driver" => Some(Self {
-                name: "Daily Driver".to_string(),
-                suffix: "daily".to_string(),
-                container: "webm".to_string(),
-                video_codec: "libvpx-vp9".to_string(),
-                audio_codec: "libopus".to_string(),
-                audio_bitrate: 96, // Transparent for most listeners
-                downmix_stereo: false,
-                fps: 0,           // Source
-                scale_width: -2,  // Source
-                scale_height: -2, // Source
-                crf: 30,          // Visually clear but efficient (community sweet spot)
-                video_target_bitrate: 0,
-                video_min_bitrate: 0,
-                video_max_bitrate: 0,
-                video_bufsize: 0,
-                undershoot_pct: -1,
-                overshoot_pct: -1,
-                cpu_used: 4, // Speed 3 and 4 look identical, but 4 is faster
-                cpu_used_pass1: 4,
-                cpu_used_pass2: 4,
-                two_pass: false, // CQ mode - single pass is sufficient
-                quality_mode: "good".to_string(),
-                vp9_profile: 0,
-                pix_fmt: "yuv420p".to_string(),
-                row_mt: true,    // ESSENTIAL: 30-50% speedup with no quality loss
-                tile_columns: 2, // Standard for 1080p
-                tile_rows: 0,
-                threads: 0, // Auto - let encoder manage based on tiles
-                frame_parallel: true,
-                max_workers: 1, // Conservative default - sequential processing
-                gop_length: 240,
-                keyint_min: 0,
-                fixed_gop: false,
-                lag_in_frames: 25,
-                auto_alt_ref: true,
-                arnr_max_frames: 7,
-                arnr_strength: 3,
-                arnr_type: -1,
-                enable_tpl: true, // Quality improvement
-                sharpness: -1,
-                noise_sensitivity: 0,
-                static_thresh: 0,
-                max_intra_rate: 0,
-                aq_mode: 1, // Variance AQ (community default)
-                tune_content: "default".to_string(),
-                colorspace: -1,
-                color_primaries: -1,
-                color_trc: -1,
-                color_range: -1,
-                // Hardware encoding (default to software)
-                use_hardware_encoding: false,
-                hw_rc_mode: 4, // ICQ
-                hw_global_quality: 70,
-                hw_b_frames: 0,
-                hw_loop_filter_level: 16,
-                hw_loop_filter_sharpness: 4,
-                hw_compression_level: 4,
-            }),
-            _ => None,
-        }
-    }
-
-    /// Create a Profile from ConfigState
     pub fn from_config(name: String, config: &crate::ui::state::ConfigState) -> Self {
-        use crate::ui::constants::*;
+        use crate::ui::options;
         use crate::ui::state::RateControlMode;
 
         // Map list state selections to actual values
         let quality_mode_idx = config.quality_mode_state.selected().unwrap_or(0);
-        let quality_mode = QUALITY_MODES
-            .get(quality_mode_idx)
-            .unwrap_or(&"good")
-            .to_string();
+        let quality_mode = options::quality_mode_from_idx(quality_mode_idx).to_string();
 
         let vp9_profile = config.profile_dropdown_state.selected().unwrap_or(0) as u8;
 
         let pix_fmt_idx = config.pix_fmt_state.selected().unwrap_or(0);
-        let pix_fmt = PIX_FMTS.get(pix_fmt_idx).unwrap_or(&"yuv420p").to_string();
+        let pix_fmt = options::pix_fmt_from_idx(pix_fmt_idx).to_string();
 
         let aq_mode_idx = config.aq_mode_state.selected().unwrap_or(0);
-        let aq_mode = match aq_mode_idx {
-            0 => -1, // Auto
-            1 => 0,  // Off
-            2 => 2,  // Variance
-            3 => 1,  // Complexity
-            4 => 3,  // Cyclic
-            5 => 4,  // 360 Video
-            _ => 2,  // Default to Variance
-        };
+        let aq_mode = options::aq_mode_from_idx(aq_mode_idx);
 
         let tune_content_idx = config.tune_content_state.selected().unwrap_or(0);
-        let tune_content = TUNE_CONTENTS
-            .get(tune_content_idx)
-            .unwrap_or(&"default")
-            .to_string();
+        let tune_content = options::tune_content_from_idx(tune_content_idx).to_string();
 
-        let audio_codec_idx = config.codec_list_state.selected().unwrap_or(0);
-        let audio_codec = AUDIO_CODECS
-            .get(audio_codec_idx)
-            .unwrap_or(&"libopus")
-            .to_string();
-
-        // Map colorspace dropdown selections to ffmpeg values
-        let colorspace_idx = config.colorspace_state.selected().unwrap_or(0);
-        let colorspace = match colorspace_idx {
-            0 => -1, // Auto
-            1 => 1,  // BT709
-            2 => 5,  // BT470BG
-            3 => 6,  // SMPTE170M
-            4 => 9,  // BT2020
-            _ => -1,
+        // Audio primary codec from enum
+        let audio_primary_codec = match config.audio_primary_codec {
+            crate::ui::state::AudioPrimaryCodec::Passthrough => "passthrough".to_string(),
+            crate::ui::state::AudioPrimaryCodec::Opus => "libopus".to_string(),
+            crate::ui::state::AudioPrimaryCodec::Aac => "aac".to_string(),
+            crate::ui::state::AudioPrimaryCodec::Mp3 => "mp3".to_string(),
+            crate::ui::state::AudioPrimaryCodec::Vorbis => "vorbis".to_string(),
         };
 
-        let color_primaries_idx = config.color_primaries_state.selected().unwrap_or(0);
-        let color_primaries = match color_primaries_idx {
-            0 => -1, // Auto
-            1 => 1,  // BT709
-            2 => 4,  // BT470M
-            3 => 5,  // BT470BG
-            4 => 9,  // BT2020
-            _ => -1,
+        // Audio stereo codec from enum
+        let audio_stereo_codec = match config.audio_stereo_codec {
+            crate::ui::state::AudioStereoCodec::Aac => "aac".to_string(),
+            crate::ui::state::AudioStereoCodec::Opus => "libopus".to_string(),
         };
 
-        let color_trc_idx = config.color_trc_state.selected().unwrap_or(0);
-        let color_trc = match color_trc_idx {
-            0 => -1, // Auto
-            1 => 1,  // BT709
-            2 => 6,  // SMPTE170M
-            3 => 16, // SMPTE2084 (PQ)
-            4 => 18, // ARIB-B67 (HLG)
-            _ => -1,
-        };
+        let container_idx = config.container_dropdown_state.selected().unwrap_or(0);
+        let container = options::container_from_idx(container_idx).to_string();
 
-        let color_range_idx = config.color_range_state.selected().unwrap_or(0);
-        let color_range = match color_range_idx {
-            0 => -1, // Auto
-            1 => 0,  // TV/Limited
-            2 => 1,  // PC/Full
-            _ => -1,
-        };
+        // Use numeric color values directly (synced from preset selection)
+        let colorspace = config.colorspace;
+        let color_primaries = config.color_primaries;
+        let color_trc = config.color_trc;
+        let color_range = config.color_range;
 
         let arnr_type_idx = config.arnr_type_state.selected().unwrap_or(0);
-        let arnr_type = match arnr_type_idx {
-            0 => -1, // Auto
-            1 => 1,  // Backward
-            2 => 2,  // Forward
-            3 => 3,  // Centered
-            _ => -1,
-        };
+        let arnr_type = options::arnr_type_from_idx(arnr_type_idx);
 
-        // Use FPS value directly from config (not dropdown mapping)
-        let fps = config.fps;
+        // FPS: prefer numeric field if set, otherwise derive from dropdown selection
+        let fps_idx = config.fps_dropdown_state.selected().unwrap_or(0);
+        let mut fps = options::fps_from_idx(fps_idx);
+        if config.fps != 0 {
+            fps = config.fps;
+        }
 
-        // Use resolution values directly from config (not dropdown mapping)
-        let scale_width = config.scale_width;
-        let scale_height = config.scale_height;
+        // Resolution: prefer explicit numeric fields if not "source" (-2), otherwise dropdown
+        let res_idx = config.resolution_dropdown_state.selected().unwrap_or(0);
+        let mut scale = options::resolution_from_idx(res_idx);
+        if config.scale_width != -2 || config.scale_height != -2 {
+            scale = (config.scale_width, config.scale_height);
+        }
+        let (scale_width, scale_height) = scale;
 
         // Map rate control mode to bitrate settings
         let (video_target_bitrate, video_min_bitrate, video_max_bitrate, video_bufsize) =
@@ -654,14 +329,29 @@ impl Profile {
                 ),
             };
 
-        Self {
+        let mut profile = Self {
             name: name.clone(),
             suffix: name.to_lowercase().replace(' ', "_"),
-            container: "webm".to_string(),
+            container,
             video_codec: "libvpx-vp9".to_string(),
-            audio_codec,
-            audio_bitrate: config.audio_bitrate,
-            downmix_stereo: config.force_stereo,
+            audio_primary_codec,
+            audio_primary_bitrate: config.audio_primary_bitrate,
+            audio_primary_downmix: config.audio_primary_downmix,
+            audio_add_ac3: config.audio_add_ac3,
+            audio_ac3_bitrate: config.audio_ac3_bitrate,
+            audio_add_stereo: config.audio_add_stereo,
+            audio_stereo_codec,
+            audio_stereo_bitrate: config.audio_stereo_bitrate,
+            audio_codec: None,
+            audio_bitrate: None,
+            downmix_stereo: None,
+            audio_passthrough: None,
+
+            // Output settings
+            output_dir: config.output_dir.clone(),
+            filename_pattern: config.filename_pattern.clone(),
+            overwrite: config.overwrite,
+            additional_args: config.additional_args.clone(),
 
             // Video output constraints
             fps,
@@ -682,7 +372,7 @@ impl Profile {
             cpu_used_pass1: config.cpu_used_pass1,
             cpu_used_pass2: config.cpu_used_pass2,
             two_pass: config.two_pass,
-            quality_mode,
+            quality_mode: quality_mode.clone(),
 
             // VP9 settings
             vp9_profile,
@@ -697,8 +387,8 @@ impl Profile {
             max_workers: config.max_workers,
 
             // GOP & keyframes
-            gop_length: config.gop_length,
-            keyint_min: config.keyint_min,
+            gop_length: config.gop_length.clone(),
+            keyint_min: config.keyint_min.clone(),
             fixed_gop: config.fixed_gop,
             lag_in_frames: config.lag_in_frames,
             auto_alt_ref: config.auto_alt_ref,
@@ -712,10 +402,10 @@ impl Profile {
             enable_tpl: config.enable_tpl,
             sharpness: config.sharpness,
             noise_sensitivity: config.noise_sensitivity,
-            static_thresh: config.static_thresh,
-            max_intra_rate: config.max_intra_rate,
+            static_thresh: config.static_thresh.clone(),
+            max_intra_rate: config.max_intra_rate.clone(),
             aq_mode,
-            tune_content,
+            tune_content: tune_content.clone(),
 
             // Color / HDR
             colorspace,
@@ -725,13 +415,105 @@ impl Profile {
 
             // Hardware encoding settings
             use_hardware_encoding: config.use_hardware_encoding,
-            hw_rc_mode: config.vaapi_rc_mode.parse().unwrap_or(4), // Default to ICQ
+            hw_rc_mode: config.vaapi_rc_mode.parse().unwrap_or(1), // Default to CQP
             hw_global_quality: config.qsv_global_quality,
             hw_b_frames: config.vaapi_b_frames.parse().unwrap_or(0),
             hw_loop_filter_level: config.vaapi_loop_filter_level.parse().unwrap_or(16),
             hw_loop_filter_sharpness: config.vaapi_loop_filter_sharpness.parse().unwrap_or(4),
             hw_compression_level: config.vaapi_compression_level.parse().unwrap_or(4),
+
+            // Codec-specific config
+            codec: match config.codec_selection {
+                crate::ui::state::CodecSelection::Vp9 => Codec::Vp9(Vp9Config {
+                    vp9_profile,
+                    quality_mode,
+                    cpu_used: config.cpu_used,
+                    cpu_used_pass1: config.cpu_used_pass1,
+                    cpu_used_pass2: config.cpu_used_pass2,
+                    row_mt: config.row_mt,
+                    tile_columns: config.tile_columns,
+                    tile_rows: config.tile_rows,
+                    threads: config.threads,
+                    frame_parallel: config.frame_parallel,
+                    auto_alt_ref: config.auto_alt_ref,
+                    arnr_max_frames: config.arnr_max_frames,
+                    arnr_strength: config.arnr_strength,
+                    arnr_type,
+                    lag_in_frames: config.lag_in_frames,
+                    enable_tpl: config.enable_tpl,
+                    sharpness: config.sharpness,
+                    noise_sensitivity: config.noise_sensitivity,
+                    static_thresh: config.static_thresh.clone(),
+                    max_intra_rate: config.max_intra_rate.clone(),
+                    aq_mode,
+                    tune_content,
+                    undershoot_pct: config.undershoot_pct,
+                    overshoot_pct: config.overshoot_pct,
+                    hw_rc_mode: config.vaapi_rc_mode.parse().unwrap_or(4),
+                    hw_global_quality: config.qsv_global_quality,
+                    hw_b_frames: config.vaapi_b_frames.parse().unwrap_or(0),
+                    hw_loop_filter_level: config.vaapi_loop_filter_level.parse().unwrap_or(16),
+                    hw_loop_filter_sharpness: config
+                        .vaapi_loop_filter_sharpness
+                        .parse()
+                        .unwrap_or(4),
+                    hw_compression_level: config.vaapi_compression_level.parse().unwrap_or(4),
+                    qsv_preset: config.vp9_qsv_preset,
+                    qsv_look_ahead: config.vp9_qsv_lookahead,
+                    qsv_look_ahead_depth: config.vp9_qsv_lookahead_depth,
+                    hw_denoise: config.hw_denoise.parse().unwrap_or(0),
+                    hw_detail: config.hw_detail.parse().unwrap_or(0),
+                }),
+                crate::ui::state::CodecSelection::Av1 => {
+                    let tune_idx = config.av1_tune_state.selected().unwrap_or(0);
+                    let scm_idx = config.av1_scm_state.selected().unwrap_or(0);
+
+                    let hw_lookahead = config.av1_hw_lookahead.min(100);
+                    Codec::Av1(Av1Config {
+                        preset: config.av1_preset,
+                        tune: tune_idx as u32,
+                        film_grain: config.av1_film_grain,
+                        film_grain_denoise: config.av1_film_grain_denoise,
+                        enable_overlays: config.av1_enable_overlays,
+                        scd: config.av1_scd,
+                        scm: scm_idx as u32,
+                        enable_tf: config.av1_enable_tf,
+                        hw_preset: config.av1_hw_preset.to_string(),
+                        hw_cq: config.av1_hw_cq,
+                        svt_crf: config.av1_svt_crf,
+                        qsv_cq: config.av1_qsv_cq,
+                        nvenc_cq: config.av1_nvenc_cq,
+                        vaapi_cq: config.av1_vaapi_cq,
+                        hw_lookahead,
+                        hw_tile_cols: config.av1_hw_tile_cols,
+                        hw_tile_rows: config.av1_hw_tile_rows,
+                        hw_denoise: config.hw_denoise.parse().unwrap_or(0),
+                        hw_detail: config.hw_detail.parse().unwrap_or(0),
+                    })
+                }
+            },
+
+            // Auto-VAMF settings
+            vmaf_enabled: config.auto_vmaf_enabled,
+            vmaf_target: config.auto_vmaf_target.parse().unwrap_or(93.0),
+            vmaf_window_duration_sec: 10, // Not exposed in UI for v1
+            vmaf_analysis_budget_sec: 60, // Not exposed in UI for v1
+            vmaf_n_subsample: 30,         // Not exposed in UI for v1
+            vmaf_max_attempts: config.auto_vmaf_max_attempts.parse().unwrap_or(3),
+            vmaf_step: config.auto_vmaf_step.parse().unwrap_or(2),
+        };
+
+        if let Err(errs) = validate_profile(&profile, HardwareAvailability::default()) {
+            if let Some(first) = errs.first() {
+                profile.suffix = format!(
+                    "{}__invalid_{}",
+                    profile.suffix,
+                    first.field.replace(' ', "_")
+                );
+            }
         }
+
+        profile
     }
 
     /// Apply this Profile's settings to a ConfigState
@@ -744,8 +526,39 @@ impl Profile {
         config.cpu_used_pass1 = self.cpu_used_pass1;
         config.cpu_used_pass2 = self.cpu_used_pass2;
         config.two_pass = self.two_pass;
-        config.audio_bitrate = self.audio_bitrate;
-        config.force_stereo = self.downmix_stereo;
+
+        // Audio settings - multi-track
+        config.audio_primary_codec = match self.audio_primary_codec.as_str() {
+            "passthrough" => crate::ui::state::AudioPrimaryCodec::Passthrough,
+            "libopus" => crate::ui::state::AudioPrimaryCodec::Opus,
+            "aac" => crate::ui::state::AudioPrimaryCodec::Aac,
+            "mp3" => crate::ui::state::AudioPrimaryCodec::Mp3,
+            "vorbis" => crate::ui::state::AudioPrimaryCodec::Vorbis,
+            _ => crate::ui::state::AudioPrimaryCodec::Opus,
+        };
+        config
+            .audio_primary_codec_state
+            .select(Some(config.audio_primary_codec.to_index()));
+        config.audio_primary_bitrate = self.audio_primary_bitrate;
+        config.audio_primary_downmix = self.audio_primary_downmix;
+        config.audio_add_ac3 = self.audio_add_ac3;
+        config.audio_ac3_bitrate = self.audio_ac3_bitrate;
+        config.audio_add_stereo = self.audio_add_stereo;
+        config.audio_stereo_codec = match self.audio_stereo_codec.as_str() {
+            "aac" => crate::ui::state::AudioStereoCodec::Aac,
+            "libopus" => crate::ui::state::AudioStereoCodec::Opus,
+            _ => crate::ui::state::AudioStereoCodec::Aac,
+        };
+        config
+            .audio_stereo_codec_state
+            .select(Some(config.audio_stereo_codec.to_index()));
+        config.audio_stereo_bitrate = self.audio_stereo_bitrate;
+
+        // Output settings
+        config.output_dir = self.output_dir.clone();
+        config.filename_pattern = self.filename_pattern.clone();
+        config.overwrite = self.overwrite;
+        config.additional_args = self.additional_args.clone();
 
         // Video output constraints
         config.fps = self.fps;
@@ -753,30 +566,11 @@ impl Profile {
         config.scale_height = self.scale_height;
 
         // Map FPS value to dropdown index
-        let fps_idx = match self.fps {
-            0 => 0,    // Source
-            24 => 2,   // 24
-            25 => 3,   // 25
-            30 => 5,   // 30
-            50 => 6,   // 50
-            60 => 8,   // 60
-            120 => 9,  // 120
-            144 => 10, // 144
-            _ => 0,    // Default to Source
-        };
+        let fps_idx = crate::ui::options::fps_to_idx(self.fps);
         config.fps_dropdown_state.select(Some(fps_idx));
 
         // Map resolution to dropdown index
-        let res_idx = match (self.scale_width, self.scale_height) {
-            (-2, -2) => 0,     // Source
-            (640, 360) => 1,   // 360p
-            (854, 480) => 2,   // 480p
-            (1280, 720) => 3,  // 720p
-            (1920, 1080) => 4, // 1080p
-            (2560, 1440) => 5, // 1440p
-            (3840, 2160) => 6, // 2160p/4K
-            _ => 0,            // Default to Source
-        };
+        let res_idx = crate::ui::options::resolution_to_idx(self.scale_width, self.scale_height);
         config.resolution_dropdown_state.select(Some(res_idx));
 
         // Rate control
@@ -810,8 +604,8 @@ impl Profile {
         config.max_workers = self.max_workers;
 
         // GOP & keyframes
-        config.gop_length = self.gop_length;
-        config.keyint_min = self.keyint_min;
+        config.gop_length = self.gop_length.clone();
+        config.keyint_min = self.keyint_min.clone();
         config.fixed_gop = self.fixed_gop;
         config.lag_in_frames = self.lag_in_frames;
         config.auto_alt_ref = self.auto_alt_ref;
@@ -824,18 +618,13 @@ impl Profile {
         config.enable_tpl = self.enable_tpl;
         config.sharpness = self.sharpness;
         config.noise_sensitivity = self.noise_sensitivity;
-        config.static_thresh = self.static_thresh;
-        config.max_intra_rate = self.max_intra_rate;
+        config.static_thresh = self.static_thresh.clone();
+        config.max_intra_rate = self.max_intra_rate.clone();
 
         // Map Profile values back to ListState selections
 
         // Quality mode: "good", "realtime", "best" → 0, 1, 2
-        let quality_idx = match self.quality_mode.as_str() {
-            "good" => 0,
-            "realtime" => 1,
-            "best" => 2,
-            _ => 0,
-        };
+        let quality_idx = crate::ui::options::quality_mode_to_idx(self.quality_mode.as_str());
         config.quality_mode_state.select(Some(quality_idx));
 
         // VP9 profile: u8 → index
@@ -844,95 +633,58 @@ impl Profile {
             .select(Some(self.vp9_profile as usize));
 
         // Pixel format: "yuv420p", "yuv420p10le" → 0, 1
-        let pix_fmt_idx = match self.pix_fmt.as_str() {
-            "yuv420p" => 0,
-            "yuv420p10le" => 1,
-            _ => 0,
-        };
+        let pix_fmt_idx = crate::ui::options::pix_fmt_to_idx(self.pix_fmt.as_str());
         config.pix_fmt_state.select(Some(pix_fmt_idx));
 
         // AQ mode: ffmpeg value → index
-        let aq_idx = match self.aq_mode {
-            -1 => 0, // Auto
-            0 => 1,  // Off
-            2 => 2,  // Variance
-            1 => 3,  // Complexity
-            3 => 4,  // Cyclic
-            4 => 5,  // 360 Video
-            _ => 2,  // Default to Variance
-        };
+        let aq_idx = crate::ui::options::aq_mode_to_idx(self.aq_mode);
         config.aq_mode_state.select(Some(aq_idx));
 
-        // Audio codec: string → index
-        let audio_idx = match self.audio_codec.as_str() {
-            "libopus" => 0,
-            "aac" => 1,
-            "mp3" => 2,
-            "vorbis" => 3,
-            _ => 0,
-        };
-        config.codec_list_state.select(Some(audio_idx));
+        // Audio is handled in apply_to_config()
+
+        // Container: string → index
+        let container_idx = crate::ui::options::container_to_idx(self.container.as_str());
+        config.container_dropdown_state.select(Some(container_idx));
 
         // Tune content: string → index
-        let tune_idx = match self.tune_content.as_str() {
-            "default" => 0,
-            "screen" => 1,
-            "film" => 2,
-            _ => 0,
-        };
+        let tune_idx = crate::ui::options::tune_content_to_idx(self.tune_content.as_str());
         config.tune_content_state.select(Some(tune_idx));
 
-        // Colorspace: ffmpeg value → index
-        let colorspace_idx = match self.colorspace {
-            -1 => 0, // Auto
-            1 => 1,  // BT709
-            5 => 2,  // BT470BG
-            6 => 3,  // SMPTE170M
-            9 => 4,  // BT2020
-            _ => 0,
-        };
-        config.colorspace_state.select(Some(colorspace_idx));
+        // Detect preset from color values, or default to Auto if custom
+        if let Some(preset) = crate::ui::options::colorspace_values_to_preset(
+            self.colorspace,
+            self.color_primaries,
+            self.color_trc,
+            self.color_range,
+        ) {
+            config.colorspace_preset = preset;
+            config
+                .colorspace_preset_state
+                .select(Some(crate::ui::options::colorspace_preset_to_idx(preset)));
+        } else {
+            // Custom values → default to Auto in UI, but preserve actual values
+            config.colorspace_preset = crate::ui::state::ColorSpacePreset::Auto;
+            config.colorspace_preset_state.select(Some(0));
+        }
 
-        // Color primaries: ffmpeg value → index
-        let primaries_idx = match self.color_primaries {
-            -1 => 0, // Auto
-            1 => 1,  // BT709
-            4 => 2,  // BT470M
-            5 => 3,  // BT470BG
-            9 => 4,  // BT2020
-            _ => 0,
-        };
-        config.color_primaries_state.select(Some(primaries_idx));
-
-        // Color TRC: ffmpeg value → index
-        let trc_idx = match self.color_trc {
-            -1 => 0, // Auto
-            1 => 1,  // BT709
-            6 => 2,  // SMPTE170M
-            16 => 3, // SMPTE2084 (PQ)
-            18 => 4, // ARIB-B67 (HLG)
-            _ => 0,
-        };
-        config.color_trc_state.select(Some(trc_idx));
-
-        // Color range: ffmpeg value → index
-        let range_idx = match self.color_range {
-            -1 => 0, // Auto
-            0 => 1,  // TV/Limited
-            1 => 2,  // PC/Full
-            _ => 0,
-        };
-        config.color_range_state.select(Some(range_idx));
+        // Always preserve actual numeric values
+        config.colorspace = self.colorspace;
+        config.color_primaries = self.color_primaries;
+        config.color_trc = self.color_trc;
+        config.color_range = self.color_range;
 
         // ARNR type: ffmpeg value → index
-        let arnr_type_idx = match self.arnr_type {
-            -1 => 0, // Auto
-            1 => 1,  // Backward
-            2 => 2,  // Forward
-            3 => 3,  // Centered
-            _ => 0,
-        };
+        let arnr_type_idx = crate::ui::options::arnr_type_to_idx(self.arnr_type);
         config.arnr_type_state.select(Some(arnr_type_idx));
+
+        // Synchronize numeric fields with dropdown states
+        // While these are read from dropdowns when saving profiles (from_config),
+        // we keep them synchronized here so ConfigState accurately reflects loaded values
+        config.colorspace = self.colorspace;
+        config.color_primaries = self.color_primaries;
+        config.color_trc = self.color_trc;
+        config.color_range = self.color_range;
+        config.arnr_type = self.arnr_type;
 
         // Hardware encoding settings
         config.use_hardware_encoding = self.use_hardware_encoding;
@@ -942,6 +694,65 @@ impl Profile {
         config.vaapi_loop_filter_level = self.hw_loop_filter_level.to_string();
         config.vaapi_loop_filter_sharpness = self.hw_loop_filter_sharpness.to_string();
         config.vaapi_compression_level = self.hw_compression_level.to_string();
+
+        // Apply codec-specific settings
+        match &self.codec {
+            Codec::Vp9(vp9) => {
+                config.codec_selection = crate::ui::options::codec_selection_from_idx(0);
+                config
+                    .video_codec_state
+                    .select(Some(crate::ui::options::codec_selection_to_idx(
+                        config.codec_selection,
+                    )));
+                // VP9-specific fields are already applied above (common fields)
+                config.vp9_qsv_preset = vp9.qsv_preset;
+                config.vp9_qsv_lookahead = vp9.qsv_look_ahead;
+                config.vp9_qsv_lookahead_depth = vp9.qsv_look_ahead_depth;
+                config.hw_denoise = vp9.hw_denoise.to_string();
+                config.hw_detail = vp9.hw_detail.to_string();
+            }
+            Codec::Av1(av1) => {
+                config.codec_selection = crate::ui::options::codec_selection_from_idx(1);
+                config
+                    .video_codec_state
+                    .select(Some(crate::ui::options::codec_selection_to_idx(
+                        config.codec_selection,
+                    )));
+
+                // AV1 software settings
+                config.av1_preset = av1.preset;
+                config
+                    .av1_tune_state
+                    .select(Some(crate::ui::options::av1_tune_to_idx(av1.tune)));
+                config.av1_film_grain = av1.film_grain;
+                config.av1_film_grain_denoise = av1.film_grain_denoise;
+                config.av1_enable_overlays = av1.enable_overlays;
+                config.av1_scd = av1.scd;
+                config
+                    .av1_scm_state
+                    .select(Some(crate::ui::options::av1_scm_to_idx(av1.scm)));
+                config.av1_enable_tf = av1.enable_tf;
+
+                // AV1 hardware settings - convert string preset to u32
+                config.av1_hw_preset = av1.hw_preset.trim_start_matches('p').parse().unwrap_or(4);
+                config.av1_hw_cq = av1.hw_cq;
+                config.av1_svt_crf = av1.svt_crf;
+                config.av1_qsv_cq = av1.qsv_cq;
+                config.av1_nvenc_cq = av1.nvenc_cq;
+                config.av1_vaapi_cq = av1.vaapi_cq;
+                config.av1_hw_lookahead = av1.hw_lookahead;
+                config.av1_hw_tile_cols = av1.hw_tile_cols;
+                config.av1_hw_tile_rows = av1.hw_tile_rows;
+                config.hw_denoise = av1.hw_denoise.to_string();
+                config.hw_detail = av1.hw_detail.to_string();
+            }
+        }
+
+        // Auto-VAMF settings
+        config.auto_vmaf_enabled = self.vmaf_enabled;
+        config.auto_vmaf_target = self.vmaf_target.to_string();
+        config.auto_vmaf_step = self.vmaf_step.to_string();
+        config.auto_vmaf_max_attempts = self.vmaf_max_attempts.to_string();
     }
 
     /// Get the profiles directory path (creates if doesn't exist)
@@ -982,6 +793,121 @@ impl Profile {
         Ok(profiles_path)
     }
 
+    /// Synchronize legacy fields from the codec-specific configuration.
+    ///
+    /// This ensures video_codec, crf, hw_global_quality, and other legacy fields
+    /// match the active Codec enum configuration. This is necessary because:
+    /// 1. The UI updates codec-specific fields (e.g., Av1Config::hw_cq)
+    /// 2. But command builders may still read legacy fields
+    /// 3. Deserialized profiles may have stale legacy values
+    ///
+    /// Call this after loading a profile or before encoding to ensure consistency.
+    pub fn sync_legacy_fields(&mut self) {
+        match &self.codec {
+            Codec::Vp9(vp9) => {
+                // Sync video_codec hint (will be refined by select_encoder)
+                // Don't hardcode a specific encoder - just set the codec family
+                self.video_codec = if self.use_hardware_encoding {
+                    "vp9_vaapi".to_string() // Placeholder - select_encoder will choose best
+                } else {
+                    "libvpx-vp9".to_string()
+                };
+
+                // Sync quality settings
+                if self.use_hardware_encoding {
+                    self.hw_global_quality = vp9.hw_global_quality;
+                } else {
+                    // Software VP9 uses crf from profile root (not in Vp9Config)
+                    // Keep existing self.crf value
+                }
+
+                // Sync VP9-specific settings
+                self.cpu_used = vp9.cpu_used;
+                self.cpu_used_pass1 = vp9.cpu_used_pass1;
+                self.cpu_used_pass2 = vp9.cpu_used_pass2;
+                self.quality_mode = vp9.quality_mode.clone();
+                self.vp9_profile = vp9.vp9_profile;
+                self.row_mt = vp9.row_mt;
+                self.tile_columns = vp9.tile_columns;
+                self.tile_rows = vp9.tile_rows;
+                self.lag_in_frames = vp9.lag_in_frames;
+                self.auto_alt_ref = vp9.auto_alt_ref;
+                self.arnr_max_frames = vp9.arnr_max_frames;
+                self.arnr_strength = vp9.arnr_strength;
+                self.arnr_type = vp9.arnr_type;
+                self.enable_tpl = vp9.enable_tpl;
+                self.sharpness = vp9.sharpness;
+                self.noise_sensitivity = vp9.noise_sensitivity;
+                self.static_thresh = vp9.static_thresh.clone();
+                self.max_intra_rate = vp9.max_intra_rate.clone();
+                self.aq_mode = vp9.aq_mode;
+                self.tune_content = vp9.tune_content.clone();
+                self.undershoot_pct = vp9.undershoot_pct;
+                self.overshoot_pct = vp9.overshoot_pct;
+
+                // Sync hardware-specific settings
+                self.hw_rc_mode = vp9.hw_rc_mode;
+                self.hw_b_frames = vp9.hw_b_frames;
+                self.hw_loop_filter_level = vp9.hw_loop_filter_level;
+                self.hw_loop_filter_sharpness = vp9.hw_loop_filter_sharpness;
+                self.hw_compression_level = vp9.hw_compression_level;
+            }
+            Codec::Av1(av1) => {
+                // Sync video_codec hint (will be refined by select_encoder)
+                self.video_codec = if self.use_hardware_encoding {
+                    "av1_qsv".to_string() // Placeholder - select_encoder will choose best
+                } else {
+                    "libsvtav1".to_string()
+                };
+
+                // Sync quality settings
+                if self.use_hardware_encoding {
+                    // Hardware AV1 uses hw_cq -> hw_global_quality
+                    self.hw_global_quality = av1.hw_cq;
+                } else {
+                    // Software AV1: libsvtav1 doesn't use CRF in the same way
+                    // Keep existing self.crf if set, otherwise use preset-based quality
+                    // Note: libsvtav1 primarily uses preset + crf combination
+                }
+            }
+        }
+    }
+
+    /// Determine the encoder ID that will be used for this profile
+    ///
+    /// Used for PARAMS validation to determine which encoder-specific
+    /// parameter ranges to check against.
+    #[cfg(feature = "dev-tools")]
+    pub fn resolved_encoder_id(&self) -> String {
+        match &self.codec {
+            Codec::Vp9(_) => {
+                if self.use_hardware_encoding {
+                    // Check video_codec hint to determine QSV vs VAAPI
+                    match self.video_codec.as_str() {
+                        "vp9_qsv" => "vp9_qsv",
+                        _ => "vp9_vaapi", // Default to VAAPI for VP9 hardware
+                    }
+                } else {
+                    "libvpx-vp9"
+                }
+            }
+            Codec::Av1(_) => {
+                if self.use_hardware_encoding {
+                    // Check video_codec hint to determine encoder
+                    match self.video_codec.as_str() {
+                        "av1_nvenc" => "av1_nvenc",
+                        "av1_vaapi" => "av1_vaapi",
+                        "av1_amf" => "av1_amf",
+                        _ => "av1_qsv", // Default to QSV for AV1 hardware
+                    }
+                } else {
+                    "libsvtav1"
+                }
+            }
+        }
+        .to_string()
+    }
+
     /// Save profile to JSON file
     pub fn save(&self, profiles_dir: &Path) -> io::Result<()> {
         use std::fs;
@@ -1004,7 +930,23 @@ impl Profile {
         let path = profiles_dir.join(filename);
 
         let json = fs::read_to_string(path)?;
-        let profile: Self = serde_json::from_str(&json)?;
+        let mut profile: Self = serde_json::from_str(&json)?;
+
+        // Synchronize legacy fields from codec configuration
+        // This fixes profiles that have stale video_codec/crf values
+        profile.sync_legacy_fields();
+
+        // [Phase 4] Validate and clamp parameters when dev-tools enabled
+        #[cfg(feature = "dev-tools")]
+        {
+            use crate::engine::params::validate_and_clamp_profile;
+
+            let encoder_id = profile.resolved_encoder_id();
+            let clamps = validate_and_clamp_profile(&mut profile, &encoder_id);
+
+            // Parameters clamped silently - validation still occurs, just no console output
+            let _ = clamps;
+        }
 
         Ok(profile)
     }
@@ -1106,4 +1048,71 @@ pub fn derive_output_path(
     };
 
     output_dir.join(filename)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sync_legacy_fields_av1_hardware() {
+        // Create a profile with mismatched legacy fields (simulating user's bug)
+        let mut profile = Profile {
+            name: "Test".to_string(),
+            video_codec: "libvpx-vp9".to_string(), // WRONG: VP9 encoder for AV1 codec
+            crf: 37,                               // STALE: Old value
+            hw_global_quality: 70,                 // STALE: Old value
+            use_hardware_encoding: true,
+            codec: Codec::Av1(Av1Config {
+                hw_cq: 105, // CORRECT: User's intended quality
+                preset: 8,
+                tune: 0,
+                film_grain: 0,
+                enable_overlays: true,
+                scd: true,
+                scm: 2,
+                enable_tf: true,
+                hw_preset: "4".to_string(),
+                hw_lookahead: 40,
+                hw_tile_cols: 0,
+                hw_tile_rows: 0,
+                ..Default::default()
+            }),
+            ..Profile::get("av1-qsv") // Use defaults for other fields
+        };
+
+        // Apply sync
+        profile.sync_legacy_fields();
+
+        // Verify sync worked
+        assert_eq!(
+            profile.hw_global_quality, 105,
+            "hw_global_quality should be synced from codec.hw_cq"
+        );
+        assert!(
+            profile.video_codec.contains("av1"),
+            "video_codec should be set to an AV1 encoder variant, got: {}",
+            profile.video_codec
+        );
+    }
+
+    #[test]
+    fn test_sync_legacy_fields_vp9_hardware() {
+        let mut profile = Profile {
+            name: "Test VP9".to_string(),
+            use_hardware_encoding: true,
+            codec: Codec::Vp9(Vp9Config {
+                hw_global_quality: 80,
+                ..Vp9Config::default()
+            }),
+            ..Profile::get("vp9-vaapi-streaming")
+        };
+
+        profile.sync_legacy_fields();
+
+        assert_eq!(
+            profile.hw_global_quality, 80,
+            "hw_global_quality should be synced from Vp9Config"
+        );
+    }
 }

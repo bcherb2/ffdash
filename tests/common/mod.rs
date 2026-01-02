@@ -4,3 +4,4 @@ pub mod helpers;
 pub mod parameter_docs;
 pub mod parameter_mapping;
 pub mod parameter_registry;
+pub mod parameter_registry_av1;

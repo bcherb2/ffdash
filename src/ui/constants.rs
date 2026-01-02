@@ -4,8 +4,11 @@
 // Container formats
 pub const CONTAINER_FORMATS: &[&str] = &["webm", "mp4", "mkv", "avi"];
 
-// Audio codecs
-pub const AUDIO_CODECS: &[&str] = &["libopus", "aac", "mp3", "vorbis"];
+// Audio primary codecs (includes passthrough as first option)
+pub const AUDIO_PRIMARY_CODECS: &[&str] = &["Passthrough", "Opus", "AAC", "MP3", "Vorbis"];
+
+// Audio stereo compatibility codecs (no passthrough - must transcode to stereo)
+pub const AUDIO_STEREO_CODECS: &[&str] = &["AAC", "Opus"];
 
 // VP9 profiles
 pub const VP9_PROFILES: &[&str] = &[
@@ -16,10 +19,14 @@ pub const VP9_PROFILES: &[&str] = &[
 ];
 
 // Pixel formats - display versions (for UI)
-pub const PIX_FMTS_DISPLAY: &[&str] = &["yuv420p (8-bit)", "yuv420p10le (10-bit)"];
+pub const PIX_FMTS_DISPLAY: &[&str] = &[
+    "Auto (source bit depth)",
+    "yuv420p (8-bit)",
+    "yuv420p10le (10-bit)",
+];
 
 // Pixel formats - actual FFmpeg values (for mapping)
-pub const PIX_FMTS: &[&str] = &["yuv420p", "yuv420p10le"];
+pub const PIX_FMTS: &[&str] = &["auto", "yuv420p", "yuv420p10le"];
 
 // Quality modes (libvpx-vp9)
 pub const QUALITY_MODES: &[&str] = &["good", "realtime", "best"];
@@ -51,6 +58,9 @@ pub const COLOR_TRCS: &[&str] = &["Auto", "BT709", "SMPTE170M", "SMPTE2084", "AR
 
 // Color ranges
 pub const COLOR_RANGES: &[&str] = &["Auto", "TV", "PC"];
+
+// Color Space Presets (replaces individual colorspace/primaries/trc/range dropdowns)
+pub const COLORSPACE_PRESETS: &[&str] = &["Auto (passthrough)", "SDR (BT709)", "HDR10 (BT2020+PQ)"];
 
 // FPS options
 pub const FPS_OPTIONS: &[&str] = &[
@@ -92,4 +102,27 @@ pub const RESOLUTION_OPTIONS_DISPLAY: &[&str] = &[
     "1080p (1920x1080)",
     "1440p (2560x1440)",
     "2160p/4K (3840x2160)",
+];
+
+// Video codecs
+pub const VIDEO_CODECS: &[&str] = &["VP9", "AV1"];
+
+// AV1 tune modes (libsvtav1)
+pub const AV1_TUNES: &[&str] = &["Visual Quality", "SSIM", "VMAF"];
+
+// AV1 screen content mode (libsvtav1)
+pub const AV1_SCM_MODES: &[&str] = &["Off", "On", "Auto"];
+
+// AV1 hardware presets - Intel QSV (1=best quality, 7=fastest)
+pub const AV1_QSV_PRESETS: &[&str] = &["1 (Best)", "2", "3", "4 (Balanced)", "5", "6", "7 (Fast)"];
+
+// AV1 hardware presets - NVIDIA NVENC (p1=fastest, p7=best quality)
+pub const AV1_NVENC_PRESETS: &[&str] = &[
+    "p1 (Fast)",
+    "p2",
+    "p3",
+    "p4 (Balanced)",
+    "p5",
+    "p6",
+    "p7 (Best)",
 ];

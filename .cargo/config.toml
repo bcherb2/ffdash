@@ -1,0 +1,6 @@
+# Cargo configuration for ffdash
+
+# Use system git CLI for fetching dependencies
+# This is required for private git dependencies that need SSH authentication
+[net]
+git-fetch-with-cli = true

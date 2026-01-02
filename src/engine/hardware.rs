@@ -1,11 +1,434 @@
 //! Intel Arc GPU hardware encoding detection and monitoring
 
 use std::process::Command;
+use std::sync::OnceLock;
+
+use crate::engine::core::Codec;
 
 /// QSV preset options (veryfast to veryslow)
 pub const QSV_PRESETS: &[&str] = &[
     "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow",
 ];
+
+// ============================================================================
+// Video Encoder Selection
+// ============================================================================
+
+/// Supported video encoders
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoEncoder {
+    // VP9 encoders
+    LibvpxVp9, // Software VP9
+    Vp9Qsv,    // Intel Quick Sync VP9
+    Vp9Vaapi,  // VAAPI VP9 (Intel/AMD)
+
+    // AV1 encoders
+    LibsvtAv1, // Software AV1 (default)
+    LibaomAv1, // Software AV1 (reference, slower)
+    Av1Qsv,    // Intel Quick Sync AV1
+    Av1Nvenc,  // NVIDIA NVENC AV1
+    Av1Vaapi,  // VAAPI AV1 (Intel/AMD)
+    Av1Amf,    // AMD AMF AV1
+}
+
+/// Detected GPU vendor for hardware encoding
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GpuVendor {
+    #[default]
+    Unknown,
+    Intel,
+    Nvidia,
+    Amd,
+}
+
+impl VideoEncoder {
+    /// Get the FFmpeg encoder name
+    pub fn ffmpeg_name(&self) -> &'static str {
+        match self {
+            Self::LibvpxVp9 => "libvpx-vp9",
+            Self::Vp9Qsv => "vp9_qsv",
+            Self::Vp9Vaapi => "vp9_vaapi",
+            Self::LibsvtAv1 => "libsvtav1",
+            Self::LibaomAv1 => "libaom-av1",
+            Self::Av1Qsv => "av1_qsv",
+            Self::Av1Nvenc => "av1_nvenc",
+            Self::Av1Vaapi => "av1_vaapi",
+            Self::Av1Amf => "av1_amf",
+        }
+    }
+
+    /// Check if this is a hardware encoder
+    pub fn is_hardware(&self) -> bool {
+        !matches!(self, Self::LibvpxVp9 | Self::LibsvtAv1 | Self::LibaomAv1)
+    }
+
+    /// Get user-friendly display name
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::LibvpxVp9 => "libvpx-vp9 (Software)",
+            Self::Vp9Qsv => "VP9 Quick Sync (Intel)",
+            Self::Vp9Vaapi => "VP9 VAAPI (Hardware)",
+            Self::LibsvtAv1 => "SVT-AV1 (Software)",
+            Self::LibaomAv1 => "libaom-av1 (Software)",
+            Self::Av1Qsv => "AV1 Quick Sync (Intel)",
+            Self::Av1Nvenc => "AV1 NVENC (NVIDIA)",
+            Self::Av1Vaapi => "AV1 VAAPI (Hardware)",
+            Self::Av1Amf => "AV1 AMF (AMD)",
+        }
+    }
+}
+
+/// Cache for the output of `ffmpeg -encoders`.
+static FFMPEG_ENCODERS_OUTPUT_CACHE: OnceLock<String> = OnceLock::new();
+
+fn ffmpeg_encoders_output() -> &'static str {
+    FFMPEG_ENCODERS_OUTPUT_CACHE.get_or_init(|| {
+        Command::new("ffmpeg")
+            .args(["-hide_banner", "-encoders"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default()
+    })
+}
+
+/// Cache for AV1 encoder availability checks
+static AV1_ENCODER_CACHE: OnceLock<Av1EncoderAvailability> = OnceLock::new();
+
+#[derive(Debug, Clone)]
+struct Av1EncoderAvailability {
+    qsv: bool,
+    nvenc: bool,
+    vaapi: bool,
+    amf: bool,
+    svt: bool,
+    aom: bool,
+}
+
+/// Check which AV1 encoders are available (cached)
+fn get_av1_encoder_availability() -> &'static Av1EncoderAvailability {
+    AV1_ENCODER_CACHE.get_or_init(|| {
+        let encoders_output = ffmpeg_encoders_output();
+
+        Av1EncoderAvailability {
+            qsv: encoders_output.contains("av1_qsv"),
+            nvenc: encoders_output.contains("av1_nvenc") && has_nvidia_gpu(),
+            vaapi: encoders_output.contains("av1_vaapi"),
+            amf: encoders_output.contains("av1_amf") && has_amd_gpu(),
+            svt: encoders_output.contains("libsvtav1"),
+            aom: encoders_output.contains("libaom-av1"),
+        }
+    })
+}
+
+pub fn check_vp9_qsv_available() -> bool {
+    ffmpeg_encoders_output().contains("vp9_qsv")
+}
+
+pub fn check_vp9_vaapi_available() -> bool {
+    ffmpeg_encoders_output().contains("vp9_vaapi")
+}
+
+/// Check if av1_qsv encoder is available
+pub fn check_av1_qsv_available() -> bool {
+    get_av1_encoder_availability().qsv
+}
+
+/// Check if av1_nvenc encoder is available
+pub fn check_av1_nvenc_available() -> bool {
+    get_av1_encoder_availability().nvenc
+}
+
+/// Check if av1_vaapi encoder is available
+pub fn check_av1_vaapi_available() -> bool {
+    get_av1_encoder_availability().vaapi
+}
+
+/// Check if av1_amf encoder is available
+pub fn check_av1_amf_available() -> bool {
+    get_av1_encoder_availability().amf
+}
+
+/// Check if libsvtav1 encoder is available
+pub fn check_libsvtav1_available() -> bool {
+    get_av1_encoder_availability().svt
+}
+
+/// Check if libaom-av1 encoder is available
+pub fn check_libaom_av1_available() -> bool {
+    get_av1_encoder_availability().aom
+}
+
+/// Select the best encoder based on codec choice and hardware preference
+///
+/// For AV1 with hardware enabled, tries encoders in priority order:
+/// 1. av1_qsv (Intel Quick Sync)
+/// 2. av1_nvenc (NVIDIA)
+/// 3. av1_vaapi (VAAPI)
+/// 4. av1_amf (AMD)
+///
+///    Falls back to libsvtav1 if no hardware encoder is available.
+pub fn select_encoder(
+    codec: &Codec,
+    use_hardware: bool,
+    preferred_encoder: Option<&str>,
+) -> VideoEncoder {
+    #[cfg(feature = "dev-logging")]
+    {
+        // Debug logging
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/ffdash_vmaf_debug.log")
+        {
+            use std::io::Write;
+            let _ = writeln!(
+                f,
+                "[select_encoder] use_hardware={}, codec={:?}, preferred={:?}",
+                use_hardware,
+                match codec {
+                    Codec::Vp9(_) => "VP9",
+                    Codec::Av1(_) => "AV1",
+                },
+                preferred_encoder
+            );
+        }
+    }
+
+    match codec {
+        Codec::Vp9(_) => {
+            // QSV encoders may exist in FFmpeg builds even when no Intel GPU runtime is present.
+            // On Linux, we require both a /dev/dri render node AND an Intel GPU to avoid
+            // selecting QSV on NVIDIA-only or AMD-only systems.
+            let qsv_runtime_ok =
+                !cfg!(target_os = "linux") || (detect_render_device().is_some() && has_intel_gpu());
+
+            if use_hardware {
+                // Check for encoder preference first
+                if let Some(pref) = preferred_encoder {
+                    match pref {
+                        "vp9_qsv" if qsv_runtime_ok && check_vp9_qsv_available() => {
+                            #[cfg(feature = "dev-logging")]
+                            {
+                                if let Ok(mut f) = std::fs::OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open("/tmp/ffdash_vmaf_debug.log")
+                                {
+                                    use std::io::Write;
+                                    let _ = writeln!(
+                                        f,
+                                        "[select_encoder] Using preferred VP9 encoder: vp9_qsv"
+                                    );
+                                }
+                            }
+                            return VideoEncoder::Vp9Qsv;
+                        }
+                        "vp9_vaapi" if check_ffmpeg_vaapi() => {
+                            #[cfg(feature = "dev-logging")]
+                            {
+                                if let Ok(mut f) = std::fs::OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open("/tmp/ffdash_vmaf_debug.log")
+                                {
+                                    use std::io::Write;
+                                    let _ = writeln!(
+                                        f,
+                                        "[select_encoder] Using preferred VP9 encoder: vp9_vaapi"
+                                    );
+                                }
+                            }
+                            return VideoEncoder::Vp9Vaapi;
+                        }
+                        _ => {
+                            #[cfg(feature = "dev-logging")]
+                            {
+                                if let Ok(mut f) = std::fs::OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open("/tmp/ffdash_vmaf_debug.log")
+                                {
+                                    use std::io::Write;
+                                    let _ = writeln!(
+                                        f,
+                                        "[select_encoder] Preferred VP9 encoder '{}' not available, using fallback",
+                                        pref
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Fall back to priority order
+                if qsv_runtime_ok && check_vp9_qsv_available() {
+                    VideoEncoder::Vp9Qsv
+                } else if check_ffmpeg_vaapi() {
+                    VideoEncoder::Vp9Vaapi
+                } else {
+                    VideoEncoder::LibvpxVp9
+                }
+            } else {
+                VideoEncoder::LibvpxVp9
+            }
+        }
+        Codec::Av1(_) => {
+            if use_hardware {
+                // Try hardware encoders in priority order
+                let avail = get_av1_encoder_availability();
+
+                #[cfg(feature = "dev-logging")]
+                {
+                    // Debug log availability
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/ffdash_vmaf_debug.log")
+                    {
+                        use std::io::Write;
+                        let _ = writeln!(
+                            f,
+                            "[select_encoder] AV1 avail: qsv={}, nvenc={}, vaapi={}, amf={}, svt={}, aom={}",
+                            avail.qsv, avail.nvenc, avail.vaapi, avail.amf, avail.svt, avail.aom
+                        );
+                        let _ = writeln!(
+                            f,
+                            "[select_encoder] Intel Arc detected: {:?}",
+                            detect_intel_arc()
+                        );
+                    }
+                }
+
+                let qsv_runtime_ok = !cfg!(target_os = "linux")
+                    || (detect_render_device().is_some() && has_intel_gpu());
+
+                // Check for encoder preference first
+                if let Some(pref) = preferred_encoder {
+                    let encoder = match pref {
+                        "av1_qsv" if qsv_runtime_ok && avail.qsv => Some(VideoEncoder::Av1Qsv),
+                        "av1_nvenc" if avail.nvenc => Some(VideoEncoder::Av1Nvenc),
+                        "av1_vaapi" if avail.vaapi => Some(VideoEncoder::Av1Vaapi),
+                        "av1_amf" if avail.amf => Some(VideoEncoder::Av1Amf),
+                        _ => None,
+                    };
+
+                    if let Some(enc) = encoder {
+                        #[cfg(feature = "dev-logging")]
+                        {
+                            if let Ok(mut f) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open("/tmp/ffdash_vmaf_debug.log")
+                            {
+                                use std::io::Write;
+                                let _ = writeln!(
+                                    f,
+                                    "[select_encoder] Using preferred AV1 encoder: {:?}",
+                                    enc
+                                );
+                            }
+                        }
+                        return enc;
+                    } else {
+                        #[cfg(feature = "dev-logging")]
+                        {
+                            if let Ok(mut f) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open("/tmp/ffdash_vmaf_debug.log")
+                            {
+                                use std::io::Write;
+                                let _ = writeln!(
+                                    f,
+                                    "[select_encoder] Preferred AV1 encoder '{}' not available, using fallback",
+                                    pref
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Fall back to priority order (discrete GPUs first, then integrated)
+                let encoder = if avail.nvenc {
+                    VideoEncoder::Av1Nvenc
+                } else if avail.amf {
+                    VideoEncoder::Av1Amf
+                } else if qsv_runtime_ok && avail.qsv {
+                    VideoEncoder::Av1Qsv
+                } else if avail.vaapi {
+                    VideoEncoder::Av1Vaapi
+                } else {
+                    // No hardware encoder available, fall back to software
+                    VideoEncoder::LibsvtAv1
+                };
+
+                #[cfg(feature = "dev-logging")]
+                {
+                    // Debug log selected encoder
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/ffdash_vmaf_debug.log")
+                    {
+                        use std::io::Write;
+                        let _ = writeln!(f, "[select_encoder] Selected AV1 encoder: {:?}", encoder);
+                    }
+                }
+
+                encoder
+            } else {
+                // Software encoding - prefer SVT-AV1 (faster)
+                #[cfg(feature = "dev-logging")]
+                {
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/ffdash_vmaf_debug.log")
+                    {
+                        use std::io::Write;
+                        let _ = writeln!(f, "[select_encoder] use_hardware=false, using LibsvtAv1");
+                    }
+                }
+                VideoEncoder::LibsvtAv1
+            }
+        }
+    }
+}
+
+/// Get a list of all available AV1 encoders (for UI display)
+pub fn list_available_av1_encoders() -> Vec<VideoEncoder> {
+    let avail = get_av1_encoder_availability();
+    let mut encoders = Vec::new();
+
+    // Software encoders first
+    if avail.svt {
+        encoders.push(VideoEncoder::LibsvtAv1);
+    }
+    if avail.aom {
+        encoders.push(VideoEncoder::LibaomAv1);
+    }
+
+    // Hardware encoders
+    if avail.qsv {
+        encoders.push(VideoEncoder::Av1Qsv);
+    }
+    if avail.nvenc {
+        encoders.push(VideoEncoder::Av1Nvenc);
+    }
+    if avail.vaapi {
+        encoders.push(VideoEncoder::Av1Vaapi);
+    }
+    if avail.amf {
+        encoders.push(VideoEncoder::Av1Amf);
+    }
+
+    encoders
+}
+
+// ============================================================================
+// VAAPI Detection (VP9 and AV1)
+// ============================================================================
 
 /// VA-API driver information detected at runtime
 #[derive(Debug, Clone)]
@@ -28,6 +451,7 @@ pub struct HwPreflightResult {
     pub available: bool,
     pub platform_ok: bool,
     pub gpu_detected: bool,
+    pub gpu_vendor: GpuVendor,
     pub vaapi_ok: bool,
     pub encoder_ok: bool,
     pub gpu_model: Option<String>,
@@ -38,22 +462,32 @@ pub struct HwPreflightResult {
 /// Run all pre-flight checks for VAAPI hardware encoding
 pub fn run_preflight() -> HwPreflightResult {
     let platform_ok = cfg!(target_os = "linux");
-    let gpu_model = detect_intel_arc();
-    let gpu_detected = gpu_model.is_some();
+    let (gpu_vendor, gpu_model) = detect_gpu();
+    let render_device = detect_render_device();
+    let gpu_detected = gpu_model.is_some() || render_device.is_some();
     let driver_path = detect_vaapi_driver_path();
     let vaapi_ok = platform_ok && check_vaapi_vp9();
     let encoder_ok = platform_ok && check_ffmpeg_vaapi();
+    let qsv_ok =
+        platform_ok && gpu_detected && (check_vp9_qsv_available() || check_av1_qsv_available());
 
-    let available = platform_ok && gpu_detected && vaapi_ok && encoder_ok;
+    let available = platform_ok
+        && gpu_detected
+        && driver_path.is_some()
+        && (qsv_ok || (vaapi_ok && encoder_ok));
 
-    let error_message = if !platform_ok {
+    let error_message = if available {
+        None
+    } else if !platform_ok {
         Some("Linux only".to_string())
     } else if !gpu_detected {
-        Some("No Intel Arc GPU".to_string())
+        Some("No /dev/dri render device".to_string())
     } else if driver_path.is_none() {
         Some("VAAPI driver not found".to_string())
     } else if !vaapi_ok {
         Some("VA-API VP9 unavailable".to_string())
+    } else if !encoder_ok && !qsv_ok {
+        Some("No supported hardware encoders found".to_string())
     } else if !encoder_ok {
         Some("FFmpeg vp9_vaapi not found".to_string())
     } else {
@@ -64,6 +498,7 @@ pub fn run_preflight() -> HwPreflightResult {
         available,
         platform_ok,
         gpu_detected,
+        gpu_vendor,
         vaapi_ok,
         encoder_ok,
         gpu_model,
@@ -80,10 +515,50 @@ fn detect_intel_arc() -> Option<String> {
         let lower = line.to_lowercase();
         if lower.contains("intel") && (lower.contains("arc") || lower.contains("dg2")) {
             // Extract GPU model name (everything after the last colon)
-            return Some(line.split(':').last()?.trim().to_string());
+            return Some(line.split(':').next_back()?.trim().to_string());
         }
     }
     None
+}
+
+/// Detect NVIDIA GPU using nvidia-smi
+pub fn detect_nvidia_gpu() -> Option<String> {
+    let output = Command::new("nvidia-smi")
+        .args(["--query-gpu=name", "--format=csv,noheader"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let name = stdout.lines().next()?.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// Check if NVIDIA GPU is present (for NVENC support)
+pub fn has_nvidia_gpu() -> bool {
+    detect_nvidia_gpu().is_some()
+}
+
+/// Detect the primary GPU vendor and model
+pub fn detect_gpu() -> (GpuVendor, Option<String>) {
+    // Try NVIDIA first (more specific detection via nvidia-smi)
+    if let Some(model) = detect_nvidia_gpu() {
+        return (GpuVendor::Nvidia, Some(model));
+    }
+
+    // Try Intel
+    if let Some(model) = detect_intel_arc() {
+        return (GpuVendor::Intel, Some(model));
+    }
+
+    (GpuVendor::Unknown, None)
 }
 
 // ==================== NEW VAAPI DETECTION SYSTEM ====================
@@ -113,7 +588,7 @@ fn detect_multiarch_tuple() -> Option<String> {
     // Method 2: Use compile-time target
     #[cfg(target_arch = "x86_64")]
     {
-        return Some("x86_64-linux-gnu".to_string());
+        Some("x86_64-linux-gnu".to_string())
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -194,6 +669,42 @@ fn detect_gpu_info() -> Option<String> {
     None
 }
 
+/// Detect if Intel GPU is present (for QSV support)
+fn has_intel_gpu() -> bool {
+    let output = Command::new("lspci").output();
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let lower = line.to_lowercase();
+            if (lower.contains("vga") || lower.contains("display") || lower.contains("3d"))
+                && lower.contains("intel")
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Detect if AMD GPU is present (for AMF support)
+fn has_amd_gpu() -> bool {
+    let output = Command::new("lspci").output();
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let lower = line.to_lowercase();
+            if (lower.contains("vga") || lower.contains("display") || lower.contains("3d"))
+                && (lower.contains("amd")
+                    || lower.contains("radeon")
+                    || lower.contains("advanced micro devices"))
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Map detected GPU vendor to preferred driver
 /// Returns driver names in priority order for the vendor
 fn get_preferred_drivers_for_gpu() -> Vec<&'static str> {
@@ -219,7 +730,7 @@ fn get_preferred_drivers_for_gpu() -> Vec<&'static str> {
 
 /// Detect available render device
 /// Scans /dev/dri/renderD* and returns the first available
-fn detect_render_device() -> Option<String> {
+pub fn detect_render_device() -> Option<String> {
     use std::path::Path;
     let dri_path = Path::new("/dev/dri");
 
@@ -361,9 +872,7 @@ pub fn detect_vaapi_config() -> Option<VaapiConfig> {
     use std::sync::OnceLock;
     static VAAPI_CONFIG: OnceLock<Option<VaapiConfig>> = OnceLock::new();
 
-    VAAPI_CONFIG
-        .get_or_init(|| detect_vaapi_config_impl())
-        .clone()
+    VAAPI_CONFIG.get_or_init(detect_vaapi_config_impl).clone()
 }
 
 // ==================== END NEW VAAPI DETECTION SYSTEM ====================
@@ -539,7 +1048,7 @@ pub fn check_huc_loaded() -> bool {
     Command::new("dmesg")
         .output()
         .ok()
-        .and_then(|o| {
+        .map(|o| {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let stderr = String::from_utf8_lossy(&o.stderr);
 
@@ -553,7 +1062,7 @@ pub fn check_huc_loaded() -> bool {
             if combined.to_lowercase().contains("huc")
                 && combined.to_lowercase().contains("authenticated")
             {
-                return Some(true);
+                return true;
             }
 
             // Also check for explicit HuC firmware loading
@@ -561,10 +1070,10 @@ pub fn check_huc_loaded() -> bool {
                 && (combined.to_lowercase().contains("loaded")
                     || combined.to_lowercase().contains("version"))
             {
-                return Some(true);
+                return true;
             }
 
-            Some(false)
+            false
         })
         .unwrap_or(false)
 }
@@ -613,6 +1122,70 @@ pub fn get_gpu_stats() -> Option<GpuStats> {
             })
             .unwrap_or(0.0) as f32,
     })
+}
+
+/// Check if nvidia-smi is available
+pub fn nvidia_smi_available() -> bool {
+    Command::new("nvidia-smi")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Get GPU stats from nvidia-smi (CSV output)
+pub fn get_nvidia_gpu_stats() -> Option<GpuStats> {
+    let output = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=utilization.gpu,memory.used,memory.total",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().next()?;
+    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+
+    if parts.len() >= 3 {
+        let utilization: f32 = parts[0].parse().ok()?;
+        let memory_used: f32 = parts[1].parse().ok()?;
+        let memory_total: f32 = parts[2].parse().ok()?;
+        let memory_percent = if memory_total > 0.0 {
+            (memory_used / memory_total) * 100.0
+        } else {
+            0.0
+        };
+
+        Some(GpuStats {
+            utilization,
+            memory_percent,
+        })
+    } else {
+        None
+    }
+}
+
+/// Get GPU stats from appropriate tool based on vendor
+pub fn get_gpu_stats_for_vendor(vendor: GpuVendor) -> Option<GpuStats> {
+    match vendor {
+        GpuVendor::Nvidia => get_nvidia_gpu_stats(),
+        GpuVendor::Intel => get_gpu_stats(),
+        _ => None,
+    }
+}
+
+/// Check if GPU monitoring is available for a vendor
+pub fn gpu_monitoring_available(vendor: GpuVendor) -> bool {
+    match vendor {
+        GpuVendor::Nvidia => nvidia_smi_available(),
+        GpuVendor::Intel => xpu_smi_available(),
+        _ => false,
+    }
 }
 
 #[cfg(test)]

@@ -29,9 +29,13 @@ pub(super) fn handle_worker_message(
             speed,
             bitrate_kbps,
             size_bytes,
+            vmaf_result,
+            vmaf_target,
+            status,
         } => {
             // Update job progress in dashboard
             if let Some(job) = state.dashboard.jobs.iter_mut().find(|j| j.id == job_id) {
+                job.status = status.clone();
                 job.progress_pct = progress_pct;
                 job.out_time_s = out_time_s;
                 job.fps = fps;
@@ -44,7 +48,7 @@ pub(super) fn handle_worker_message(
 
                     let should_update = job
                         .last_speed_update
-                        .map_or(true, |last| last.elapsed() >= SPEED_UPDATE_INTERVAL);
+                        .is_none_or(|last| last.elapsed() >= SPEED_UPDATE_INTERVAL);
 
                     if should_update {
                         job.smoothed_speed = Some(match job.smoothed_speed {
@@ -58,10 +62,13 @@ pub(super) fn handle_worker_message(
 
                 job.bitrate_kbps = bitrate_kbps;
                 job.size_bytes = size_bytes;
+                job.vmaf_result = vmaf_result;
+                job.vmaf_target = vmaf_target;
             }
             // Sync to enc_state
             if let Some(ref mut enc_state) = state.enc_state {
                 if let Some(job) = enc_state.jobs.iter_mut().find(|j| j.id == job_id) {
+                    job.status = status;
                     job.progress_pct = progress_pct;
                     job.out_time_s = out_time_s;
                     job.fps = fps;
@@ -74,7 +81,7 @@ pub(super) fn handle_worker_message(
 
                         let should_update = job
                             .last_speed_update
-                            .map_or(true, |last| last.elapsed() >= SPEED_UPDATE_INTERVAL);
+                            .is_none_or(|last| last.elapsed() >= SPEED_UPDATE_INTERVAL);
 
                         if should_update {
                             job.smoothed_speed = Some(match job.smoothed_speed {
@@ -88,6 +95,8 @@ pub(super) fn handle_worker_message(
 
                     job.bitrate_kbps = bitrate_kbps;
                     job.size_bytes = size_bytes;
+                    job.vmaf_result = vmaf_result;
+                    job.vmaf_target = vmaf_target;
                 }
             }
         }
@@ -216,7 +225,7 @@ pub(super) fn spawn_next_job(state: &mut AppState) {
                     && state.config.hw_encoding_available == Some(true)
                 {
                     Some(crate::engine::HwEncodingConfig {
-                        rc_mode: state.config.vaapi_rc_mode.parse().unwrap_or(4),
+                        rc_mode: state.config.vaapi_rc_mode.parse().unwrap_or(1), // Default to CQP
                         global_quality: state.config.qsv_global_quality,
                         b_frames: state.config.vaapi_b_frames.parse().unwrap_or(0),
                         loop_filter_level: state
@@ -295,7 +304,7 @@ pub(super) fn rescan_directory(
         .unwrap_or_else(|| "YouTube 4K".to_string());
 
     // Get custom pattern and container from config
-    let custom_pattern = state.config.filename_pattern.as_deref();
+    let custom_pattern = Some(state.config.filename_pattern.as_str());
     let container_options = ["webm", "mp4", "mkv", "avi"];
     let container_idx = state
         .config
@@ -383,7 +392,7 @@ pub(super) fn start_encoding_from_loaded_jobs(state: &mut AppState) -> Result<()
 
     // Initialize worker pool
     let max_workers = state.config.max_workers as usize;
-    let pool = Arc::new(WorkerPool::new(max_workers));
+    let pool = Rc::new(WorkerPool::new(max_workers));
 
     // Store state
     state.enc_state = Some(enc_state);
@@ -414,56 +423,40 @@ pub(super) fn start_encoding(
     // Create Profile from current config to preserve user's custom settings (like max FPS)
     let profile = engine::Profile::from_config(profile_name.clone(), &state.config);
 
-    // Check if jobs are already loaded in dashboard (user may have marked some as Skipped)
-    let jobs = if !state.dashboard.jobs.is_empty() {
-        // Use existing jobs to preserve user's skip selections
-        // BUT update overwrite flag to match current config
-        state
-            .dashboard
-            .jobs
-            .iter()
-            .map(|job| {
-                let mut updated_job = job.clone();
-                updated_job.overwrite = state.config.overwrite;
-                updated_job
-            })
-            .collect()
+    // Always rebuild jobs to ensure all current settings (filename pattern, container, profile changes) are applied
+    // This means skip selections are lost, but ensures output filenames match current config
+    let files = engine::scan(&directory).map_err(|e| format!("Failed to scan directory: {}", e))?;
+
+    if files.is_empty() {
+        return Err("No video files found in directory".to_string());
+    }
+
+    // Get custom pattern and container from config
+    let custom_pattern = Some(state.config.filename_pattern.as_str());
+    let container_options = ["webm", "mp4", "mkv", "avi"];
+    let container_idx = state
+        .config
+        .container_dropdown_state
+        .selected()
+        .unwrap_or(0);
+    let custom_container = Some(container_options[container_idx]);
+
+    // Get output directory from config (None means use input file's directory)
+    let custom_output_dir = if state.config.output_dir.is_empty() {
+        None
     } else {
-        // No jobs loaded yet, scan directory and build job queue
-        let files =
-            engine::scan(&directory).map_err(|e| format!("Failed to scan directory: {}", e))?;
-
-        if files.is_empty() {
-            return Err("No video files found in directory".to_string());
-        }
-
-        // Get custom pattern and container from config
-        let custom_pattern = state.config.filename_pattern.as_deref();
-        let container_options = ["webm", "mp4", "mkv", "avi"];
-        let container_idx = state
-            .config
-            .container_dropdown_state
-            .selected()
-            .unwrap_or(0);
-        let custom_container = Some(container_options[container_idx]);
-
-        // Get output directory from config (None means use input file's directory)
-        let custom_output_dir = if state.config.output_dir.is_empty() {
-            None
-        } else {
-            Some(state.config.output_dir.as_str())
-        };
-
-        // Build job queue (respect overwrite setting)
-        engine::build_job_queue(
-            files,
-            &profile_name,
-            state.config.overwrite,
-            custom_output_dir,
-            custom_pattern,
-            custom_container,
-        )
+        Some(state.config.output_dir.as_str())
     };
+
+    // Build job queue (respect overwrite setting)
+    let jobs = engine::build_job_queue(
+        files,
+        &profile_name,
+        state.config.overwrite,
+        custom_output_dir,
+        custom_pattern,
+        custom_container,
+    );
 
     // Create enc_state with jobs (preserving any skip status)
     let enc_state = engine::EncState::new_with_profile(
@@ -483,7 +476,7 @@ pub(super) fn start_encoding(
 
     // Initialize worker pool
     let max_workers = state.config.max_workers as usize;
-    let pool = Arc::new(WorkerPool::new(max_workers));
+    let pool = Rc::new(WorkerPool::new(max_workers));
 
     // Store state
     state.enc_state = Some(enc_state);
@@ -528,7 +521,9 @@ pub(super) fn update_metrics(state: &mut AppState) {
 
     // Collect GPU stats if hardware encoding is enabled
     if state.config.use_hardware_encoding && state.dashboard.gpu_available {
-        if let Some(gpu_stats) = crate::engine::hardware::get_gpu_stats() {
+        if let Some(gpu_stats) =
+            crate::engine::hardware::get_gpu_stats_for_vendor(state.dashboard.gpu_vendor)
+        {
             // Add GPU utilization to ring buffer
             if state.dashboard.gpu_data.len() >= 240 {
                 state.dashboard.gpu_data.pop_front();

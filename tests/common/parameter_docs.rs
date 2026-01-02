@@ -245,7 +245,7 @@ pub fn generate_parameter_coverage_report() -> String {
 
     // Header
     report.push_str("# FFmpeg Parameter Coverage Report\n\n");
-    report.push_str(&format!("Generated for vp9enc-rs test harness\n\n"));
+    report.push_str(&format!("Generated for ffdash test harness\n\n"));
 
     // Statistics
     report.push_str("## Statistics\n\n");

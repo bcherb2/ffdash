@@ -1,6 +1,6 @@
 # Integration Test Suite
 
-Comprehensive test coverage for the vp9enc-rs TUI application, including property-based testing and end-to-end FFmpeg validation.
+Comprehensive test coverage for ffdash, including property-based testing and end-to-end FFmpeg validation.
 
 ## Test Structure
 

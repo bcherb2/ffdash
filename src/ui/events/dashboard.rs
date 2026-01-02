@@ -60,15 +60,27 @@ pub(super) fn handle_dashboard_key(key: KeyEvent, state: &mut AppState) {
                 .iter()
                 .any(|j| matches!(j.status, crate::engine::JobStatus::Running));
             if !is_encoding {
-                let current_dir =
-                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                match workers::start_encoding(state, current_dir) {
-                    Ok(_) => {
-                        // Encoding started successfully
+                // If jobs are already loaded, use them directly to preserve skip status
+                if !state.dashboard.jobs.is_empty() {
+                    match workers::start_encoding_from_loaded_jobs(state) {
+                        Ok(_) => {
+                            // Encoding started successfully
+                        }
+                        Err(_e) => {
+                            // Error will be visible in worker status
+                        }
                     }
-                    Err(e) => {
-                        // TODO: Show error message in UI
-                        eprintln!("Failed to start encoding: {}", e);
+                } else {
+                    // No jobs loaded - scan directory and start
+                    let current_dir =
+                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    match workers::start_encoding(state, current_dir) {
+                        Ok(_) => {
+                            // Encoding started successfully
+                        }
+                        Err(_e) => {
+                            // Error will be visible in worker status
+                        }
                     }
                 }
             }
@@ -97,9 +109,8 @@ pub(super) fn handle_dashboard_key(key: KeyEvent, state: &mut AppState) {
                                 state.worker_pool = None;
                             }
                         }
-                        Err(e) => {
-                            // TODO: Show error message in UI
-                            eprintln!("Failed to rescan: {}", e);
+                        Err(_e) => {
+                            // Error will be visible in UI status
                         }
                     }
                 }
@@ -125,7 +136,9 @@ pub(super) fn handle_dashboard_key(key: KeyEvent, state: &mut AppState) {
                             job.status = crate::engine::JobStatus::Pending;
                             job.last_error = None; // Fresh start
                         }
-                        crate::engine::JobStatus::Running | crate::engine::JobStatus::Done => {
+                        crate::engine::JobStatus::Calibrating
+                        | crate::engine::JobStatus::Running
+                        | crate::engine::JobStatus::Done => {
                             // Ignore - these statuses cannot be toggled
                         }
                     }
@@ -166,9 +179,7 @@ pub(super) fn handle_dashboard_key(key: KeyEvent, state: &mut AppState) {
                 if let Some(root) = &state.root_path {
                     let state_path = root.join(".enc_state");
                     if state_path.exists() {
-                        if let Err(e) = std::fs::remove_file(&state_path) {
-                            eprintln!("Failed to delete .enc_state: {}", e);
-                        }
+                        let _ = std::fs::remove_file(&state_path);
                     }
                 }
                 // Quit app
@@ -247,7 +258,7 @@ pub(super) fn handle_dashboard_mouse(mouse: MouseEvent, state: &mut AppState) {
 }
 
 fn is_mouse_in_table(x: u16, y: u16, dashboard: &crate::ui::state::DashboardState) -> bool {
-    dashboard.table_inner_area.map_or(false, |area| {
+    dashboard.table_inner_area.is_some_and(|area| {
         x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height
     })
 }

@@ -146,7 +146,7 @@ proptest! {
         let output = temp_dir.path().join(format!("output_gop{}.webm", gop_length));
 
         let mut config = default_config();
-        config.gop_length = gop_length;
+        config.gop_length = gop_length.to_string();
         config.two_pass = false;
 
         let cmd = build_test_cmd(&config, &format!("E2E_GOP{}", gop_length));
@@ -220,8 +220,8 @@ proptest! {
         let output = temp_dir.path().join(format!("output_audio_{}_{}.webm", codec_idx, bitrate));
 
         let mut config = default_config();
-        config.codec_list_state.select(Some(codec_idx));
-        config.audio_bitrate = bitrate;
+        config.audio_primary_codec_state.select(Some(codec_idx));
+        config.audio_primary_bitrate = bitrate;
         config.two_pass = false;
 
         let cmd = build_test_cmd(&config, "E2E_Audio");
@@ -253,7 +253,7 @@ proptest! {
         arnr_max_frames in 0u32..=15,
         arnr_strength in 0u32..=6,
         enable_tpl in prop::bool::ANY,
-        auto_alt_ref in prop::bool::ANY,
+        auto_alt_ref in 0u32..=2,
     ) {
         require_ffmpeg!();
 
@@ -333,7 +333,7 @@ proptest! {
         gop_length in 30u32..=240,
         keyint_min in 0u32..=120,
         fixed_gop in prop::bool::ANY,
-        auto_alt_ref in prop::bool::ANY,
+        auto_alt_ref in 0u32..=2,
     ) {
         require_ffmpeg!();
 
@@ -342,8 +342,8 @@ proptest! {
         let output = temp_dir.path().join("output_gop_keyframe.webm");
 
         let mut config = default_config();
-        config.gop_length = gop_length;
-        config.keyint_min = keyint_min;
+        config.gop_length = gop_length.to_string();
+        config.keyint_min = keyint_min.to_string();
         config.fixed_gop = fixed_gop;
         config.auto_alt_ref = auto_alt_ref;
         config.two_pass = false;
@@ -385,7 +385,7 @@ proptest! {
         threads in 2u32..=6,
         lag_in_frames in 10u32..=20,
         row_mt in prop::bool::ANY,
-        auto_alt_ref in prop::bool::ANY,
+        auto_alt_ref in 0u32..=2,
     ) {
         require_ffmpeg!();
 
@@ -396,7 +396,7 @@ proptest! {
         let mut config = default_config();
         config.crf = crf;
         config.cpu_used = cpu_used;
-        config.gop_length = gop_length;
+        config.gop_length = gop_length.to_string();
         config.tile_columns = tile_cols;
         config.threads = threads;
         config.lag_in_frames = lag_in_frames;

@@ -1,29 +1,47 @@
 use super::*;
 
-fn get_profile_count(config: &crate::ui::state::ConfigState) -> usize {
-    use crate::engine::Profile;
+use crate::ui::options;
 
-    let mut count = 0;
+// Re-export profile operations from dedicated module
+use super::config_profile::{
+    delete_profile, get_profile_count, load_selected_profile, save_profile_with_name,
+};
 
-    // Built-in profiles
-    count += Profile::builtin_names().len();
+fn set_colorspace_preset_selection(config: &mut crate::ui::state::ConfigState, idx: usize) {
+    config.colorspace_preset_state.select(Some(idx));
+    config.colorspace_preset = options::colorspace_preset_from_idx(idx);
 
-    // Saved profiles (excluding built-ins)
-    for saved_profile in &config.available_profiles {
-        if !Profile::builtin_names().contains(saved_profile) {
-            count += 1;
-        }
-    }
+    // Sync numeric values
+    let (cs, cp, ct, cr) = options::colorspace_preset_to_values(config.colorspace_preset);
+    config.colorspace = cs;
+    config.color_primaries = cp;
+    config.color_trc = ct;
+    config.color_range = cr;
 
-    // "Custom" if modified
-    if config.is_modified {
-        count += 1;
-    }
+    // Mark as modified
+    config.is_modified = true;
+}
 
-    // Always "Create New..."
-    count += 1;
+fn set_arnr_type_selection(config: &mut crate::ui::state::ConfigState, idx: usize) {
+    config.arnr_type_state.select(Some(idx));
+    config.arnr_type = options::arnr_type_from_idx(idx);
+}
 
-    count
+fn set_fps_selection(config: &mut crate::ui::state::ConfigState, idx: usize) {
+    config.fps_dropdown_state.select(Some(idx));
+    config.fps = options::fps_from_idx(idx);
+}
+
+fn set_resolution_selection(config: &mut crate::ui::state::ConfigState, idx: usize) {
+    config.resolution_dropdown_state.select(Some(idx));
+    let (w, h) = options::resolution_from_idx(idx);
+    config.scale_width = w;
+    config.scale_height = h;
+}
+
+fn set_video_codec_selection(config: &mut crate::ui::state::ConfigState, idx: usize) {
+    config.video_codec_state.select(Some(idx));
+    config.codec_selection = options::codec_selection_from_idx(idx);
 }
 
 pub(super) fn initialize_default_profile(state: &mut AppState, config: &crate::config::Config) {
@@ -34,8 +52,7 @@ pub(super) fn initialize_default_profile(state: &mut AppState, config: &crate::c
     let profile_name = config
         .defaults
         .last_used_profile
-        .as_ref()
-        .map(|s| s.as_str())
+        .as_deref()
         .or(Some(config.defaults.profile.as_str()))
         .unwrap_or("1080p Shrinker");
 
@@ -98,148 +115,6 @@ pub(super) fn initialize_default_profile(state: &mut AppState, config: &crate::c
     }
 }
 
-fn delete_profile(state: &mut AppState, name: String) {
-    use crate::engine::Profile;
-
-    // Don't allow deleting built-in profiles
-    if Profile::builtin_names().contains(&name) {
-        return;
-    }
-
-    // Get profiles directory and delete
-    if let Ok(profiles_dir) = Profile::profiles_dir() {
-        if let Ok(()) = Profile::delete(&profiles_dir, &name) {
-            // Update state after successful deletion
-            state.config.current_profile_name = None;
-            state.config.is_modified = true; // Now in custom state
-            state.config.refresh_available_profiles();
-
-            // Reset selection to a safe index (first item)
-            state.config.profile_list_state.select(Some(0));
-
-            // Show success message
-            state.config.status_message = Some((
-                format!("Profile '{}' deleted", name),
-                std::time::Instant::now(),
-            ));
-        }
-    }
-}
-
-fn save_profile_with_name(state: &mut AppState, name: String) {
-    use crate::engine::{Profile, write_debug_log};
-
-    // Create Profile from current ConfigState
-    let profile = Profile::from_config(name.clone(), &state.config);
-
-    // Get profiles directory and save
-    match Profile::profiles_dir() {
-        Ok(profiles_dir) => {
-            match profile.save(&profiles_dir) {
-                Ok(()) => {
-                    // Update state after successful save
-                    state.config.current_profile_name = Some(name.clone());
-                    state.config.is_modified = false;
-                    state.config.refresh_available_profiles();
-
-                    // Update last_used_profile, use_hardware_encoding, and filename_pattern in config.toml so they load on next startup
-                    if let Ok(mut config) = crate::config::Config::load() {
-                        config.defaults.last_used_profile = Some(name.clone());
-                        config.defaults.use_hardware_encoding = state.config.use_hardware_encoding;
-                        config.defaults.filename_pattern = state.config.filename_pattern.clone();
-                        let _ = config.save(); // Ignore errors
-                    }
-
-                    // Log success
-                    let _ = write_debug_log(&format!("Profile '{}' saved successfully", name));
-
-                    // Show success message
-                    state.config.status_message = Some((
-                        format!("Profile '{}' saved", name),
-                        std::time::Instant::now(),
-                    ));
-                }
-                Err(e) => {
-                    // Log error to file (don't show in TUI)
-                    let _ = write_debug_log(&format!("Failed to save profile '{}': {}", name, e));
-                }
-            }
-        }
-        Err(e) => {
-            // Log error to file (don't show in TUI)
-            let _ = write_debug_log(&format!(
-                "Failed to get profiles directory for '{}': {}",
-                name, e
-            ));
-        }
-    }
-}
-
-fn load_selected_profile(state: &mut AppState) {
-    use crate::engine::Profile;
-
-    // Build profile list (same as UI rendering logic)
-    let mut profiles = Vec::new();
-
-    // Add built-in profiles
-    profiles.extend(Profile::builtin_names());
-
-    // Add saved profiles (excluding built-ins to avoid duplicates)
-    for saved_profile in &state.config.available_profiles.clone() {
-        if !Profile::builtin_names().contains(saved_profile) {
-            profiles.push(saved_profile.clone());
-        }
-    }
-
-    // Add "Custom" if modified
-    if state.config.is_modified {
-        profiles.push("Custom".to_string());
-    }
-
-    // Always add "Create New..."
-    profiles.push("Create New...".to_string());
-
-    // Get selected profile name
-    let selected_index = state.config.profile_list_state.selected().unwrap_or(0);
-    let profile_name = profiles.get(selected_index).cloned();
-
-    if let Some(name) = profile_name {
-        match name.as_str() {
-            "Custom" => {
-                // Do nothing - already in custom state
-            }
-            "Create New..." => {
-                // Open profile name input dialog
-                state.config.name_input_dialog = Some(String::new());
-            }
-            _ => {
-                // Try to load from disk first (allows users to override built-ins)
-                let mut loaded = false;
-                if let Ok(profiles_dir) = Profile::profiles_dir() {
-                    if let Ok(profile) = Profile::load(&profiles_dir, &name) {
-                        profile.apply_to_config(&mut state.config);
-                        state.config.current_profile_name = Some(name.clone());
-                        state.config.is_modified = false;
-                        loaded = true;
-                    }
-                }
-
-                // Fall back to built-in if not found on disk
-                if !loaded {
-                    if let Some(builtin_profile) = Profile::get_builtin(&name) {
-                        builtin_profile.apply_to_config(&mut state.config);
-                        state.config.current_profile_name = Some(name.clone());
-                        state.config.is_modified = false;
-                    }
-                }
-
-                // Don't update last_used_profile here - only update it when user explicitly saves
-                // This allows users to browse profiles without changing what loads on next startup
-            }
-        }
-    }
-}
-
 pub(super) fn handle_config_key(key: KeyEvent, state: &mut AppState) {
     // If profile name input dialog is active, handle text input
     if let Some(ref mut name) = state.config.name_input_dialog {
@@ -285,9 +160,14 @@ pub(super) fn handle_config_key(key: KeyEvent, state: &mut AppState) {
                 return;
             }
             KeyCode::Enter => {
-                // Load selected profile if ProfileList dropdown
+                // Handle special dropdowns that need additional logic
                 if state.config.active_dropdown == Some(ConfigFocus::ProfileList) {
                     load_selected_profile(state);
+                } else if state.config.active_dropdown == Some(ConfigFocus::VideoCodecDropdown) {
+                    // Update codec_selection enum based on video_codec_state
+                    let selected = state.config.video_codec_state.selected().unwrap_or(0);
+                    set_video_codec_selection(&mut state.config, selected);
+                    state.config.is_modified = true;
                 }
                 // Close popup (selection is already highlighted)
                 state.config.active_dropdown = None;
@@ -341,6 +221,7 @@ pub(super) fn handle_config_key(key: KeyEvent, state: &mut AppState) {
         }
         // Focus navigation
         KeyCode::Tab => {
+            validate_numeric_field_on_blur(state);
             let start_focus = state.config.focus;
             loop {
                 state.config.focus = state.config.focus.next();
@@ -353,6 +234,7 @@ pub(super) fn handle_config_key(key: KeyEvent, state: &mut AppState) {
             update_input_mode_for_focus(state);
         }
         KeyCode::BackTab => {
+            validate_numeric_field_on_blur(state);
             let start_focus = state.config.focus;
             loop {
                 state.config.focus = state.config.focus.previous();
@@ -376,6 +258,7 @@ fn is_focus_visible(config: &crate::ui::state::ConfigState) -> bool {
         // Slider controls - check if area is set
         ConfigFocus::CrfSlider => config.crf_slider_area.is_some(),
         ConfigFocus::QsvGlobalQualitySlider => config.qsv_quality_slider_area.is_some(),
+        ConfigFocus::Vp9QsvPresetSlider => config.vp9_qsv_preset_area.is_some(),
         ConfigFocus::VaapiCompressionLevelSlider => {
             config.vaapi_compression_level_slider_area.is_some()
         }
@@ -389,8 +272,14 @@ fn is_focus_visible(config: &crate::ui::state::ConfigState) -> bool {
         ConfigFocus::ArnrStrengthSlider => config.arnr_strength_slider_area.is_some(),
         ConfigFocus::SharpnessSlider => config.sharpness_slider_area.is_some(),
         ConfigFocus::NoiseSensitivitySlider => config.noise_sensitivity_slider_area.is_some(),
-        ConfigFocus::AudioBitrateSlider => config.audio_bitrate_slider_area.is_some(),
-        ConfigFocus::ForceStereoCheckbox => config.force_stereo_checkbox_area.is_some(),
+        ConfigFocus::AudioPrimaryCodec => config.audio_primary_codec_area.is_some(),
+        ConfigFocus::AudioPrimaryBitrate => config.audio_primary_bitrate_area.is_some(),
+        ConfigFocus::AudioPrimaryDownmix => config.audio_primary_downmix_area.is_some(),
+        ConfigFocus::AudioAc3Checkbox => config.audio_ac3_checkbox_area.is_some(),
+        ConfigFocus::AudioAc3Bitrate => config.audio_ac3_bitrate_area.is_some(),
+        ConfigFocus::AudioStereoCheckbox => config.audio_stereo_checkbox_area.is_some(),
+        ConfigFocus::AudioStereoCodec => config.audio_stereo_codec_area.is_some(),
+        ConfigFocus::AudioStereoBitrate => config.audio_stereo_bitrate_area.is_some(),
 
         // Input controls - check if area is set
         ConfigFocus::VideoTargetBitrateInput => config.video_target_bitrate_area.is_some(),
@@ -404,12 +293,23 @@ fn is_focus_visible(config: &crate::ui::state::ConfigState) -> bool {
         ConfigFocus::VaapiLoopFilterSharpnessInput => {
             config.vaapi_loop_filter_sharpness_area.is_some()
         }
+        ConfigFocus::HwDenoiseInput => config.hw_denoise_area.is_some(),
+        ConfigFocus::HwDetailInput => config.hw_detail_area.is_some(),
+        ConfigFocus::Vp9QsvLookaheadCheckbox => config.vp9_qsv_lookahead_checkbox_area.is_some(),
+        ConfigFocus::Vp9QsvLookaheadDepthInput => config.vp9_qsv_lookahead_depth_area.is_some(),
         ConfigFocus::ThreadsInput => config.threads_area.is_some(),
         ConfigFocus::MaxWorkersInput => config.max_workers_area.is_some(),
         ConfigFocus::GopLengthInput => config.gop_length_area.is_some(),
         ConfigFocus::KeyintMinInput => config.keyint_min_area.is_some(),
         ConfigFocus::StaticThreshInput => config.static_thresh_area.is_some(),
         ConfigFocus::MaxIntraRateInput => config.max_intra_rate_area.is_some(),
+        ConfigFocus::AutoVmafTargetInput => config.auto_vmaf_target_area.is_some(),
+        ConfigFocus::AutoVmafStepInput => config.auto_vmaf_step_area.is_some(),
+        ConfigFocus::AutoVmafMaxAttemptsInput => config.auto_vmaf_max_attempts_area.is_some(),
+        ConfigFocus::Av1HwLookaheadInput => config.av1_hw_lookahead_area.is_some(),
+        ConfigFocus::Av1HwTileColsInput => config.av1_hw_tile_cols_area.is_some(),
+        ConfigFocus::Av1HwTileRowsInput => config.av1_hw_tile_rows_area.is_some(),
+        ConfigFocus::AdditionalArgsInput => config.additional_args_area.is_some(),
 
         // All other controls (checkboxes, dropdowns, buttons) are always visible when in their section
         _ => true,
@@ -420,12 +320,8 @@ fn is_focus_visible(config: &crate::ui::state::ConfigState) -> bool {
 fn reset_cursor_position_for_focus(state: &mut AppState) {
     state.config.cursor_pos = match state.config.focus {
         ConfigFocus::OutputDirectory => state.config.output_dir.chars().count(),
-        ConfigFocus::FilenamePattern => state
-            .config
-            .filename_pattern
-            .as_ref()
-            .map(|s| s.chars().count())
-            .unwrap_or(0),
+        ConfigFocus::FilenamePattern => state.config.filename_pattern.chars().count(),
+        ConfigFocus::AdditionalArgsInput => state.config.additional_args.chars().count(),
         ConfigFocus::VideoTargetBitrateInput => {
             if state.config.video_target_bitrate == 0 {
                 "0 kbps".chars().count()
@@ -470,38 +366,14 @@ fn reset_cursor_position_for_focus(state: &mut AppState) {
             }
         }
         ConfigFocus::MaxWorkersInput => format!("{}", state.config.max_workers).chars().count(),
-        ConfigFocus::GopLengthInput => format!("{} frames", state.config.gop_length)
-            .chars()
-            .count(),
-        ConfigFocus::KeyintMinInput => {
-            if state.config.keyint_min == 0 {
-                "Auto".chars().count()
-            } else {
-                format!("{} frames", state.config.keyint_min)
-                    .chars()
-                    .count()
-            }
-        }
-        ConfigFocus::StaticThreshInput => {
-            if state.config.static_thresh == 0 {
-                "Off".chars().count()
-            } else {
-                state.config.static_thresh.to_string().chars().count()
-            }
-        }
-        ConfigFocus::MaxIntraRateInput => {
-            if state.config.max_intra_rate == 0 {
-                "Off".chars().count()
-            } else {
-                format!("{}%", state.config.max_intra_rate).chars().count()
-            }
-        }
-        ConfigFocus::VaapiBFramesInput => state.config.vaapi_b_frames.chars().count(),
-        ConfigFocus::VaapiLoopFilterLevelInput => {
-            state.config.vaapi_loop_filter_level.chars().count()
-        }
-        ConfigFocus::VaapiLoopFilterSharpnessInput => {
-            state.config.vaapi_loop_filter_sharpness.chars().count()
+        ConfigFocus::GopLengthInput => state.config.gop_length.chars().count(),
+        ConfigFocus::KeyintMinInput => state.config.keyint_min.chars().count(),
+        ConfigFocus::StaticThreshInput => state.config.static_thresh.chars().count(),
+        ConfigFocus::MaxIntraRateInput => state.config.max_intra_rate.chars().count(),
+        ConfigFocus::AutoVmafTargetInput => state.config.auto_vmaf_target.chars().count(),
+        ConfigFocus::AutoVmafStepInput => state.config.auto_vmaf_step.chars().count(),
+        ConfigFocus::AutoVmafMaxAttemptsInput => {
+            state.config.auto_vmaf_max_attempts.chars().count()
         }
         _ => 0, // Not a text input field
     };
@@ -514,13 +386,54 @@ fn update_input_mode_for_focus(state: &mut AppState) {
 
     // Set to Editing mode only for text fields that accept free-form text input
     state.config.input_mode = match state.config.focus {
-        ConfigFocus::OutputDirectory | ConfigFocus::FilenamePattern => InputMode::Editing,
+        ConfigFocus::OutputDirectory
+        | ConfigFocus::FilenamePattern
+        | ConfigFocus::AdditionalArgsInput => InputMode::Editing,
         _ => InputMode::Normal,
     };
 }
 
+// Validate numeric text fields when focus leaves - reset to default if empty/invalid
+fn validate_numeric_field_on_blur(state: &mut AppState) {
+    use crate::ui::focus::ConfigFocus;
+    match state.config.focus {
+        ConfigFocus::GopLengthInput => {
+            if state.config.gop_length.is_empty() || state.config.gop_length.parse::<u32>().is_err()
+            {
+                state.config.gop_length = "240".to_string();
+            }
+        }
+        ConfigFocus::KeyintMinInput => {
+            if state.config.keyint_min.is_empty() || state.config.keyint_min.parse::<u32>().is_err()
+            {
+                state.config.keyint_min = "0".to_string();
+            }
+        }
+        ConfigFocus::StaticThreshInput => {
+            if state.config.static_thresh.is_empty()
+                || state.config.static_thresh.parse::<u32>().is_err()
+            {
+                state.config.static_thresh = "0".to_string();
+            }
+        }
+        ConfigFocus::MaxIntraRateInput => {
+            let valid = state
+                .config
+                .max_intra_rate
+                .parse::<u32>()
+                .map(|n| n <= 100)
+                .unwrap_or(false);
+            if state.config.max_intra_rate.is_empty() || !valid {
+                state.config.max_intra_rate = "0".to_string();
+            }
+        }
+        _ => {}
+    }
+}
+
 // Helper function to set focus and update input mode/cursor (for mouse clicks)
 fn set_focus_and_update(state: &mut AppState, new_focus: crate::ui::focus::ConfigFocus) {
+    validate_numeric_field_on_blur(state);
     state.config.focus = new_focus;
     reset_cursor_position_for_focus(state);
     update_input_mode_for_focus(state);
@@ -580,140 +493,85 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 }
             }
         }
-        ConfigFocus::OutputDirectory | ConfigFocus::FilenamePattern => {
+        ConfigFocus::OutputDirectory
+        | ConfigFocus::FilenamePattern
+        | ConfigFocus::AdditionalArgsInput => {
             // Text input handling with cursor support
             let old_output = state.config.output_dir.clone();
             let old_pattern = state.config.filename_pattern.clone();
+            let old_args = state.config.additional_args.clone();
             match key.code {
                 KeyCode::Char(c) => {
-                    if state.config.focus == ConfigFocus::OutputDirectory {
-                        let chars: Vec<char> = state.config.output_dir.chars().collect();
-                        let pos = state.config.cursor_pos.min(chars.len());
-                        let mut new_string: String = chars.iter().take(pos).collect();
-                        new_string.push(c);
-                        new_string.extend(chars.iter().skip(pos));
-                        state.config.output_dir = new_string;
-                        state.config.cursor_pos += 1;
-                    } else {
-                        let pattern = state
-                            .config
-                            .filename_pattern
-                            .get_or_insert_with(String::new);
-                        let chars: Vec<char> = pattern.chars().collect();
-                        let pos = state.config.cursor_pos.min(chars.len());
-                        let mut new_string: String = chars.iter().take(pos).collect();
-                        new_string.push(c);
-                        new_string.extend(chars.iter().skip(pos));
-                        *pattern = new_string;
-                        state.config.cursor_pos += 1;
-                    }
+                    let field = match state.config.focus {
+                        ConfigFocus::OutputDirectory => &mut state.config.output_dir,
+                        ConfigFocus::FilenamePattern => &mut state.config.filename_pattern,
+                        ConfigFocus::AdditionalArgsInput => &mut state.config.additional_args,
+                        _ => unreachable!(),
+                    };
+                    let chars: Vec<char> = field.chars().collect();
+                    let pos = state.config.cursor_pos.min(chars.len());
+                    let mut new_string: String = chars.iter().take(pos).collect();
+                    new_string.push(c);
+                    new_string.extend(chars.iter().skip(pos));
+                    *field = new_string;
+                    state.config.cursor_pos += 1;
                 }
                 KeyCode::Backspace => {
+                    let field = match state.config.focus {
+                        ConfigFocus::OutputDirectory => &mut state.config.output_dir,
+                        ConfigFocus::FilenamePattern => &mut state.config.filename_pattern,
+                        ConfigFocus::AdditionalArgsInput => &mut state.config.additional_args,
+                        _ => unreachable!(),
+                    };
                     // Check for Ctrl+Backspace (delete word before cursor)
                     if key.modifiers.contains(KeyModifiers::CONTROL) {
-                        if state.config.focus == ConfigFocus::OutputDirectory {
-                            if state.config.cursor_pos > 0 {
-                                let chars: Vec<char> = state.config.output_dir.chars().collect();
-                                // Find start of word (skip backwards to whitespace or start)
-                                let mut new_pos = state.config.cursor_pos;
-                                // Skip trailing whitespace first
-                                while new_pos > 0
-                                    && chars.get(new_pos - 1).map_or(false, |c| c.is_whitespace())
-                                {
-                                    new_pos -= 1;
-                                }
-                                // Skip word characters
-                                while new_pos > 0
-                                    && chars.get(new_pos - 1).map_or(false, |c| !c.is_whitespace())
-                                {
-                                    new_pos -= 1;
-                                }
-                                let mut new_string: String = chars.iter().take(new_pos).collect();
-                                new_string.extend(chars.iter().skip(state.config.cursor_pos));
-                                state.config.output_dir = new_string;
-                                state.config.cursor_pos = new_pos;
+                        if state.config.cursor_pos > 0 {
+                            let chars: Vec<char> = field.chars().collect();
+                            // Find start of word (skip backwards to whitespace or start)
+                            let mut new_pos = state.config.cursor_pos;
+                            // Skip trailing whitespace first
+                            while new_pos > 0
+                                && chars.get(new_pos - 1).is_some_and(|c| c.is_whitespace())
+                            {
+                                new_pos -= 1;
                             }
-                        } else {
-                            if let Some(s) = &mut state.config.filename_pattern {
-                                if state.config.cursor_pos > 0 {
-                                    let chars: Vec<char> = s.chars().collect();
-                                    let mut new_pos = state.config.cursor_pos;
-                                    while new_pos > 0
-                                        && chars
-                                            .get(new_pos - 1)
-                                            .map_or(false, |c| c.is_whitespace())
-                                    {
-                                        new_pos -= 1;
-                                    }
-                                    while new_pos > 0
-                                        && chars
-                                            .get(new_pos - 1)
-                                            .map_or(false, |c| !c.is_whitespace())
-                                    {
-                                        new_pos -= 1;
-                                    }
-                                    let mut new_string: String =
-                                        chars.iter().take(new_pos).collect();
-                                    new_string.extend(chars.iter().skip(state.config.cursor_pos));
-                                    *s = new_string;
-                                    state.config.cursor_pos = new_pos;
-                                    if s.is_empty() {
-                                        state.config.filename_pattern = None;
-                                    }
-                                }
+                            // Skip word characters
+                            while new_pos > 0
+                                && chars.get(new_pos - 1).is_some_and(|c| !c.is_whitespace())
+                            {
+                                new_pos -= 1;
                             }
+                            let mut new_string: String = chars.iter().take(new_pos).collect();
+                            new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                            *field = new_string;
+                            state.config.cursor_pos = new_pos;
                         }
                     } else {
                         // Normal backspace (delete char before cursor)
-                        if state.config.focus == ConfigFocus::OutputDirectory {
-                            if state.config.cursor_pos > 0 {
-                                let chars: Vec<char> = state.config.output_dir.chars().collect();
-                                let mut new_string: String =
-                                    chars.iter().take(state.config.cursor_pos - 1).collect();
-                                new_string.extend(chars.iter().skip(state.config.cursor_pos));
-                                state.config.output_dir = new_string;
-                                state.config.cursor_pos -= 1;
-                            }
-                        } else {
-                            if let Some(s) = &mut state.config.filename_pattern {
-                                if state.config.cursor_pos > 0 {
-                                    let chars: Vec<char> = s.chars().collect();
-                                    let mut new_string: String =
-                                        chars.iter().take(state.config.cursor_pos - 1).collect();
-                                    new_string.extend(chars.iter().skip(state.config.cursor_pos));
-                                    *s = new_string;
-                                    state.config.cursor_pos -= 1;
-                                    if s.is_empty() {
-                                        state.config.filename_pattern = None;
-                                    }
-                                }
-                            }
+                        if state.config.cursor_pos > 0 {
+                            let chars: Vec<char> = field.chars().collect();
+                            let mut new_string: String =
+                                chars.iter().take(state.config.cursor_pos - 1).collect();
+                            new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                            *field = new_string;
+                            state.config.cursor_pos -= 1;
                         }
                     }
                 }
                 KeyCode::Delete => {
                     // Delete character after cursor
-                    if state.config.focus == ConfigFocus::OutputDirectory {
-                        let chars: Vec<char> = state.config.output_dir.chars().collect();
-                        if state.config.cursor_pos < chars.len() {
-                            let mut new_string: String =
-                                chars.iter().take(state.config.cursor_pos).collect();
-                            new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
-                            state.config.output_dir = new_string;
-                        }
-                    } else {
-                        if let Some(s) = &mut state.config.filename_pattern {
-                            let chars: Vec<char> = s.chars().collect();
-                            if state.config.cursor_pos < chars.len() {
-                                let mut new_string: String =
-                                    chars.iter().take(state.config.cursor_pos).collect();
-                                new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
-                                *s = new_string;
-                                if s.is_empty() {
-                                    state.config.filename_pattern = None;
-                                }
-                            }
-                        }
+                    let field = match state.config.focus {
+                        ConfigFocus::OutputDirectory => &mut state.config.output_dir,
+                        ConfigFocus::FilenamePattern => &mut state.config.filename_pattern,
+                        ConfigFocus::AdditionalArgsInput => &mut state.config.additional_args,
+                        _ => unreachable!(),
+                    };
+                    let chars: Vec<char> = field.chars().collect();
+                    if state.config.cursor_pos < chars.len() {
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
+                        *field = new_string;
                     }
                 }
                 KeyCode::Left => {
@@ -722,15 +580,15 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                     }
                 }
                 KeyCode::Right => {
-                    let max_len = if state.config.focus == ConfigFocus::OutputDirectory {
-                        state.config.output_dir.chars().count()
-                    } else {
-                        state
-                            .config
-                            .filename_pattern
-                            .as_ref()
-                            .map(|s| s.chars().count())
-                            .unwrap_or(0)
+                    let max_len = match state.config.focus {
+                        ConfigFocus::OutputDirectory => state.config.output_dir.chars().count(),
+                        ConfigFocus::FilenamePattern => {
+                            state.config.filename_pattern.chars().count()
+                        }
+                        ConfigFocus::AdditionalArgsInput => {
+                            state.config.additional_args.chars().count()
+                        }
+                        _ => 0,
                     };
                     if state.config.cursor_pos < max_len {
                         state.config.cursor_pos += 1;
@@ -740,21 +598,22 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                     state.config.cursor_pos = 0;
                 }
                 KeyCode::End => {
-                    state.config.cursor_pos = if state.config.focus == ConfigFocus::OutputDirectory
-                    {
-                        state.config.output_dir.chars().count()
-                    } else {
-                        state
-                            .config
-                            .filename_pattern
-                            .as_ref()
-                            .map(|s| s.chars().count())
-                            .unwrap_or(0)
+                    state.config.cursor_pos = match state.config.focus {
+                        ConfigFocus::OutputDirectory => state.config.output_dir.chars().count(),
+                        ConfigFocus::FilenamePattern => {
+                            state.config.filename_pattern.chars().count()
+                        }
+                        ConfigFocus::AdditionalArgsInput => {
+                            state.config.additional_args.chars().count()
+                        }
+                        _ => 0,
                     };
                 }
                 _ => {}
             }
-            if state.config.output_dir != old_output || state.config.filename_pattern != old_pattern
+            if state.config.output_dir != old_output
+                || state.config.filename_pattern != old_pattern
+                || state.config.additional_args != old_args
             {
                 state.config.is_modified = true;
             }
@@ -769,6 +628,180 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                     config.defaults.overwrite = state.config.overwrite;
                     let _ = config.save(); // Ignore errors
                 }
+            }
+        }
+        ConfigFocus::AutoVmafCheckbox => {
+            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                state.config.auto_vmaf_enabled = !state.config.auto_vmaf_enabled;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::AutoVmafTargetInput => {
+            let old_value = state.config.auto_vmaf_target.clone();
+            match key.code {
+                KeyCode::Char(c) if c.is_ascii_digit() || c == '.' => {
+                    // Only allow one decimal point
+                    if c == '.' && state.config.auto_vmaf_target.contains('.') {
+                        // Ignore additional decimal points
+                    } else {
+                        let chars: Vec<char> = state.config.auto_vmaf_target.chars().collect();
+                        let pos = state.config.cursor_pos.min(chars.len());
+                        let mut new_string: String = chars.iter().take(pos).collect();
+                        new_string.push(c);
+                        new_string.extend(chars.iter().skip(pos));
+                        state.config.auto_vmaf_target = new_string;
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Backspace => {
+                    if state.config.cursor_pos > 0 {
+                        let chars: Vec<char> = state.config.auto_vmaf_target.chars().collect();
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos - 1).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                        state.config.auto_vmaf_target = new_string;
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Delete => {
+                    let chars: Vec<char> = state.config.auto_vmaf_target.chars().collect();
+                    if state.config.cursor_pos < chars.len() {
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
+                        state.config.auto_vmaf_target = new_string;
+                    }
+                }
+                KeyCode::Left => {
+                    if state.config.cursor_pos > 0 {
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    let len = state.config.auto_vmaf_target.chars().count();
+                    if state.config.cursor_pos < len {
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    state.config.cursor_pos = 0;
+                }
+                KeyCode::End => {
+                    state.config.cursor_pos = state.config.auto_vmaf_target.chars().count();
+                }
+                _ => {}
+            }
+            if state.config.auto_vmaf_target != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::AutoVmafStepInput => {
+            let old_value = state.config.auto_vmaf_step.clone();
+            match key.code {
+                KeyCode::Char(c) if c.is_ascii_digit() => {
+                    let chars: Vec<char> = state.config.auto_vmaf_step.chars().collect();
+                    let pos = state.config.cursor_pos.min(chars.len());
+                    let mut new_string: String = chars.iter().take(pos).collect();
+                    new_string.push(c);
+                    new_string.extend(chars.iter().skip(pos));
+                    state.config.auto_vmaf_step = new_string;
+                    state.config.cursor_pos += 1;
+                }
+                KeyCode::Backspace => {
+                    if state.config.cursor_pos > 0 {
+                        let chars: Vec<char> = state.config.auto_vmaf_step.chars().collect();
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos - 1).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                        state.config.auto_vmaf_step = new_string;
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Delete => {
+                    let chars: Vec<char> = state.config.auto_vmaf_step.chars().collect();
+                    if state.config.cursor_pos < chars.len() {
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
+                        state.config.auto_vmaf_step = new_string;
+                    }
+                }
+                KeyCode::Left => {
+                    if state.config.cursor_pos > 0 {
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    let len = state.config.auto_vmaf_step.chars().count();
+                    if state.config.cursor_pos < len {
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    state.config.cursor_pos = 0;
+                }
+                KeyCode::End => {
+                    state.config.cursor_pos = state.config.auto_vmaf_step.chars().count();
+                }
+                _ => {}
+            }
+            if state.config.auto_vmaf_step != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::AutoVmafMaxAttemptsInput => {
+            let old_value = state.config.auto_vmaf_max_attempts.clone();
+            match key.code {
+                KeyCode::Char(c) if c.is_ascii_digit() => {
+                    let chars: Vec<char> = state.config.auto_vmaf_max_attempts.chars().collect();
+                    let pos = state.config.cursor_pos.min(chars.len());
+                    let mut new_string: String = chars.iter().take(pos).collect();
+                    new_string.push(c);
+                    new_string.extend(chars.iter().skip(pos));
+                    state.config.auto_vmaf_max_attempts = new_string;
+                    state.config.cursor_pos += 1;
+                }
+                KeyCode::Backspace => {
+                    if state.config.cursor_pos > 0 {
+                        let chars: Vec<char> =
+                            state.config.auto_vmaf_max_attempts.chars().collect();
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos - 1).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                        state.config.auto_vmaf_max_attempts = new_string;
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Delete => {
+                    let chars: Vec<char> = state.config.auto_vmaf_max_attempts.chars().collect();
+                    if state.config.cursor_pos < chars.len() {
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
+                        state.config.auto_vmaf_max_attempts = new_string;
+                    }
+                }
+                KeyCode::Left => {
+                    if state.config.cursor_pos > 0 {
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    let len = state.config.auto_vmaf_max_attempts.chars().count();
+                    if state.config.cursor_pos < len {
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    state.config.cursor_pos = 0;
+                }
+                KeyCode::End => {
+                    state.config.cursor_pos = state.config.auto_vmaf_max_attempts.chars().count();
+                }
+                _ => {}
+            }
+            if state.config.auto_vmaf_max_attempts != old_value {
+                state.config.is_modified = true;
             }
         }
         ConfigFocus::ContainerDropdown => {
@@ -819,14 +852,14 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                     // Cycle to previous FPS option (Left for quick nav, Up for dropdown list)
                     let current = state.config.fps_dropdown_state.selected().unwrap_or(0);
                     let new_idx = if current == 0 { 10 } else { current - 1 }; // 11 options (0-10)
-                    state.config.fps_dropdown_state.select(Some(new_idx));
+                    set_fps_selection(&mut state.config, new_idx);
                     state.config.is_modified = true;
                 }
                 KeyCode::Right | KeyCode::Down => {
                     // Cycle to next FPS option (Right for quick nav, Down for dropdown list)
                     let current = state.config.fps_dropdown_state.selected().unwrap_or(0);
                     let new_idx = if current >= 10 { 0 } else { current + 1 }; // 11 options (0-10)
-                    state.config.fps_dropdown_state.select(Some(new_idx));
+                    set_fps_selection(&mut state.config, new_idx);
                     state.config.is_modified = true;
                 }
                 _ => {}
@@ -845,7 +878,7 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                         .selected()
                         .unwrap_or(0);
                     let new_idx = if current == 0 { 6 } else { current - 1 }; // 7 options (0-6)
-                    state.config.resolution_dropdown_state.select(Some(new_idx));
+                    set_resolution_selection(&mut state.config, new_idx);
                     state.config.is_modified = true;
                 }
                 KeyCode::Right | KeyCode::Down => {
@@ -856,7 +889,7 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                         .selected()
                         .unwrap_or(0);
                     let new_idx = if current >= 6 { 0 } else { current + 1 }; // 7 options (0-6)
-                    state.config.resolution_dropdown_state.select(Some(new_idx));
+                    set_resolution_selection(&mut state.config, new_idx);
                     state.config.is_modified = true;
                 }
                 _ => {}
@@ -904,31 +937,159 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 state.config.is_modified = true;
             }
         }
-        ConfigFocus::AudioBitrateSlider => {
-            let old_value = state.config.audio_bitrate;
+        ConfigFocus::AudioPrimaryCodec => {
+            let old_selection = state.config.audio_primary_codec_state.selected();
             match key.code {
-                KeyCode::Left => {
-                    if state.config.audio_bitrate > 32 {
-                        state.config.audio_bitrate = state.config.audio_bitrate.saturating_sub(8);
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    state.config.active_dropdown = Some(ConfigFocus::AudioPrimaryCodec);
+                }
+                KeyCode::Up => {
+                    let selected = state
+                        .config
+                        .audio_primary_codec_state
+                        .selected()
+                        .unwrap_or(0);
+                    if selected > 0 {
+                        state
+                            .config
+                            .audio_primary_codec_state
+                            .select(Some(selected - 1));
+                        state.config.audio_primary_codec =
+                            crate::ui::state::AudioPrimaryCodec::from_index(selected - 1);
                     }
                 }
-                KeyCode::Right => {
-                    if state.config.audio_bitrate < 512 {
-                        state.config.audio_bitrate = (state.config.audio_bitrate + 8).min(512);
+                KeyCode::Down => {
+                    let selected = state
+                        .config
+                        .audio_primary_codec_state
+                        .selected()
+                        .unwrap_or(0);
+                    if selected < 4 {
+                        state
+                            .config
+                            .audio_primary_codec_state
+                            .select(Some(selected + 1));
+                        state.config.audio_primary_codec =
+                            crate::ui::state::AudioPrimaryCodec::from_index(selected + 1);
                     }
                 }
-                KeyCode::Home => state.config.audio_bitrate = 32,
-                KeyCode::End => state.config.audio_bitrate = 512,
                 _ => {}
             }
-            if state.config.audio_bitrate != old_value {
+            if state.config.audio_primary_codec_state.selected() != old_selection {
                 state.config.is_modified = true;
             }
         }
-        ConfigFocus::ForceStereoCheckbox => {
-            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
-                state.config.force_stereo = !state.config.force_stereo;
+        ConfigFocus::AudioPrimaryBitrate => {
+            // Only allow adjustments when not passthrough
+            if !state.config.audio_primary_codec.is_passthrough() {
+                let old_value = state.config.audio_primary_bitrate;
+                match key.code {
+                    KeyCode::Left => {
+                        state.config.audio_primary_bitrate =
+                            state.config.audio_primary_bitrate.saturating_sub(8).max(32);
+                    }
+                    KeyCode::Right => {
+                        state.config.audio_primary_bitrate =
+                            (state.config.audio_primary_bitrate + 8).min(512);
+                    }
+                    KeyCode::Home => state.config.audio_primary_bitrate = 32,
+                    KeyCode::End => state.config.audio_primary_bitrate = 512,
+                    _ => {}
+                }
+                if state.config.audio_primary_bitrate != old_value {
+                    state.config.is_modified = true;
+                }
+            }
+        }
+        ConfigFocus::AudioPrimaryDownmix => {
+            // Only allow toggle when not passthrough
+            if !state.config.audio_primary_codec.is_passthrough()
+                && matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter)
+            {
+                state.config.audio_primary_downmix = !state.config.audio_primary_downmix;
                 state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::AudioAc3Checkbox => {
+            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                state.config.audio_add_ac3 = !state.config.audio_add_ac3;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::AudioAc3Bitrate => {
+            if state.config.audio_add_ac3 {
+                let old_value = state.config.audio_ac3_bitrate;
+                match key.code {
+                    KeyCode::Left => {
+                        state.config.audio_ac3_bitrate =
+                            state.config.audio_ac3_bitrate.saturating_sub(64).max(384);
+                    }
+                    KeyCode::Right => {
+                        state.config.audio_ac3_bitrate =
+                            (state.config.audio_ac3_bitrate + 64).min(640);
+                    }
+                    KeyCode::Home => state.config.audio_ac3_bitrate = 384,
+                    KeyCode::End => state.config.audio_ac3_bitrate = 640,
+                    _ => {}
+                }
+                if state.config.audio_ac3_bitrate != old_value {
+                    state.config.is_modified = true;
+                }
+            }
+        }
+        ConfigFocus::AudioStereoCheckbox => {
+            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                state.config.audio_add_stereo = !state.config.audio_add_stereo;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::AudioStereoCodec => {
+            if state.config.audio_add_stereo {
+                let old_selection = state.config.audio_stereo_codec_state.selected();
+                match key.code {
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        state.config.active_dropdown = Some(ConfigFocus::AudioStereoCodec);
+                    }
+                    KeyCode::Up | KeyCode::Down => {
+                        let selected = state
+                            .config
+                            .audio_stereo_codec_state
+                            .selected()
+                            .unwrap_or(0);
+                        let new_selected = if selected == 0 { 1 } else { 0 };
+                        state
+                            .config
+                            .audio_stereo_codec_state
+                            .select(Some(new_selected));
+                        state.config.audio_stereo_codec =
+                            crate::ui::state::AudioStereoCodec::from_index(new_selected);
+                    }
+                    _ => {}
+                }
+                if state.config.audio_stereo_codec_state.selected() != old_selection {
+                    state.config.is_modified = true;
+                }
+            }
+        }
+        ConfigFocus::AudioStereoBitrate => {
+            if state.config.audio_add_stereo {
+                let old_value = state.config.audio_stereo_bitrate;
+                match key.code {
+                    KeyCode::Left => {
+                        state.config.audio_stereo_bitrate =
+                            state.config.audio_stereo_bitrate.saturating_sub(8).max(64);
+                    }
+                    KeyCode::Right => {
+                        state.config.audio_stereo_bitrate =
+                            (state.config.audio_stereo_bitrate + 8).min(256);
+                    }
+                    KeyCode::Home => state.config.audio_stereo_bitrate = 64,
+                    KeyCode::End => state.config.audio_stereo_bitrate = 256,
+                    _ => {}
+                }
+                if state.config.audio_stereo_bitrate != old_value {
+                    state.config.is_modified = true;
+                }
             }
         }
         ConfigFocus::TwoPassCheckbox => {
@@ -1184,7 +1345,8 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
         }
         ConfigFocus::AutoAltRefCheckbox => {
             if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
-                state.config.auto_alt_ref = !state.config.auto_alt_ref;
+                // Cycle through 0 (disabled), 1 (enabled), 2 (enabled with statistics)
+                state.config.auto_alt_ref = (state.config.auto_alt_ref + 1) % 3;
                 state.config.is_modified = true;
             }
         }
@@ -1272,14 +1434,276 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 }
                 KeyCode::Down => {
                     let selected = state.config.pix_fmt_state.selected().unwrap_or(0);
-                    if selected < 1 {
-                        // 2 pixel formats
+                    if selected < 2 {
+                        // 3 pixel formats
                         state.config.pix_fmt_state.select(Some(selected + 1));
                     }
                 }
                 _ => {}
             }
             if state.config.pix_fmt_state.selected() != old_selection {
+                state.config.is_modified = true;
+            }
+        }
+        // Video codec selector (VP9/AV1)
+        ConfigFocus::VideoCodecDropdown => {
+            let old_selection = state.config.video_codec_state.selected();
+            match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    state.config.active_dropdown = Some(ConfigFocus::VideoCodecDropdown);
+                }
+                KeyCode::Up | KeyCode::Left => {
+                    let selected = state.config.video_codec_state.selected().unwrap_or(0);
+                    if selected > 0 {
+                        set_video_codec_selection(&mut state.config, selected - 1);
+                    }
+                }
+                KeyCode::Down | KeyCode::Right => {
+                    let selected = state.config.video_codec_state.selected().unwrap_or(0);
+                    if selected < 1 {
+                        set_video_codec_selection(&mut state.config, selected + 1);
+                    }
+                }
+                _ => {}
+            }
+            if state.config.video_codec_state.selected() != old_selection {
+                state.config.is_modified = true;
+            }
+        }
+        // AV1 software settings
+        ConfigFocus::Av1PresetSlider => {
+            let old_value = state.config.av1_preset;
+            match key.code {
+                KeyCode::Left => {
+                    if state.config.av1_preset > 0 {
+                        state.config.av1_preset -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if state.config.av1_preset < 13 {
+                        state.config.av1_preset += 1;
+                    }
+                }
+                KeyCode::Home => state.config.av1_preset = 0,
+                KeyCode::End => state.config.av1_preset = 13,
+                _ => {}
+            }
+            if state.config.av1_preset != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1TuneDropdown => {
+            let old_selection = state.config.av1_tune_state.selected();
+            match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    state.config.active_dropdown = Some(ConfigFocus::Av1TuneDropdown);
+                }
+                KeyCode::Up | KeyCode::Left => {
+                    let selected = state.config.av1_tune_state.selected().unwrap_or(0);
+                    if selected > 0 {
+                        state.config.av1_tune_state.select(Some(selected - 1));
+                    }
+                }
+                KeyCode::Down | KeyCode::Right => {
+                    let selected = state.config.av1_tune_state.selected().unwrap_or(0);
+                    if selected < 2 {
+                        state.config.av1_tune_state.select(Some(selected + 1));
+                    }
+                }
+                _ => {}
+            }
+            if state.config.av1_tune_state.selected() != old_selection {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1FilmGrainSlider => {
+            let old_value = state.config.av1_film_grain;
+            match key.code {
+                KeyCode::Left => {
+                    if state.config.av1_film_grain > 0 {
+                        state.config.av1_film_grain -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if state.config.av1_film_grain < 50 {
+                        state.config.av1_film_grain += 1;
+                    }
+                }
+                KeyCode::Home => state.config.av1_film_grain = 0,
+                KeyCode::End => state.config.av1_film_grain = 50,
+                _ => {}
+            }
+            if state.config.av1_film_grain != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1FilmGrainDenoiseCheckbox => {
+            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                state.config.av1_film_grain_denoise = !state.config.av1_film_grain_denoise;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1EnableOverlaysCheckbox => {
+            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                state.config.av1_enable_overlays = !state.config.av1_enable_overlays;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1ScdCheckbox => {
+            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                state.config.av1_scd = !state.config.av1_scd;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1ScmDropdown => {
+            let old_selection = state.config.av1_scm_state.selected();
+            match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    state.config.active_dropdown = Some(ConfigFocus::Av1ScmDropdown);
+                }
+                KeyCode::Up | KeyCode::Left => {
+                    let selected = state.config.av1_scm_state.selected().unwrap_or(0);
+                    if selected > 0 {
+                        state.config.av1_scm_state.select(Some(selected - 1));
+                    }
+                }
+                KeyCode::Down | KeyCode::Right => {
+                    let selected = state.config.av1_scm_state.selected().unwrap_or(0);
+                    if selected < 2 {
+                        state.config.av1_scm_state.select(Some(selected + 1));
+                    }
+                }
+                _ => {}
+            }
+            if state.config.av1_scm_state.selected() != old_selection {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1EnableTfCheckbox => {
+            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                state.config.av1_enable_tf = !state.config.av1_enable_tf;
+                state.config.is_modified = true;
+            }
+        }
+        // AV1 hardware settings
+        ConfigFocus::Av1HwPresetSlider => {
+            let old_value = state.config.av1_hw_preset;
+            match key.code {
+                KeyCode::Left => {
+                    if state.config.av1_hw_preset > 1 {
+                        state.config.av1_hw_preset -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if state.config.av1_hw_preset < 7 {
+                        state.config.av1_hw_preset += 1;
+                    }
+                }
+                KeyCode::Home => state.config.av1_hw_preset = 1,
+                KeyCode::End => state.config.av1_hw_preset = 7,
+                _ => {}
+            }
+            if state.config.av1_hw_preset != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1HwCqSlider => {
+            // Per-encoder quality: NVENC uses 0-63, QSV/VAAPI use 1-255
+            // Read/write the encoder-specific field based on GPU vendor
+            let (min_cq, max_cq, current_val) = match state.config.gpu_vendor {
+                crate::engine::hardware::GpuVendor::Nvidia => (0, 63, state.config.av1_nvenc_cq),
+                crate::engine::hardware::GpuVendor::Intel => (1, 255, state.config.av1_qsv_cq),
+                _ => (1, 255, state.config.av1_vaapi_cq), // AMD and others use VAAPI
+            };
+
+            let old_value = current_val;
+            let new_value = match key.code {
+                KeyCode::Left => {
+                    if current_val > min_cq {
+                        current_val - 1
+                    } else {
+                        current_val
+                    }
+                }
+                KeyCode::Right => {
+                    if current_val < max_cq {
+                        current_val + 1
+                    } else {
+                        current_val
+                    }
+                }
+                KeyCode::Home => min_cq,
+                KeyCode::End => max_cq,
+                _ => current_val,
+            };
+
+            // Write back to the correct per-encoder field
+            match state.config.gpu_vendor {
+                crate::engine::hardware::GpuVendor::Nvidia => state.config.av1_nvenc_cq = new_value,
+                crate::engine::hardware::GpuVendor::Intel => state.config.av1_qsv_cq = new_value,
+                _ => state.config.av1_vaapi_cq = new_value,
+            };
+
+            if new_value != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1HwLookaheadInput => {
+            let old_value = state.config.av1_hw_lookahead;
+            match key.code {
+                KeyCode::Left => {
+                    if state.config.av1_hw_lookahead > 0 {
+                        state.config.av1_hw_lookahead -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if state.config.av1_hw_lookahead < 100 {
+                        state.config.av1_hw_lookahead += 1;
+                    }
+                }
+                KeyCode::Home => state.config.av1_hw_lookahead = 0,
+                KeyCode::End => state.config.av1_hw_lookahead = 100,
+                _ => {}
+            }
+            if state.config.av1_hw_lookahead != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1HwTileColsInput => {
+            let old_value = state.config.av1_hw_tile_cols;
+            match key.code {
+                KeyCode::Left => {
+                    if state.config.av1_hw_tile_cols > 0 {
+                        state.config.av1_hw_tile_cols -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if state.config.av1_hw_tile_cols < 4 {
+                        state.config.av1_hw_tile_cols += 1;
+                    }
+                }
+                _ => {}
+            }
+            if state.config.av1_hw_tile_cols != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Av1HwTileRowsInput => {
+            let old_value = state.config.av1_hw_tile_rows;
+            match key.code {
+                KeyCode::Left => {
+                    if state.config.av1_hw_tile_rows > 0 {
+                        state.config.av1_hw_tile_rows -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if state.config.av1_hw_tile_rows < 4 {
+                        state.config.av1_hw_tile_rows += 1;
+                    }
+                }
+                _ => {}
+            }
+            if state.config.av1_hw_tile_rows != old_value {
                 state.config.is_modified = true;
             }
         }
@@ -1317,14 +1741,14 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 KeyCode::Up => {
                     let selected = state.config.arnr_type_state.selected().unwrap_or(0);
                     if selected > 0 {
-                        state.config.arnr_type_state.select(Some(selected - 1));
+                        set_arnr_type_selection(&mut state.config, selected - 1);
                     }
                 }
                 KeyCode::Down => {
                     let selected = state.config.arnr_type_state.selected().unwrap_or(0);
                     if selected < 3 {
                         // 4 ARNR types
-                        state.config.arnr_type_state.select(Some(selected + 1));
+                        set_arnr_type_selection(&mut state.config, selected + 1);
                     }
                 }
                 _ => {}
@@ -1358,109 +1782,28 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 state.config.is_modified = true;
             }
         }
-        ConfigFocus::ColorspaceDropdown => {
-            let old_selection = state.config.colorspace_state.selected();
+        ConfigFocus::ColorSpacePresetDropdown => {
+            let old_selection = state.config.colorspace_preset_state.selected();
             match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    state.config.active_dropdown = Some(ConfigFocus::ColorspaceDropdown);
+                    state.config.active_dropdown = Some(ConfigFocus::ColorSpacePresetDropdown);
                 }
                 KeyCode::Up => {
-                    let selected = state.config.colorspace_state.selected().unwrap_or(0);
+                    let selected = state.config.colorspace_preset_state.selected().unwrap_or(0);
                     if selected > 0 {
-                        state.config.colorspace_state.select(Some(selected - 1));
+                        set_colorspace_preset_selection(&mut state.config, selected - 1);
                     }
                 }
                 KeyCode::Down => {
-                    let selected = state.config.colorspace_state.selected().unwrap_or(0);
-                    if selected < 4 {
-                        // 5 colorspaces
-                        state.config.colorspace_state.select(Some(selected + 1));
-                    }
-                }
-                _ => {}
-            }
-            if state.config.colorspace_state.selected() != old_selection {
-                state.config.is_modified = true;
-            }
-        }
-        ConfigFocus::ColorPrimariesDropdown => {
-            let old_selection = state.config.color_primaries_state.selected();
-            match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    state.config.active_dropdown = Some(ConfigFocus::ColorPrimariesDropdown);
-                }
-                KeyCode::Up => {
-                    let selected = state.config.color_primaries_state.selected().unwrap_or(0);
-                    if selected > 0 {
-                        state
-                            .config
-                            .color_primaries_state
-                            .select(Some(selected - 1));
-                    }
-                }
-                KeyCode::Down => {
-                    let selected = state.config.color_primaries_state.selected().unwrap_or(0);
-                    if selected < 4 {
-                        // 5 primaries
-                        state
-                            .config
-                            .color_primaries_state
-                            .select(Some(selected + 1));
-                    }
-                }
-                _ => {}
-            }
-            if state.config.color_primaries_state.selected() != old_selection {
-                state.config.is_modified = true;
-            }
-        }
-        ConfigFocus::ColorTrcDropdown => {
-            let old_selection = state.config.color_trc_state.selected();
-            match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    state.config.active_dropdown = Some(ConfigFocus::ColorTrcDropdown);
-                }
-                KeyCode::Up => {
-                    let selected = state.config.color_trc_state.selected().unwrap_or(0);
-                    if selected > 0 {
-                        state.config.color_trc_state.select(Some(selected - 1));
-                    }
-                }
-                KeyCode::Down => {
-                    let selected = state.config.color_trc_state.selected().unwrap_or(0);
-                    if selected < 4 {
-                        // 5 transfer characteristics
-                        state.config.color_trc_state.select(Some(selected + 1));
-                    }
-                }
-                _ => {}
-            }
-            if state.config.color_trc_state.selected() != old_selection {
-                state.config.is_modified = true;
-            }
-        }
-        ConfigFocus::ColorRangeDropdown => {
-            let old_selection = state.config.color_range_state.selected();
-            match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    state.config.active_dropdown = Some(ConfigFocus::ColorRangeDropdown);
-                }
-                KeyCode::Up => {
-                    let selected = state.config.color_range_state.selected().unwrap_or(0);
-                    if selected > 0 {
-                        state.config.color_range_state.select(Some(selected - 1));
-                    }
-                }
-                KeyCode::Down => {
-                    let selected = state.config.color_range_state.selected().unwrap_or(0);
+                    let selected = state.config.colorspace_preset_state.selected().unwrap_or(0);
                     if selected < 2 {
-                        // 3 color ranges
-                        state.config.color_range_state.select(Some(selected + 1));
+                        // 3 presets (Auto, SDR, HDR10)
+                        set_colorspace_preset_selection(&mut state.config, selected + 1);
                     }
                 }
                 _ => {}
             }
-            if state.config.color_range_state.selected() != old_selection {
+            if state.config.colorspace_preset_state.selected() != old_selection {
                 state.config.is_modified = true;
             }
         }
@@ -1640,7 +1983,7 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                         .saturating_mul(10)
                         .saturating_add(digit);
                     // Reasonable limit: 1-16 workers
-                    if new_val >= 1 && new_val <= 16 {
+                    if (1..=16).contains(&new_val) {
                         state.config.max_workers = new_val;
                     }
                 }
@@ -1658,18 +2001,54 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             }
         }
         ConfigFocus::GopLengthInput => {
-            let old_value = state.config.gop_length;
+            let old_value = state.config.gop_length.clone();
             match key.code {
                 KeyCode::Char(c) if c.is_ascii_digit() => {
-                    let digit = c.to_digit(10).unwrap();
-                    state.config.gop_length = state
-                        .config
-                        .gop_length
-                        .saturating_mul(10)
-                        .saturating_add(digit);
+                    let chars: Vec<char> = state.config.gop_length.chars().collect();
+                    let pos = state.config.cursor_pos.min(chars.len());
+                    let mut new_string: String = chars.iter().take(pos).collect();
+                    new_string.push(c);
+                    new_string.extend(chars.iter().skip(pos));
+                    if let Ok(_num) = new_string.parse::<u32>() {
+                        state.config.gop_length = new_string;
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Left => {
+                    if state.config.cursor_pos > 0 {
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    let char_count = state.config.gop_length.chars().count();
+                    if state.config.cursor_pos < char_count {
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    state.config.cursor_pos = 0;
+                }
+                KeyCode::End => {
+                    state.config.cursor_pos = state.config.gop_length.chars().count();
                 }
                 KeyCode::Backspace => {
-                    state.config.gop_length /= 10;
+                    if state.config.cursor_pos > 0 {
+                        let chars: Vec<char> = state.config.gop_length.chars().collect();
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos - 1).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                        state.config.gop_length = new_string;
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Delete => {
+                    let chars: Vec<char> = state.config.gop_length.chars().collect();
+                    if state.config.cursor_pos < chars.len() {
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
+                        state.config.gop_length = new_string;
+                    }
                 }
                 _ => {}
             }
@@ -1678,18 +2057,54 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             }
         }
         ConfigFocus::KeyintMinInput => {
-            let old_value = state.config.keyint_min;
+            let old_value = state.config.keyint_min.clone();
             match key.code {
                 KeyCode::Char(c) if c.is_ascii_digit() => {
-                    let digit = c.to_digit(10).unwrap();
-                    state.config.keyint_min = state
-                        .config
-                        .keyint_min
-                        .saturating_mul(10)
-                        .saturating_add(digit);
+                    let chars: Vec<char> = state.config.keyint_min.chars().collect();
+                    let pos = state.config.cursor_pos.min(chars.len());
+                    let mut new_string: String = chars.iter().take(pos).collect();
+                    new_string.push(c);
+                    new_string.extend(chars.iter().skip(pos));
+                    if let Ok(_num) = new_string.parse::<u32>() {
+                        state.config.keyint_min = new_string;
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Left => {
+                    if state.config.cursor_pos > 0 {
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    let char_count = state.config.keyint_min.chars().count();
+                    if state.config.cursor_pos < char_count {
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    state.config.cursor_pos = 0;
+                }
+                KeyCode::End => {
+                    state.config.cursor_pos = state.config.keyint_min.chars().count();
                 }
                 KeyCode::Backspace => {
-                    state.config.keyint_min /= 10;
+                    if state.config.cursor_pos > 0 {
+                        let chars: Vec<char> = state.config.keyint_min.chars().collect();
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos - 1).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                        state.config.keyint_min = new_string;
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Delete => {
+                    let chars: Vec<char> = state.config.keyint_min.chars().collect();
+                    if state.config.cursor_pos < chars.len() {
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
+                        state.config.keyint_min = new_string;
+                    }
                 }
                 _ => {}
             }
@@ -1698,18 +2113,54 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             }
         }
         ConfigFocus::StaticThreshInput => {
-            let old_value = state.config.static_thresh;
+            let old_value = state.config.static_thresh.clone();
             match key.code {
                 KeyCode::Char(c) if c.is_ascii_digit() => {
-                    let digit = c.to_digit(10).unwrap();
-                    state.config.static_thresh = state
-                        .config
-                        .static_thresh
-                        .saturating_mul(10)
-                        .saturating_add(digit);
+                    let chars: Vec<char> = state.config.static_thresh.chars().collect();
+                    let pos = state.config.cursor_pos.min(chars.len());
+                    let mut new_string: String = chars.iter().take(pos).collect();
+                    new_string.push(c);
+                    new_string.extend(chars.iter().skip(pos));
+                    if let Ok(_num) = new_string.parse::<u32>() {
+                        state.config.static_thresh = new_string;
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Left => {
+                    if state.config.cursor_pos > 0 {
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    let char_count = state.config.static_thresh.chars().count();
+                    if state.config.cursor_pos < char_count {
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    state.config.cursor_pos = 0;
+                }
+                KeyCode::End => {
+                    state.config.cursor_pos = state.config.static_thresh.chars().count();
                 }
                 KeyCode::Backspace => {
-                    state.config.static_thresh /= 10;
+                    if state.config.cursor_pos > 0 {
+                        let chars: Vec<char> = state.config.static_thresh.chars().collect();
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos - 1).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                        state.config.static_thresh = new_string;
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Delete => {
+                    let chars: Vec<char> = state.config.static_thresh.chars().collect();
+                    if state.config.cursor_pos < chars.len() {
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
+                        state.config.static_thresh = new_string;
+                    }
                 }
                 _ => {}
             }
@@ -1718,18 +2169,56 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             }
         }
         ConfigFocus::MaxIntraRateInput => {
-            let old_value = state.config.max_intra_rate;
+            let old_value = state.config.max_intra_rate.clone();
             match key.code {
                 KeyCode::Char(c) if c.is_ascii_digit() => {
-                    let digit = c.to_digit(10).unwrap();
-                    state.config.max_intra_rate = state
-                        .config
-                        .max_intra_rate
-                        .saturating_mul(10)
-                        .saturating_add(digit);
+                    let chars: Vec<char> = state.config.max_intra_rate.chars().collect();
+                    let pos = state.config.cursor_pos.min(chars.len());
+                    let mut new_string: String = chars.iter().take(pos).collect();
+                    new_string.push(c);
+                    new_string.extend(chars.iter().skip(pos));
+                    if let Ok(num) = new_string.parse::<u32>() {
+                        if num <= 100 {
+                            state.config.max_intra_rate = new_string;
+                            state.config.cursor_pos += 1;
+                        }
+                    }
+                }
+                KeyCode::Left => {
+                    if state.config.cursor_pos > 0 {
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    let char_count = state.config.max_intra_rate.chars().count();
+                    if state.config.cursor_pos < char_count {
+                        state.config.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    state.config.cursor_pos = 0;
+                }
+                KeyCode::End => {
+                    state.config.cursor_pos = state.config.max_intra_rate.chars().count();
                 }
                 KeyCode::Backspace => {
-                    state.config.max_intra_rate /= 10;
+                    if state.config.cursor_pos > 0 {
+                        let chars: Vec<char> = state.config.max_intra_rate.chars().collect();
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos - 1).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos));
+                        state.config.max_intra_rate = new_string;
+                        state.config.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Delete => {
+                    let chars: Vec<char> = state.config.max_intra_rate.chars().collect();
+                    if state.config.cursor_pos < chars.len() {
+                        let mut new_string: String =
+                            chars.iter().take(state.config.cursor_pos).collect();
+                        new_string.extend(chars.iter().skip(state.config.cursor_pos + 1));
+                        state.config.max_intra_rate = new_string;
+                    }
                 }
                 _ => {}
             }
@@ -1739,24 +2228,37 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
         }
         ConfigFocus::VaapiBFramesInput => {
             let old_value = state.config.vaapi_b_frames.clone();
+            let mut value = state.config.vaapi_b_frames.parse::<u32>().unwrap_or(0);
+            let mut changed = false;
             match key.code {
-                KeyCode::Char(c) if c.is_ascii_digit() => {
-                    let new_val = state.config.vaapi_b_frames.clone() + &c.to_string();
-                    if let Ok(num) = new_val.parse::<u32>() {
-                        if num <= 4 {
-                            state.config.vaapi_b_frames = new_val;
-                        }
+                KeyCode::Left | KeyCode::Up => {
+                    if value > 0 {
+                        value -= 1;
+                        changed = true;
                     }
                 }
-                KeyCode::Backspace => {
-                    if !state.config.vaapi_b_frames.is_empty() {
-                        state.config.vaapi_b_frames.pop();
-                        if state.config.vaapi_b_frames.is_empty() {
-                            state.config.vaapi_b_frames = "0".to_string();
-                        }
+                KeyCode::Right | KeyCode::Down => {
+                    if value < 4 {
+                        value += 1;
+                        changed = true;
+                    }
+                }
+                KeyCode::Home => {
+                    if value != 0 {
+                        value = 0;
+                        changed = true;
+                    }
+                }
+                KeyCode::End => {
+                    if value != 4 {
+                        value = 4;
+                        changed = true;
                     }
                 }
                 _ => {}
+            }
+            if changed {
+                state.config.vaapi_b_frames = value.to_string();
             }
             if state.config.vaapi_b_frames != old_value {
                 state.config.is_modified = true;
@@ -1764,24 +2266,41 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
         }
         ConfigFocus::VaapiLoopFilterLevelInput => {
             let old_value = state.config.vaapi_loop_filter_level.clone();
+            let mut value = state
+                .config
+                .vaapi_loop_filter_level
+                .parse::<u32>()
+                .unwrap_or(16);
+            let mut changed = false;
             match key.code {
-                KeyCode::Char(c) if c.is_ascii_digit() => {
-                    let new_val = state.config.vaapi_loop_filter_level.clone() + &c.to_string();
-                    if let Ok(num) = new_val.parse::<u32>() {
-                        if num <= 63 {
-                            state.config.vaapi_loop_filter_level = new_val;
-                        }
+                KeyCode::Left | KeyCode::Up => {
+                    if value > 0 {
+                        value -= 1;
+                        changed = true;
                     }
                 }
-                KeyCode::Backspace => {
-                    if !state.config.vaapi_loop_filter_level.is_empty() {
-                        state.config.vaapi_loop_filter_level.pop();
-                        if state.config.vaapi_loop_filter_level.is_empty() {
-                            state.config.vaapi_loop_filter_level = "16".to_string();
-                        }
+                KeyCode::Right | KeyCode::Down => {
+                    if value < 63 {
+                        value += 1;
+                        changed = true;
+                    }
+                }
+                KeyCode::Home => {
+                    if value != 0 {
+                        value = 0;
+                        changed = true;
+                    }
+                }
+                KeyCode::End => {
+                    if value != 63 {
+                        value = 63;
+                        changed = true;
                     }
                 }
                 _ => {}
+            }
+            if changed {
+                state.config.vaapi_loop_filter_level = value.to_string();
             }
             if state.config.vaapi_loop_filter_level != old_value {
                 state.config.is_modified = true;
@@ -1789,52 +2308,167 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
         }
         ConfigFocus::VaapiLoopFilterSharpnessInput => {
             let old_value = state.config.vaapi_loop_filter_sharpness.clone();
+            let mut value = state
+                .config
+                .vaapi_loop_filter_sharpness
+                .parse::<u32>()
+                .unwrap_or(4);
+            let mut changed = false;
             match key.code {
-                KeyCode::Char(c) if c.is_ascii_digit() => {
-                    let new_val = state.config.vaapi_loop_filter_sharpness.clone() + &c.to_string();
-                    if let Ok(num) = new_val.parse::<u32>() {
-                        if num <= 15 {
-                            state.config.vaapi_loop_filter_sharpness = new_val;
-                        }
+                KeyCode::Left | KeyCode::Up => {
+                    if value > 0 {
+                        value -= 1;
+                        changed = true;
                     }
                 }
-                KeyCode::Backspace => {
-                    if !state.config.vaapi_loop_filter_sharpness.is_empty() {
-                        state.config.vaapi_loop_filter_sharpness.pop();
-                        if state.config.vaapi_loop_filter_sharpness.is_empty() {
-                            state.config.vaapi_loop_filter_sharpness = "4".to_string();
-                        }
+                KeyCode::Right | KeyCode::Down => {
+                    if value < 15 {
+                        value += 1;
+                        changed = true;
+                    }
+                }
+                KeyCode::Home => {
+                    if value != 0 {
+                        value = 0;
+                        changed = true;
+                    }
+                }
+                KeyCode::End => {
+                    if value != 15 {
+                        value = 15;
+                        changed = true;
                     }
                 }
                 _ => {}
+            }
+            if changed {
+                state.config.vaapi_loop_filter_sharpness = value.to_string();
             }
             if state.config.vaapi_loop_filter_sharpness != old_value {
                 state.config.is_modified = true;
             }
         }
-        ConfigFocus::AudioCodec => {
-            let old_selection = state.config.codec_list_state.selected();
+        ConfigFocus::HwDenoiseInput => {
+            let old_value = state.config.hw_denoise.clone();
+            let mut value = state.config.hw_denoise.parse::<u32>().unwrap_or(0);
+            let mut changed = false;
             match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    // Open dropdown popup
-                    state.config.active_dropdown = Some(ConfigFocus::AudioCodec);
-                }
-                KeyCode::Up => {
-                    let selected = state.config.codec_list_state.selected().unwrap_or(0);
-                    if selected > 0 {
-                        state.config.codec_list_state.select(Some(selected - 1));
+                KeyCode::Left | KeyCode::Up => {
+                    if value > 0 {
+                        value -= 1;
+                        changed = true;
                     }
                 }
-                KeyCode::Down => {
-                    let selected = state.config.codec_list_state.selected().unwrap_or(0);
-                    if selected < 3 {
-                        // 4 codecs
-                        state.config.codec_list_state.select(Some(selected + 1));
+                KeyCode::Right | KeyCode::Down => {
+                    if value < 100 {
+                        value += 1;
+                        changed = true;
+                    }
+                }
+                KeyCode::Home => {
+                    if value != 0 {
+                        value = 0;
+                        changed = true;
+                    }
+                }
+                KeyCode::End => {
+                    if value != 100 {
+                        value = 100;
+                        changed = true;
                     }
                 }
                 _ => {}
             }
-            if state.config.codec_list_state.selected() != old_selection {
+            if changed {
+                state.config.hw_denoise = value.to_string();
+            }
+            if state.config.hw_denoise != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HwDetailInput => {
+            let old_value = state.config.hw_detail.clone();
+            let mut value = state.config.hw_detail.parse::<u32>().unwrap_or(0);
+            let mut changed = false;
+            match key.code {
+                KeyCode::Left | KeyCode::Up => {
+                    if value > 0 {
+                        value -= 1;
+                        changed = true;
+                    }
+                }
+                KeyCode::Right | KeyCode::Down => {
+                    if value < 100 {
+                        value += 1;
+                        changed = true;
+                    }
+                }
+                KeyCode::Home => {
+                    if value != 0 {
+                        value = 0;
+                        changed = true;
+                    }
+                }
+                KeyCode::End => {
+                    if value != 100 {
+                        value = 100;
+                        changed = true;
+                    }
+                }
+                _ => {}
+            }
+            if changed {
+                state.config.hw_detail = value.to_string();
+            }
+            if state.config.hw_detail != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Vp9QsvPresetSlider => {
+            let old_value = state.config.vp9_qsv_preset;
+            match key.code {
+                KeyCode::Left => {
+                    if state.config.vp9_qsv_preset > 1 {
+                        state.config.vp9_qsv_preset -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if state.config.vp9_qsv_preset < 7 {
+                        state.config.vp9_qsv_preset += 1;
+                    }
+                }
+                KeyCode::Home => state.config.vp9_qsv_preset = 1,
+                KeyCode::End => state.config.vp9_qsv_preset = 7,
+                _ => {}
+            }
+            if state.config.vp9_qsv_preset != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Vp9QsvLookaheadCheckbox => {
+            if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                state.config.vp9_qsv_lookahead = !state.config.vp9_qsv_lookahead;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::Vp9QsvLookaheadDepthInput => {
+            let old_value = state.config.vp9_qsv_lookahead_depth;
+            match key.code {
+                KeyCode::Left => {
+                    if state.config.vp9_qsv_lookahead_depth > 0 {
+                        state.config.vp9_qsv_lookahead_depth -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if state.config.vp9_qsv_lookahead_depth < 120 {
+                        state.config.vp9_qsv_lookahead_depth += 1;
+                    }
+                }
+                KeyCode::Home => state.config.vp9_qsv_lookahead_depth = 0,
+                KeyCode::End => state.config.vp9_qsv_lookahead_depth = 120,
+                _ => {}
+            }
+            if state.config.vp9_qsv_lookahead_depth != old_value {
                 state.config.is_modified = true;
             }
         }
@@ -1916,8 +2550,11 @@ fn handle_hw_encoding_toggle(state: &mut AppState) {
 
         if result.available {
             state.config.use_hardware_encoding = true;
+            state.config.gpu_vendor = result.gpu_vendor;
             state.dashboard.gpu_model = result.gpu_model;
-            state.dashboard.gpu_available = crate::engine::hardware::xpu_smi_available();
+            state.dashboard.gpu_vendor = result.gpu_vendor;
+            state.dashboard.gpu_available =
+                crate::engine::hardware::gpu_monitoring_available(result.gpu_vendor);
             // Initialize hardware encoding parameters
             state.config.vaapi_rc_mode = "1".to_string(); // CQP mode - only supported mode
             state.config.status_message = Some(("QSV enabled".into(), Instant::now()));
@@ -1949,78 +2586,94 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
             use crate::ui::ConfigScreen;
 
             // Get the popup area and item count using the same calculation as rendering
-            let (popup_area, item_count, list_state) = match active {
+            let (popup_area, item_count) = match active {
                 ConfigFocus::ProfileList => {
                     let item_count = get_profile_count(config);
-                    let trigger = config.profile_list_area.unwrap_or(Rect::default());
+                    let trigger = config.profile_list_area.unwrap_or_default();
                     let popup =
                         ConfigScreen::calculate_popup_area(trigger, item_count, state.viewport);
-                    (popup, item_count, &mut config.profile_list_state)
+                    (popup, item_count)
                 }
                 ConfigFocus::QualityMode => {
-                    let trigger = config.quality_mode_area.unwrap_or(Rect::default());
+                    let trigger = config.quality_mode_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 3, state.viewport);
-                    (popup, 3, &mut config.quality_mode_state)
+                    (popup, 3)
                 }
                 ConfigFocus::ProfileDropdown => {
-                    let trigger = config.vp9_profile_list_area.unwrap_or(Rect::default());
+                    let trigger = config.vp9_profile_list_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 4, state.viewport);
-                    (popup, 4, &mut config.profile_dropdown_state)
+                    (popup, 4)
                 }
                 ConfigFocus::PixFmtDropdown => {
-                    let trigger = config.pix_fmt_area.unwrap_or(Rect::default());
-                    let popup = ConfigScreen::calculate_popup_area(trigger, 2, state.viewport);
-                    (popup, 2, &mut config.pix_fmt_state)
+                    let trigger = config.pix_fmt_area.unwrap_or_default();
+                    let popup = ConfigScreen::calculate_popup_area(trigger, 3, state.viewport);
+                    (popup, 3)
                 }
                 ConfigFocus::AqModeDropdown => {
-                    let trigger = config.aq_mode_area.unwrap_or(Rect::default());
+                    let trigger = config.aq_mode_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 6, state.viewport);
-                    (popup, 6, &mut config.aq_mode_state)
+                    (popup, 6)
                 }
                 ConfigFocus::TuneContentDropdown => {
-                    let trigger = config.tune_content_area.unwrap_or(Rect::default());
+                    let trigger = config.tune_content_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 3, state.viewport);
-                    (popup, 3, &mut config.tune_content_state)
+                    (popup, 3)
                 }
-                ConfigFocus::AudioCodec => {
-                    let trigger = config.codec_list_area.unwrap_or(Rect::default());
-                    let popup = ConfigScreen::calculate_popup_area(trigger, 4, state.viewport);
-                    (popup, 4, &mut config.codec_list_state)
+                ConfigFocus::AudioPrimaryCodec => {
+                    let trigger = config.audio_primary_codec_area.unwrap_or_default();
+                    let popup = ConfigScreen::calculate_popup_area(trigger, 5, state.viewport);
+                    (popup, 5) // Passthrough, Opus, AAC, MP3, Vorbis
+                }
+                ConfigFocus::AudioStereoCodec => {
+                    let trigger = config.audio_stereo_codec_area.unwrap_or_default();
+                    let popup = ConfigScreen::calculate_popup_area(trigger, 2, state.viewport);
+                    (popup, 2) // AAC, Opus
                 }
                 ConfigFocus::ArnrTypeDropdown => {
-                    let trigger = config.arnr_type_area.unwrap_or(Rect::default());
+                    let trigger = config.arnr_type_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 4, state.viewport);
-                    (popup, 4, &mut config.arnr_type_state)
+                    (popup, 4)
                 }
-                ConfigFocus::ColorspaceDropdown => {
-                    let trigger = config.colorspace_area.unwrap_or(Rect::default());
-                    let popup = ConfigScreen::calculate_popup_area(trigger, 5, state.viewport);
-                    (popup, 5, &mut config.colorspace_state)
-                }
-                ConfigFocus::ColorPrimariesDropdown => {
-                    let trigger = config.color_primaries_area.unwrap_or(Rect::default());
-                    let popup = ConfigScreen::calculate_popup_area(trigger, 5, state.viewport);
-                    (popup, 5, &mut config.color_primaries_state)
-                }
-                ConfigFocus::ColorTrcDropdown => {
-                    let trigger = config.color_trc_area.unwrap_or(Rect::default());
-                    let popup = ConfigScreen::calculate_popup_area(trigger, 5, state.viewport);
-                    (popup, 5, &mut config.color_trc_state)
-                }
-                ConfigFocus::ColorRangeDropdown => {
-                    let trigger = config.color_range_area.unwrap_or(Rect::default());
+                ConfigFocus::ColorSpacePresetDropdown => {
+                    let trigger = config.colorspace_preset_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 3, state.viewport);
-                    (popup, 3, &mut config.color_range_state)
+                    (popup, 3)
                 }
                 ConfigFocus::FpsDropdown => {
-                    let trigger = config.fps_area.unwrap_or(Rect::default());
+                    let trigger = config.fps_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 11, state.viewport);
-                    (popup, 11, &mut config.fps_dropdown_state)
+                    (popup, 11)
                 }
                 ConfigFocus::ResolutionDropdown => {
-                    let trigger = config.scale_width_area.unwrap_or(Rect::default());
+                    let trigger = config.scale_width_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 7, state.viewport);
-                    (popup, 7, &mut config.resolution_dropdown_state)
+                    (popup, 7)
+                }
+                ConfigFocus::ContainerDropdown => {
+                    let trigger = config.container_dropdown_area.unwrap_or_default();
+                    let popup = ConfigScreen::calculate_popup_area(trigger, 4, state.viewport);
+                    (popup, 4)
+                }
+                ConfigFocus::VideoCodecDropdown => {
+                    let trigger = config.video_codec_area.unwrap_or_default();
+                    // Use narrow width for codec dropdown (VP9/AV1 are short)
+                    let narrow_trigger = Rect {
+                        width: 20,
+                        ..trigger
+                    };
+                    let popup =
+                        ConfigScreen::calculate_popup_area(narrow_trigger, 2, state.viewport);
+                    (popup, 2)
+                }
+                ConfigFocus::Av1TuneDropdown => {
+                    let trigger = config.av1_tune_area.unwrap_or_default();
+                    let popup = ConfigScreen::calculate_popup_area(trigger, 3, state.viewport);
+                    (popup, 3)
+                }
+                ConfigFocus::Av1ScmDropdown => {
+                    let trigger = config.av1_scm_area.unwrap_or_default();
+                    let popup = ConfigScreen::calculate_popup_area(trigger, 3, state.viewport);
+                    (popup, 3)
                 }
                 _ => {
                     config.active_dropdown = None;
@@ -2038,17 +2691,98 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                         (mouse.row.saturating_sub(popup_area.y).saturating_sub(1)) as usize;
                     // Bounds check before selecting
                     if item_index < item_count {
-                        list_state.select(Some(item_index));
+                        match active {
+                            ConfigFocus::ColorSpacePresetDropdown => {
+                                set_colorspace_preset_selection(config, item_index);
+                            }
+                            ConfigFocus::ArnrTypeDropdown => {
+                                set_arnr_type_selection(config, item_index);
+                            }
+                            ConfigFocus::FpsDropdown => {
+                                set_fps_selection(config, item_index);
+                            }
+                            ConfigFocus::ResolutionDropdown => {
+                                set_resolution_selection(config, item_index);
+                            }
+                            ConfigFocus::VideoCodecDropdown => {
+                                set_video_codec_selection(config, item_index);
+                            }
+                            _ => {
+                                // Other dropdowns only need the selection updated
+                                match active {
+                                    ConfigFocus::ProfileList => {
+                                        config.profile_list_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::QualityMode => {
+                                        config.quality_mode_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::ProfileDropdown => {
+                                        config.profile_dropdown_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::PixFmtDropdown => {
+                                        config.pix_fmt_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::AqModeDropdown => {
+                                        config.aq_mode_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::TuneContentDropdown => {
+                                        config.tune_content_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::AudioPrimaryCodec => {
+                                        config.audio_primary_codec_state.select(Some(item_index));
+                                        config.audio_primary_codec =
+                                            crate::ui::state::AudioPrimaryCodec::from_index(
+                                                item_index,
+                                            );
+                                    }
+                                    ConfigFocus::AudioStereoCodec => {
+                                        config.audio_stereo_codec_state.select(Some(item_index));
+                                        config.audio_stereo_codec =
+                                            crate::ui::state::AudioStereoCodec::from_index(
+                                                item_index,
+                                            );
+                                    }
+                                    ConfigFocus::ContainerDropdown => {
+                                        config.container_dropdown_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::Av1TuneDropdown => {
+                                        config.av1_tune_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::Av1ScmDropdown => {
+                                        config.av1_scm_state.select(Some(item_index));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        if active != ConfigFocus::ProfileList {
+                            config.is_modified = true;
+                        }
                     }
                 }
 
                 // Close popup after selection
                 let was_profile_list = active == ConfigFocus::ProfileList;
+                let was_codec_dropdown = active == ConfigFocus::VideoCodecDropdown;
+                let was_container_dropdown = active == ConfigFocus::ContainerDropdown;
                 config.active_dropdown = None;
 
                 // If ProfileList dropdown, load the selected profile after closing
                 if was_profile_list {
                     load_selected_profile(state);
+                } else if was_codec_dropdown {
+                    // Update codec_selection enum based on video_codec_state
+                    use crate::ui::state::CodecSelection;
+                    let selected = config.video_codec_state.selected().unwrap_or(0);
+                    config.codec_selection = match selected {
+                        0 => CodecSelection::Vp9,
+                        1 => CodecSelection::Av1,
+                        _ => CodecSelection::Vp9,
+                    };
+                    config.is_modified = true;
+                } else if was_container_dropdown {
+                    // Mark as modified when container changes
+                    config.is_modified = true;
                 }
 
                 return;
@@ -2133,6 +2867,13 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
             }
         }
 
+        if let Some(area) = config.additional_args_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                set_focus_and_update(state, ConfigFocus::AdditionalArgsInput);
+                return;
+            }
+        }
+
         if let Some(area) = config.max_workers_area {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::MaxWorkersInput;
@@ -2211,17 +2952,76 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
             }
         }
 
-        if let Some(area) = config.audio_bitrate_slider_area {
+        // Audio primary codec dropdown
+        if let Some(area) = config.audio_primary_codec_area {
             if is_in_rect(mouse.column, mouse.row, area) {
-                config.focus = ConfigFocus::AudioBitrateSlider;
-                // Calculate value based on click position (only on bar line, not label line)
-                if mouse.row == area.y + 1 && mouse.column >= area.x && area.width > 0 {
-                    let relative_x = (mouse.column - area.x) as f64;
-                    let ratio = (relative_x / area.width as f64).clamp(0.0, 1.0);
-                    let min = 32;
-                    let max = 512;
-                    config.audio_bitrate = (min as f64 + ratio * (max - min) as f64).round() as u32;
-                }
+                config.focus = ConfigFocus::AudioPrimaryCodec;
+                config.active_dropdown = Some(ConfigFocus::AudioPrimaryCodec);
+                return;
+            }
+        }
+
+        // Audio primary bitrate
+        if let Some(area) = config.audio_primary_bitrate_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::AudioPrimaryBitrate;
+                return;
+            }
+        }
+
+        // Downmix 2ch checkbox
+        if let Some(area) = config.audio_primary_downmix_area {
+            if is_in_rect(mouse.column, mouse.row, area)
+                && !config.audio_primary_codec.is_passthrough()
+            {
+                config.focus = ConfigFocus::AudioPrimaryDownmix;
+                config.audio_primary_downmix = !config.audio_primary_downmix;
+                config.is_modified = true;
+                return;
+            }
+        }
+
+        // AC3 5.1 checkbox
+        if let Some(area) = config.audio_ac3_checkbox_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::AudioAc3Checkbox;
+                config.audio_add_ac3 = !config.audio_add_ac3;
+                config.is_modified = true;
+                return;
+            }
+        }
+
+        // AC3 bitrate
+        if let Some(area) = config.audio_ac3_bitrate_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::AudioAc3Bitrate;
+                return;
+            }
+        }
+
+        // Stereo checkbox
+        if let Some(area) = config.audio_stereo_checkbox_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::AudioStereoCheckbox;
+                config.audio_add_stereo = !config.audio_add_stereo;
+                config.is_modified = true;
+                return;
+            }
+        }
+
+        // Stereo codec dropdown
+        if let Some(area) = config.audio_stereo_codec_area {
+            if is_in_rect(mouse.column, mouse.row, area) && config.audio_add_stereo {
+                config.focus = ConfigFocus::AudioStereoCodec;
+                config.active_dropdown = Some(ConfigFocus::AudioStereoCodec);
+                return;
+            }
+        }
+
+        // Stereo bitrate
+        if let Some(area) = config.audio_stereo_bitrate_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::AudioStereoBitrate;
                 return;
             }
         }
@@ -2239,23 +3039,6 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::ProfileDropdown;
                 config.active_dropdown = Some(ConfigFocus::ProfileDropdown);
-                return;
-            }
-        }
-
-        if let Some(area) = config.codec_list_area {
-            if is_in_rect(mouse.column, mouse.row, area) {
-                config.focus = ConfigFocus::AudioCodec;
-                config.active_dropdown = Some(ConfigFocus::AudioCodec);
-                return;
-            }
-        }
-
-        if let Some(area) = config.force_stereo_checkbox_area {
-            if is_in_rect(mouse.column, mouse.row, area) {
-                config.focus = ConfigFocus::ForceStereoCheckbox;
-                config.force_stereo = !config.force_stereo;
-                config.is_modified = true;
                 return;
             }
         }
@@ -2280,7 +3063,8 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
         if let Some(area) = config.auto_alt_ref_checkbox_area {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::AutoAltRefCheckbox;
-                config.auto_alt_ref = !config.auto_alt_ref;
+                // Cycle through 0 (disabled), 1 (enabled), 2 (enabled with statistics)
+                config.auto_alt_ref = (config.auto_alt_ref + 1) % 3;
                 return;
             }
         }
@@ -2532,34 +3316,10 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
             }
         }
 
-        if let Some(area) = config.colorspace_area {
+        if let Some(area) = config.colorspace_preset_area {
             if is_in_rect(mouse.column, mouse.row, area) {
-                config.focus = ConfigFocus::ColorspaceDropdown;
-                config.active_dropdown = Some(ConfigFocus::ColorspaceDropdown);
-                return;
-            }
-        }
-
-        if let Some(area) = config.color_primaries_area {
-            if is_in_rect(mouse.column, mouse.row, area) {
-                config.focus = ConfigFocus::ColorPrimariesDropdown;
-                config.active_dropdown = Some(ConfigFocus::ColorPrimariesDropdown);
-                return;
-            }
-        }
-
-        if let Some(area) = config.color_trc_area {
-            if is_in_rect(mouse.column, mouse.row, area) {
-                config.focus = ConfigFocus::ColorTrcDropdown;
-                config.active_dropdown = Some(ConfigFocus::ColorTrcDropdown);
-                return;
-            }
-        }
-
-        if let Some(area) = config.color_range_area {
-            if is_in_rect(mouse.column, mouse.row, area) {
-                config.focus = ConfigFocus::ColorRangeDropdown;
-                config.active_dropdown = Some(ConfigFocus::ColorRangeDropdown);
+                config.focus = ConfigFocus::ColorSpacePresetDropdown;
+                config.active_dropdown = Some(ConfigFocus::ColorSpacePresetDropdown);
                 return;
             }
         }
@@ -2582,6 +3342,40 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                     // Initialize hardware encoding parameters
                     config.vaapi_rc_mode = "1".to_string(); // CQP mode - only supported mode
                 }
+                return;
+            }
+        }
+
+        // Auto-VMAF checkbox
+        if let Some(area) = config.auto_vmaf_checkbox_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::AutoVmafCheckbox;
+                config.auto_vmaf_enabled = !config.auto_vmaf_enabled;
+                config.is_modified = true;
+                return;
+            }
+        }
+
+        // Auto-VMAF target input
+        if let Some(area) = config.auto_vmaf_target_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                set_focus_and_update(state, ConfigFocus::AutoVmafTargetInput);
+                return;
+            }
+        }
+
+        // Auto-VMAF step input
+        if let Some(area) = config.auto_vmaf_step_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                set_focus_and_update(state, ConfigFocus::AutoVmafStepInput);
+                return;
+            }
+        }
+
+        // Auto-VMAF max attempts input
+        if let Some(area) = config.auto_vmaf_max_attempts_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                set_focus_and_update(state, ConfigFocus::AutoVmafMaxAttemptsInput);
                 return;
             }
         }
@@ -2645,8 +3439,469 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                     return;
                 }
             }
+
+            // Hardware denoise input
+            if let Some(area) = config.hw_denoise_area {
+                if is_in_rect(mouse.column, mouse.row, area) {
+                    config.focus = ConfigFocus::HwDenoiseInput;
+                    return;
+                }
+            }
+
+            // Hardware detail input
+            if let Some(area) = config.hw_detail_area {
+                if is_in_rect(mouse.column, mouse.row, area) {
+                    config.focus = ConfigFocus::HwDetailInput;
+                    return;
+                }
+            }
+
+            // VP9 QSV preset slider
+            if let Some(area) = config.vp9_qsv_preset_area {
+                if is_in_rect(mouse.column, mouse.row, area) {
+                    config.focus = ConfigFocus::Vp9QsvPresetSlider;
+                    // Handle slider click on bar line
+                    if mouse.row == area.y + 1
+                        && mouse.column >= area.x
+                        && mouse.column < area.x + area.width
+                    {
+                        let click_x = mouse.column.saturating_sub(area.x);
+                        let ratio = (click_x as f64) / (area.width as f64).max(1.0);
+                        config.vp9_qsv_preset = (ratio * 6.0 + 1.0).clamp(1.0, 7.0) as u32;
+                        config.is_modified = true;
+                    }
+                    return;
+                }
+            }
+
+            if let Some(area) = config.vp9_qsv_lookahead_checkbox_area {
+                if is_in_rect(mouse.column, mouse.row, area) {
+                    config.vp9_qsv_lookahead = !config.vp9_qsv_lookahead;
+                    config.focus = ConfigFocus::Vp9QsvLookaheadCheckbox;
+                    config.is_modified = true;
+                    return;
+                }
+            }
+
+            if let Some(area) = config.vp9_qsv_lookahead_depth_area {
+                if is_in_rect(mouse.column, mouse.row, area) {
+                    config.focus = ConfigFocus::Vp9QsvLookaheadDepthInput;
+                    return;
+                }
+            }
+        }
+
+        // Video codec selector (VP9/AV1)
+        if let Some(area) = config.video_codec_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::VideoCodecDropdown;
+                config.active_dropdown = Some(ConfigFocus::VideoCodecDropdown);
+                return;
+            }
+        }
+
+        // AV1 software settings
+        if let Some(area) = config.av1_preset_slider_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1PresetSlider;
+                // Handle slider click on bar line
+                if mouse.row == area.y + 1
+                    && mouse.column >= area.x
+                    && mouse.column < area.x + area.width
+                {
+                    let click_x = mouse.column.saturating_sub(area.x);
+                    let ratio = (click_x as f64) / (area.width as f64).max(1.0);
+                    config.av1_preset = (ratio * 13.0).clamp(0.0, 13.0) as u32;
+                    config.is_modified = true;
+                }
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_tune_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1TuneDropdown;
+                config.active_dropdown = Some(ConfigFocus::Av1TuneDropdown);
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_film_grain_slider_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1FilmGrainSlider;
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_film_grain_denoise_checkbox_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.av1_film_grain_denoise = !config.av1_film_grain_denoise;
+                config.focus = ConfigFocus::Av1FilmGrainDenoiseCheckbox;
+                config.is_modified = true;
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_enable_overlays_checkbox_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.av1_enable_overlays = !config.av1_enable_overlays;
+                config.focus = ConfigFocus::Av1EnableOverlaysCheckbox;
+                config.is_modified = true;
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_scd_checkbox_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.av1_scd = !config.av1_scd;
+                config.focus = ConfigFocus::Av1ScdCheckbox;
+                config.is_modified = true;
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_scm_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1ScmDropdown;
+                config.active_dropdown = Some(ConfigFocus::Av1ScmDropdown);
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_enable_tf_checkbox_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.av1_enable_tf = !config.av1_enable_tf;
+                config.focus = ConfigFocus::Av1EnableTfCheckbox;
+                config.is_modified = true;
+                return;
+            }
+        }
+
+        // AV1 hardware settings
+        if let Some(area) = config.av1_hw_preset_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1HwPresetSlider;
+                // Handle slider click on bar line
+                if mouse.row == area.y + 1
+                    && mouse.column >= area.x
+                    && mouse.column < area.x + area.width
+                {
+                    let click_x = mouse.column.saturating_sub(area.x);
+                    let ratio = (click_x as f64) / (area.width as f64).max(1.0);
+                    config.av1_hw_preset = (ratio * 6.0 + 1.0).clamp(1.0, 7.0) as u32;
+                    config.is_modified = true;
+                }
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_hw_cq_slider_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1HwCqSlider;
+                // Handle slider click on bar line
+                if mouse.row == area.y + 1
+                    && mouse.column >= area.x
+                    && mouse.column < area.x + area.width
+                {
+                    // Per-encoder quality: NVENC uses 0-63, QSV/VAAPI use 1-255
+                    let (min_cq, max_cq) = match config.gpu_vendor {
+                        crate::engine::hardware::GpuVendor::Nvidia => (0, 63),
+                        crate::engine::hardware::GpuVendor::Intel => (1, 255),
+                        _ => (1, 255), // AMD and others use VAAPI
+                    };
+                    let click_x = mouse.column.saturating_sub(area.x);
+                    let ratio = (click_x as f64) / (area.width as f64).max(1.0);
+                    let range = (max_cq - min_cq) as f64;
+                    let new_value =
+                        (ratio * range + min_cq as f64).clamp(min_cq as f64, max_cq as f64) as u32;
+                    // Write to the correct per-encoder field
+                    match config.gpu_vendor {
+                        crate::engine::hardware::GpuVendor::Nvidia => {
+                            config.av1_nvenc_cq = new_value
+                        }
+                        crate::engine::hardware::GpuVendor::Intel => config.av1_qsv_cq = new_value,
+                        _ => config.av1_vaapi_cq = new_value,
+                    };
+                    config.is_modified = true;
+                }
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_hw_lookahead_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1HwLookaheadInput;
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_hw_tile_cols_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1HwTileColsInput;
+                return;
+            }
+        }
+
+        if let Some(area) = config.av1_hw_tile_rows_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::Av1HwTileRowsInput;
+            }
         }
     }
 }
 
 // Helper function to check if mouse is within table area
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn colorspace_preset_key_updates_all_values() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::ColorSpacePresetDropdown;
+
+        // Press Down to select SDR preset (index 1)
+        handle_focused_widget_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut state);
+
+        // Verify preset state is updated to index 1
+        assert_eq!(state.config.colorspace_preset_state.selected(), Some(1));
+        // Verify preset enum is SDR
+        assert_eq!(
+            state.config.colorspace_preset,
+            crate::ui::state::ColorSpacePreset::Sdr
+        );
+        // Verify ALL numeric values match SDR preset (1, 1, 1, 0)
+        assert_eq!(state.config.colorspace, 1);
+        assert_eq!(state.config.color_primaries, 1);
+        assert_eq!(state.config.color_trc, 1);
+        assert_eq!(state.config.color_range, 0);
+    }
+
+    #[test]
+    fn fps_key_updates_numeric_value() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::FpsDropdown;
+
+        handle_focused_widget_key(
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut state,
+        );
+
+        assert_eq!(state.config.fps_dropdown_state.selected(), Some(1));
+        assert_eq!(state.config.fps, options::fps_from_idx(1));
+    }
+
+    #[test]
+    fn resolution_key_updates_width_and_height() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::ResolutionDropdown;
+
+        handle_focused_widget_key(
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut state,
+        );
+
+        assert_eq!(state.config.resolution_dropdown_state.selected(), Some(1));
+        assert_eq!(
+            (state.config.scale_width, state.config.scale_height),
+            options::resolution_from_idx(1)
+        );
+    }
+
+    #[test]
+    fn video_codec_key_updates_enum() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::VideoCodecDropdown;
+
+        handle_focused_widget_key(
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut state,
+        );
+
+        assert_eq!(state.config.video_codec_state.selected(), Some(1));
+        assert_eq!(
+            state.config.codec_selection,
+            crate::ui::state::CodecSelection::Av1
+        );
+    }
+
+    #[test]
+    fn arnr_type_key_updates_numeric_value() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::ArnrTypeDropdown;
+
+        handle_focused_widget_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut state);
+
+        assert_eq!(state.config.arnr_type_state.selected(), Some(1));
+        assert_eq!(state.config.arnr_type, options::arnr_type_from_idx(1));
+    }
+
+    #[test]
+    fn quality_mode_key_updates_selection() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::QualityMode;
+        state.config.is_modified = false;
+
+        handle_focused_widget_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut state);
+
+        assert_eq!(state.config.quality_mode_state.selected(), Some(1));
+        assert!(state.config.is_modified);
+    }
+
+    #[test]
+    fn tune_content_key_updates_selection() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::TuneContentDropdown;
+        state.config.is_modified = false;
+
+        handle_focused_widget_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut state);
+
+        assert_eq!(state.config.tune_content_state.selected(), Some(1));
+        assert!(state.config.is_modified);
+    }
+
+    #[test]
+    fn aq_mode_key_updates_selection() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::AqModeDropdown;
+        state.config.is_modified = false;
+        state.config.aq_mode_state.select(Some(0));
+
+        handle_focused_widget_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut state);
+
+        assert_eq!(state.config.aq_mode_state.selected(), Some(1));
+        assert!(state.config.is_modified);
+    }
+
+    #[test]
+    fn pix_fmt_key_updates_selection() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::PixFmtDropdown;
+        state.config.is_modified = false;
+
+        handle_focused_widget_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut state);
+
+        assert_eq!(state.config.pix_fmt_state.selected(), Some(1));
+        assert!(state.config.is_modified);
+    }
+
+    #[test]
+    fn audio_primary_codec_key_updates_selection() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::AudioPrimaryCodec;
+        state.config.is_modified = false;
+        // Start at Opus (index 1), pressing down should go to AAC (index 2)
+        state.config.audio_primary_codec_state.select(Some(1));
+
+        handle_focused_widget_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut state);
+
+        assert_eq!(state.config.audio_primary_codec_state.selected(), Some(2));
+        assert!(state.config.is_modified);
+    }
+
+    #[test]
+    fn container_key_updates_selection() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::ContainerDropdown;
+        state.config.is_modified = false;
+
+        handle_focused_widget_key(
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut state,
+        );
+
+        assert_eq!(state.config.container_dropdown_state.selected(), Some(1));
+        assert!(state.config.is_modified);
+    }
+
+    #[test]
+    fn mouse_selects_colorspace_preset_and_updates_numeric() {
+        let mut state = AppState::default();
+        state.viewport = Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 24,
+        };
+        state.config.active_dropdown = Some(ConfigFocus::ColorSpacePresetDropdown);
+        state.config.colorspace_preset_area = Some(Rect {
+            x: 0,
+            y: 0,
+            width: 20,
+            height: 1,
+        });
+
+        let popup = crate::ui::ConfigScreen::calculate_popup_area(
+            state.config.colorspace_preset_area.unwrap(),
+            3,
+            state.viewport,
+        );
+
+        // Click on the second item (index 1 = SDR preset)
+        let event = crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: popup.x + 1,
+            row: popup.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        handle_config_mouse(event, &mut state);
+
+        // Verify preset state is updated
+        assert_eq!(state.config.colorspace_preset_state.selected(), Some(1));
+        // Verify preset enum is SDR
+        assert_eq!(
+            state.config.colorspace_preset,
+            crate::ui::state::ColorSpacePreset::Sdr
+        );
+        // Verify numeric values match SDR preset (1, 1, 1, 0)
+        assert_eq!(state.config.colorspace, 1);
+        assert_eq!(state.config.color_primaries, 1);
+        assert_eq!(state.config.color_trc, 1);
+        assert_eq!(state.config.color_range, 0);
+        assert!(state.config.is_modified);
+        assert!(state.config.active_dropdown.is_none());
+    }
+
+    #[test]
+    fn vaapi_b_frames_arrow_keys_adjust_value() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::VaapiBFramesInput;
+        state.config.is_modified = false;
+        state.config.vaapi_b_frames = "0".to_string();
+
+        handle_focused_widget_key(
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut state,
+        );
+        assert_eq!(state.config.vaapi_b_frames, "1");
+        assert!(state.config.is_modified);
+    }
+
+    #[test]
+    fn vaapi_loop_filter_level_arrow_keys_adjust_value() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::VaapiLoopFilterLevelInput;
+        state.config.is_modified = false;
+        state.config.vaapi_loop_filter_level = "16".to_string();
+
+        handle_focused_widget_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut state);
+        assert_eq!(state.config.vaapi_loop_filter_level, "15");
+        assert!(state.config.is_modified);
+    }
+
+    #[test]
+    fn vaapi_loop_filter_sharpness_arrow_keys_adjust_value() {
+        let mut state = AppState::default();
+        state.config.focus = ConfigFocus::VaapiLoopFilterSharpnessInput;
+        state.config.is_modified = false;
+        state.config.vaapi_loop_filter_sharpness = "4".to_string();
+
+        handle_focused_widget_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE), &mut state);
+        assert_eq!(state.config.vaapi_loop_filter_sharpness, "15");
+        assert!(state.config.is_modified);
+    }
+}

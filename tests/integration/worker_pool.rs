@@ -97,15 +97,20 @@ fn test_worker_message_types() {
         speed: Some(1.5),
         bitrate_kbps: Some(2500.0),
         size_bytes: Some(1024000),
+        status: ffdash::engine::JobStatus::Running,
+        vmaf_result: Some(92.5),
+        vmaf_target: Some(93.0),
     };
     match msg {
         WorkerMessage::ProgressUpdate {
             progress_pct,
             speed,
+            vmaf_result,
             ..
         } => {
             assert_eq!(progress_pct, 50.0);
             assert_eq!(speed, Some(1.5));
+            assert_eq!(vmaf_result, Some(92.5));
         }
         _ => panic!("Wrong message type"),
     }

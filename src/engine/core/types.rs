@@ -5,6 +5,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum JobStatus {
     Pending,
+    Calibrating, // Running Auto-VMAF calibration
     Running,
     Done,
     Failed,
@@ -43,6 +44,21 @@ pub struct VideoJob {
 
     pub attempts: u32,
     pub last_error: Option<String>,
+
+    // Auto-VMAF calibration results
+    #[serde(default)]
+    pub vmaf_target: Option<f32>, // Target VMAF score if Auto-VMAF enabled
+    #[serde(default)]
+    pub vmaf_result: Option<f32>, // Actual VMAF score achieved
+    #[serde(default)]
+    pub calibrated_quality: Option<u32>, // Calibrated quality setting (CRF or global_quality)
+    #[serde(default)]
+    pub vmaf_partial_scores: Vec<f32>, // Individual window scores for progressive averaging
+
+    #[serde(skip)]
+    pub calibrating_total_steps: Option<u32>, // Total calibration windows across attempts
+    #[serde(skip)]
+    pub calibrating_completed_steps: u32, // Completed calibration windows
 }
 
 impl VideoJob {
@@ -68,6 +84,12 @@ impl VideoJob {
             displayed_eta_seconds: None,
             attempts: 0,
             last_error: None,
+            vmaf_target: None,
+            vmaf_result: None,
+            calibrated_quality: None,
+            vmaf_partial_scores: Vec::new(),
+            calibrating_total_steps: None,
+            calibrating_completed_steps: 0,
         }
     }
 }

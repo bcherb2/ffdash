@@ -1,0 +1,2 @@
+---
+- ffmpeg -init_hw_device vaapi=va:/dev/dri/renderD128 -i /tmp/input.mp4 -progress - -nostats -vf format=nv12,hwupload -c:v av1_vaapi -rc_mode:v CQP -global_quality:v 30 -g:v 120 -c:a libopus -b:a 128k -vbr:a on -compression_level:a 10 -y /tmp/output.mkv

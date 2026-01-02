@@ -103,20 +103,20 @@ fn test_gop_settings_roundtrip() {
     let config = custom_gop_config();
 
     let profile = Profile::from_config("GOP".to_string(), &config);
-    assert_eq!(profile.gop_length, 120);
+    assert_eq!(profile.gop_length, "120".to_string());
     assert_eq!(profile.fixed_gop, true);
-    assert_eq!(profile.keyint_min, 60);
+    assert_eq!(profile.keyint_min, "60".to_string());
     assert_eq!(profile.lag_in_frames, 16);
-    assert_eq!(profile.auto_alt_ref, true);
+    assert_eq!(profile.auto_alt_ref, 1);
 
     let mut restored = ConfigState::default();
     profile.apply_to_config(&mut restored);
 
-    assert_eq!(restored.gop_length, 120);
+    assert_eq!(restored.gop_length, "120".to_string());
     assert_eq!(restored.fixed_gop, true);
-    assert_eq!(restored.keyint_min, 60);
+    assert_eq!(restored.keyint_min, "60".to_string());
     assert_eq!(restored.lag_in_frames, 16);
-    assert_eq!(restored.auto_alt_ref, true);
+    assert_eq!(restored.auto_alt_ref, 1);
 }
 
 #[test]
@@ -200,13 +200,12 @@ fn test_built_in_1080p_shrinker_profile() {
     let profile = Profile::get_builtin("1080p Shrinker").expect("Profile should exist");
 
     assert_eq!(profile.name, "1080p Shrinker");
-    assert_eq!(profile.video_codec, "libvpx-vp9");
-    assert_eq!(profile.audio_codec, "libopus");
-    assert_eq!(profile.crf, 37);
-    assert_eq!(profile.cpu_used, 2);
-    assert_eq!(profile.row_mt, true);
-    assert_eq!(profile.quality_mode, "good");
-    assert_eq!(profile.audio_bitrate, 64);
+    assert_eq!(profile.video_codec, "libsvtav1");
+    assert_eq!(profile.audio_primary_codec, "aac");
+    assert_eq!(profile.crf, 43);
+    assert_eq!(profile.container, "mp4");
+    assert_eq!(profile.audio_primary_bitrate, 112);
+    assert_eq!(profile.pix_fmt, "yuv420p"); // 8-bit SDR
 }
 
 // ============================================================================
@@ -229,7 +228,7 @@ proptest! {
         frame_parallel in prop::bool::ANY,
         two_pass in prop::bool::ANY,
         fixed_gop in prop::bool::ANY,
-        auto_alt_ref in prop::bool::ANY,
+        auto_alt_ref in 0u32..=2,
     ) {
         let mut config = ConfigState::default();
         config.crf = crf;
@@ -238,7 +237,7 @@ proptest! {
         config.tile_columns = tile_cols;
         config.tile_rows = tile_rows;
         config.threads = threads;
-        config.gop_length = gop;
+        config.gop_length = gop.to_string();
         config.lag_in_frames = lag;
         config.row_mt = row_mt;
         config.frame_parallel = frame_parallel;
@@ -263,7 +262,7 @@ proptest! {
         assert_eq!(restored.tile_columns, tile_cols, "tile_columns not preserved");
         assert_eq!(restored.tile_rows, tile_rows, "tile_rows not preserved");
         assert_eq!(restored.threads, threads, "threads not preserved");
-        assert_eq!(restored.gop_length, gop, "gop_length not preserved");
+        assert_eq!(restored.gop_length, gop.to_string(), "gop_length not preserved");
         assert_eq!(restored.lag_in_frames, lag, "lag_in_frames not preserved");
         assert_eq!(restored.row_mt, row_mt, "row_mt not preserved");
         assert_eq!(restored.frame_parallel, frame_parallel, "frame_parallel not preserved");
@@ -307,8 +306,8 @@ proptest! {
         let mut config = ConfigState::default();
         config.sharpness = sharpness;
         config.noise_sensitivity = noise_sens;
-        config.static_thresh = static_thresh;
-        config.max_intra_rate = max_intra_rate;
+        config.static_thresh = static_thresh.to_string();
+        config.max_intra_rate = max_intra_rate.to_string();
         config.enable_tpl = enable_tpl;
 
         let profile = Profile::from_config("TuningTest".to_string(), &config);
@@ -317,8 +316,8 @@ proptest! {
 
         assert_eq!(restored.sharpness, sharpness);
         assert_eq!(restored.noise_sensitivity, noise_sens);
-        assert_eq!(restored.static_thresh, static_thresh);
-        assert_eq!(restored.max_intra_rate, max_intra_rate);
+        assert_eq!(restored.static_thresh, static_thresh.to_string());
+        assert_eq!(restored.max_intra_rate, max_intra_rate.to_string());
         assert_eq!(restored.enable_tpl, enable_tpl);
     }
 
@@ -343,7 +342,7 @@ fn test_extreme_values_roundtrip() {
     config.cpu_used = 8; // Max CPU-used
     config.tile_columns = 6; // Max tile columns
     config.tile_rows = 6; // Max tile rows
-    config.gop_length = 600; // Large GOP
+    config.gop_length = 600.to_string(); // Large GOP
 
     let profile = Profile::from_config("Extreme".to_string(), &config);
     let mut restored = ConfigState::default();
@@ -353,7 +352,7 @@ fn test_extreme_values_roundtrip() {
     assert_eq!(restored.cpu_used, 8);
     assert_eq!(restored.tile_columns, 6);
     assert_eq!(restored.tile_rows, 6);
-    assert_eq!(restored.gop_length, 600);
+    assert_eq!(restored.gop_length, "600".to_string());
 }
 
 #[test]
@@ -364,7 +363,7 @@ fn test_minimum_values_roundtrip() {
     config.tile_columns = 0;
     config.tile_rows = 0;
     config.threads = 0; // Auto
-    config.gop_length = 1; // Min GOP
+    config.gop_length = 1.to_string(); // Min GOP
 
     let profile = Profile::from_config("Minimum".to_string(), &config);
     let mut restored = ConfigState::default();
@@ -375,5 +374,5 @@ fn test_minimum_values_roundtrip() {
     assert_eq!(restored.tile_columns, 0);
     assert_eq!(restored.tile_rows, 0);
     assert_eq!(restored.threads, 0);
-    assert_eq!(restored.gop_length, 1);
+    assert_eq!(restored.gop_length, "1".to_string());
 }

@@ -32,6 +32,13 @@ pub(super) fn open_help(state: &mut AppState) {
 
     let vmaf_available = crate::engine::vmaf_filter_available();
 
+    // Check GPU monitoring availability based on detected vendor
+    let gpu_metrics_available = if let Some(ref hw) = hw_result {
+        hardware::gpu_monitoring_available(hw.gpu_vendor)
+    } else {
+        false
+    };
+
     state.help_modal = Some(HelpModalState {
         current_section: HelpSection::About,
         scroll_offset: 0,
@@ -41,7 +48,7 @@ pub(super) fn open_help(state: &mut AppState) {
         ffprobe_version: ffprobe,
         hw_preflight_result: hw_result,
         huc_available: huc_status,
-        gpu_metrics_available: hardware::xpu_smi_available(),
+        gpu_metrics_available,
         vmaf_available,
     });
 }

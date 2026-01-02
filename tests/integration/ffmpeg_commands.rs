@@ -114,7 +114,7 @@ fn test_vp9_profile_0_8bit() {
     let profile = Profile::from_config("Test".to_string(), &config);
 
     assert_eq!(profile.vp9_profile, 0);
-    assert_eq!(profile.pix_fmt, "yuv420p");
+    assert_eq!(profile.pix_fmt, "auto");
 }
 
 #[test]
@@ -214,8 +214,8 @@ fn test_auto_values_not_included() {
 #[test]
 fn test_zero_values_not_included() {
     let mut config = default_config();
-    config.static_thresh = 0;
-    config.max_intra_rate = 0;
+    config.static_thresh = 0.to_string();
+    config.max_intra_rate = 0.to_string();
     config.noise_sensitivity = 0;
 
     let cmd = build_test_cmd(&config, "TestZero");
@@ -331,8 +331,8 @@ proptest! {
         lag in 0u32..=25,
     ) {
         let mut config = default_config();
-        config.gop_length = gop;
-        config.keyint_min = keyint_min;
+        config.gop_length = gop.to_string();
+        config.keyint_min = keyint_min.to_string();
         config.lag_in_frames = lag;
 
         let cmd = build_test_cmd(&config, "PropTestGOP");
@@ -396,7 +396,7 @@ proptest! {
         let mut config = default_config();
         config.sharpness = sharpness;
         config.noise_sensitivity = noise_sens;
-        config.static_thresh = static_thresh;
+        config.static_thresh = static_thresh.to_string();
 
         let cmd = build_test_cmd(&config, "PropTestTuning");
 
@@ -440,8 +440,8 @@ proptest! {
         let profile = Profile::from_config("PropTestAudio".to_string(), &config);
 
         // Audio bitrate should be in valid range
-        assert!(profile.audio_bitrate >= 32);
-        assert!(profile.audio_bitrate <= 512);
+        assert!(profile.audio_primary_bitrate >= 32);
+        assert!(profile.audio_primary_bitrate <= 512);
     }
 
     // Comprehensive permutation test: multiple settings at once
@@ -458,7 +458,7 @@ proptest! {
         config.crf = crf;
         config.cpu_used = cpu_used;
         config.tile_columns = tile_cols;
-        config.gop_length = gop;
+        config.gop_length = gop.to_string();
         config.lag_in_frames = lag;
         config.two_pass = two_pass;
 
@@ -491,7 +491,7 @@ fn test_profile_roundtrip_preserves_settings() {
     config.crf = 28;
     config.cpu_used = 3;
     config.tile_columns = 2;
-    config.gop_length = 240;
+    config.gop_length = 240.to_string();
     config.row_mt = true;
 
     let profile = Profile::from_config("Roundtrip".to_string(), &config);
@@ -500,7 +500,7 @@ fn test_profile_roundtrip_preserves_settings() {
     assert_eq!(profile.crf, 28);
     assert_eq!(profile.cpu_used, 3);
     assert_eq!(profile.tile_columns, 2);
-    assert_eq!(profile.gop_length, 240);
+    assert_eq!(profile.gop_length, "240".to_string());
     assert_eq!(profile.row_mt, true);
 }
 
@@ -513,13 +513,18 @@ fn test_built_in_profiles_generate_valid_commands() {
         let cmd = build_cmd_from_profile(
             &profile,
             &std::path::PathBuf::from("input.mp4"),
-            &std::path::PathBuf::from("output.webm"),
+            &std::path::PathBuf::from("output.mp4"),
         );
 
         // All built-in profiles should generate valid commands
-        assert!(cmd.contains("ffmpeg"));
-        assert!(cmd.contains("-c:v libvpx-vp9"));
-        assert!(cmd.contains("-crf"));
+        assert!(cmd.contains("ffmpeg"), "Command should start with ffmpeg");
+        // Profiles now use AV1 (libsvtav1 for software, av1_qsv for hardware)
+        let has_valid_codec = cmd.contains("-c:v libsvtav1") || cmd.contains("-c:v av1_qsv");
+        assert!(
+            has_valid_codec,
+            "Command should use a valid AV1 codec: {}",
+            cmd
+        );
     }
 }
 

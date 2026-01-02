@@ -28,7 +28,7 @@ fn test_config_state_defaults() {
     assert_eq!(config.tile_rows >= 0, true);
 
     // Check default GOP settings
-    assert!(config.gop_length > 0);
+    assert!(config.gop_length.parse::<u32>().unwrap_or(0) > 0);
 }
 
 #[test]
@@ -244,8 +244,8 @@ fn test_boolean_flags_can_toggle() {
     config.fixed_gop = true;
     assert_eq!(config.fixed_gop, true);
 
-    config.auto_alt_ref = true;
-    assert_eq!(config.auto_alt_ref, true);
+    config.auto_alt_ref = 1;
+    assert_eq!(config.auto_alt_ref, 1);
 
     config.enable_tpl = true;
     assert_eq!(config.enable_tpl, true);
@@ -284,14 +284,14 @@ fn test_zero_means_disabled_or_auto() {
     config.threads = 0; // Auto thread count
     assert_eq!(config.threads, 0);
 
-    config.static_thresh = 0; // Disabled
-    assert_eq!(config.static_thresh, 0);
+    config.static_thresh = 0.to_string(); // Disabled
+    assert_eq!(config.static_thresh, "0".to_string());
 
-    config.max_intra_rate = 0; // Disabled
-    assert_eq!(config.max_intra_rate, 0);
+    config.max_intra_rate = 0.to_string(); // Disabled
+    assert_eq!(config.max_intra_rate, "0".to_string());
 
-    config.keyint_min = 0; // Auto
-    assert_eq!(config.keyint_min, 0);
+    config.keyint_min = 0.to_string(); // Auto
+    assert_eq!(config.keyint_min, "0".to_string());
 }
 
 // ============================================================================
@@ -417,11 +417,11 @@ fn test_parallel_config_helper_creates_valid_state() {
 fn test_gop_config_helper_creates_valid_state() {
     let config = custom_gop_config();
 
-    assert_eq!(config.gop_length, 120);
+    assert_eq!(config.gop_length, "120".to_string());
     assert_eq!(config.fixed_gop, true);
-    assert_eq!(config.keyint_min, 60);
+    assert_eq!(config.keyint_min, "60".to_string());
     assert_eq!(config.lag_in_frames, 16);
-    assert_eq!(config.auto_alt_ref, true);
+    assert_eq!(config.auto_alt_ref, 1);
 }
 
 #[test]

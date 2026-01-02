@@ -1,0 +1,5 @@
+---
+source: tests/snapshot_commands.rs
+expression: to_string(&cmd)
+---
+ffmpeg -i /tmp/input.mp4 -progress - -nostats -c:v libvpx-vp9 -b:v 0k -crf 30 -quality good -cpu-used 1 -profile:v 0 -row-mt 1 -tile-columns 2 -tile-rows 0 -g 240 -lag-in-frames 25 -auto-alt-ref 1 -aq-mode 0 -arnr-maxframes 7 -arnr-strength 4 -arnr-type 3 -enable-tpl 1 -map 0:v:0? -map 0:a:0? -c:a:0 libopus -b:a:0 128k -vbr:a:0 on -map_metadata 0 -map_chapters 0 -y /tmp/output.webm

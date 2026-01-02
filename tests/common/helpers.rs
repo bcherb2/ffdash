@@ -1,6 +1,9 @@
 #![allow(dead_code)] // Spare tools for the next regression meteor shower
 
-use ffdash::engine::{HwEncodingConfig, Profile, VideoJob, build_ffmpeg_cmd_with_profile};
+use ffdash::engine::{
+    HwEncodingConfig, Profile, VideoJob, build_av1_nvenc_cmd, build_av1_qsv_cmd,
+    build_av1_software_cmd, build_av1_vaapi_cmd, build_ffmpeg_cmd_with_profile, build_vaapi_cmd,
+};
 use ffdash::ui::state::{ConfigState, RateControlMode};
 use std::path::PathBuf;
 use std::process::Command;
@@ -38,6 +41,10 @@ pub fn build_cmd_from_profile(profile: &Profile, input: &PathBuf, output: &PathB
     // Input
     parts.push("-i".to_string());
     parts.push(input.to_string_lossy().to_string());
+
+    // Force a modern-safe pixel format for synthetic sources to avoid swscale/libx264 issues
+    parts.push("-pix_fmt".to_string());
+    parts.push("yuv420p".to_string());
 
     // Progress output
     parts.push("-progress".to_string());
@@ -91,8 +98,10 @@ pub fn build_cmd_from_profile(profile: &Profile, input: &PathBuf, output: &PathB
     // VP9 profile and pixel format
     parts.push("-profile:v".to_string());
     parts.push(profile.vp9_profile.to_string());
-    parts.push("-pix_fmt".to_string());
-    parts.push(profile.pix_fmt.clone());
+    if profile.pix_fmt != "auto" {
+        parts.push("-pix_fmt".to_string());
+        parts.push(profile.pix_fmt.clone());
+    }
 
     // Parallelism
     if profile.row_mt {
@@ -118,10 +127,10 @@ pub fn build_cmd_from_profile(profile: &Profile, input: &PathBuf, output: &PathB
 
     // GOP & keyframes
     parts.push("-g".to_string());
-    parts.push(profile.gop_length.to_string());
-    if profile.keyint_min > 0 {
+    parts.push(profile.gop_length.clone());
+    if profile.keyint_min.parse::<u32>().unwrap_or(0) > 0 {
         parts.push("-keyint_min".to_string());
-        parts.push(profile.keyint_min.to_string());
+        parts.push(profile.keyint_min.clone());
     }
     if profile.fixed_gop {
         parts.push("-sc_threshold".to_string());
@@ -129,9 +138,9 @@ pub fn build_cmd_from_profile(profile: &Profile, input: &PathBuf, output: &PathB
     }
     parts.push("-lag-in-frames".to_string());
     parts.push(profile.lag_in_frames.to_string());
-    if profile.auto_alt_ref {
+    if profile.auto_alt_ref > 0 {
         parts.push("-auto-alt-ref".to_string());
-        parts.push("1".to_string());
+        parts.push(profile.auto_alt_ref.to_string());
     }
 
     // AQ mode
@@ -167,13 +176,13 @@ pub fn build_cmd_from_profile(profile: &Profile, input: &PathBuf, output: &PathB
         parts.push("-noise-sensitivity".to_string());
         parts.push(profile.noise_sensitivity.to_string());
     }
-    if profile.static_thresh > 0 {
+    if profile.static_thresh.parse::<u32>().unwrap_or(0) > 0 {
         parts.push("-static-thresh".to_string());
-        parts.push(profile.static_thresh.to_string());
+        parts.push(profile.static_thresh.clone());
     }
-    if profile.max_intra_rate > 0 {
+    if profile.max_intra_rate.parse::<u32>().unwrap_or(0) > 0 {
         parts.push("-max-intra-rate".to_string());
-        parts.push(profile.max_intra_rate.to_string());
+        parts.push(profile.max_intra_rate.clone());
     }
     if profile.tune_content != "default" {
         parts.push("-tune-content".to_string());
@@ -200,9 +209,9 @@ pub fn build_cmd_from_profile(profile: &Profile, input: &PathBuf, output: &PathB
 
     // Audio codec
     parts.push("-c:a".to_string());
-    parts.push(profile.audio_codec.clone());
+    parts.push(profile.audio_primary_codec.clone());
     parts.push("-b:a".to_string());
-    parts.push(format!("{}k", profile.audio_bitrate));
+    parts.push(format!("{}k", profile.audio_primary_bitrate));
 
     // Output
     parts.push(output.to_string_lossy().to_string());
@@ -275,11 +284,11 @@ pub fn parallel_config() -> ConfigState {
 /// Create a config with custom GOP settings
 pub fn custom_gop_config() -> ConfigState {
     let mut config = ConfigState::default();
-    config.gop_length = 120;
+    config.gop_length = "120".to_string();
     config.fixed_gop = true;
-    config.keyint_min = 60;
+    config.keyint_min = "60".to_string();
     config.lag_in_frames = 16;
-    config.auto_alt_ref = true;
+    config.auto_alt_ref = 1;
     config
 }
 
@@ -325,8 +334,8 @@ pub fn build_vaapi_cmd_for_test(profile: &Profile, hw_config: &HwEncodingConfig)
         profile.name.clone(),
     );
 
-    // Call actual build function with hw_config=Some for VAAPI encoding
-    let cmd = build_ffmpeg_cmd_with_profile(&job, Some(hw_config), Some(profile));
+    // Call the explicit VAAPI builder to avoid depending on runtime encoder auto-selection.
+    let cmd = build_vaapi_cmd(&job, profile, hw_config);
     cmd_to_string(&cmd)
 }
 
@@ -345,4 +354,44 @@ pub fn custom_hw_config(quality: u32, b_frames: u32) -> HwEncodingConfig {
         loop_filter_sharpness: 4,
         compression_level: 4, // Balanced - default
     }
+}
+
+/// Build AV1 software command using real builder
+pub fn build_av1_software_cmd_for_test(profile: &Profile) -> String {
+    let job = VideoJob::new(
+        PathBuf::from("test_input.mp4"),
+        PathBuf::from("test_output.mkv"),
+        profile.name.clone(),
+    );
+    cmd_to_string(&build_av1_software_cmd(&job, profile))
+}
+
+/// Build AV1 QSV command using real builder
+pub fn build_av1_qsv_cmd_for_test(profile: &Profile) -> String {
+    let job = VideoJob::new(
+        PathBuf::from("test_input.mp4"),
+        PathBuf::from("test_output.mkv"),
+        profile.name.clone(),
+    );
+    cmd_to_string(&build_av1_qsv_cmd(&job, profile))
+}
+
+/// Build AV1 NVENC command using real builder
+pub fn build_av1_nvenc_cmd_for_test(profile: &Profile) -> String {
+    let job = VideoJob::new(
+        PathBuf::from("test_input.mp4"),
+        PathBuf::from("test_output.mkv"),
+        profile.name.clone(),
+    );
+    cmd_to_string(&build_av1_nvenc_cmd(&job, profile))
+}
+
+/// Build AV1 VAAPI command using real builder
+pub fn build_av1_vaapi_cmd_for_test(profile: &Profile) -> String {
+    let job = VideoJob::new(
+        PathBuf::from("test_input.mp4"),
+        PathBuf::from("test_output.mkv"),
+        profile.name.clone(),
+    );
+    cmd_to_string(&build_av1_vaapi_cmd(&job, profile))
 }

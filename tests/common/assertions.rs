@@ -1,4 +1,5 @@
 /// FFmpeg command assertion utilities
+#[allow(dead_code)]
 pub fn assert_cmd_contains(cmd: &str, flag: &str) {
     assert!(
         cmd.contains(flag),
@@ -9,6 +10,7 @@ pub fn assert_cmd_contains(cmd: &str, flag: &str) {
 }
 
 /// Check if a command string does NOT contain a specific flag
+#[allow(dead_code)]
 pub fn assert_cmd_not_contains(cmd: &str, flag: &str) {
     assert!(
         !cmd.contains(flag),
@@ -19,6 +21,7 @@ pub fn assert_cmd_not_contains(cmd: &str, flag: &str) {
 }
 
 /// Check if a command contains a flag with a specific value
+#[allow(dead_code)]
 pub fn assert_cmd_has_flag_value(cmd: &str, flag: &str, value: &str) {
     let pattern = format!("{} {}", flag, value);
     assert!(
@@ -31,6 +34,7 @@ pub fn assert_cmd_has_flag_value(cmd: &str, flag: &str, value: &str) {
 }
 
 /// Check if a command contains any of the given flags
+#[allow(dead_code)]
 pub fn assert_cmd_contains_any(cmd: &str, flags: &[&str]) {
     let found = flags.iter().any(|flag| cmd.contains(flag));
     assert!(
@@ -41,6 +45,7 @@ pub fn assert_cmd_contains_any(cmd: &str, flags: &[&str]) {
 }
 
 /// Check if a command contains all of the given flags
+#[allow(dead_code)]
 pub fn assert_cmd_contains_all(cmd: &str, flags: &[&str]) {
     for flag in flags {
         assert_cmd_contains(cmd, flag);
@@ -48,6 +53,7 @@ pub fn assert_cmd_contains_all(cmd: &str, flags: &[&str]) {
 }
 
 /// Parse a flag value from the command (e.g., get "30" from "-crf 30")
+#[allow(dead_code)]
 pub fn get_flag_value<'a>(cmd: &'a str, flag: &str) -> Option<&'a str> {
     let pattern = format!("{} ", flag);
     cmd.find(&pattern).and_then(|pos| {
@@ -57,6 +63,7 @@ pub fn get_flag_value<'a>(cmd: &'a str, flag: &str) -> Option<&'a str> {
 }
 
 /// Assert that a numeric flag has a specific value
+#[allow(dead_code)]
 pub fn assert_numeric_flag(cmd: &str, flag: &str, expected: i32) {
     if let Some(value_str) = get_flag_value(cmd, flag) {
         let value: i32 = value_str.parse().unwrap_or_else(|_| {
@@ -73,6 +80,7 @@ pub fn assert_numeric_flag(cmd: &str, flag: &str, expected: i32) {
 }
 
 /// Assert that mutually exclusive flags are not both present
+#[allow(dead_code)]
 pub fn assert_mutually_exclusive(cmd: &str, flag1: &str, flag2: &str) {
     let has_flag1 = cmd.contains(flag1);
     let has_flag2 = cmd.contains(flag2);

@@ -30,3 +30,9 @@ mod parameter_coverage;
 
 #[path = "integration/vaapi_vs_software_parity.rs"]
 mod vaapi_vs_software_parity;
+
+#[path = "integration/dropdown_roundtrip.rs"]
+mod dropdown_roundtrip;
+
+#[path = "integration/av1_commands.rs"]
+mod av1_commands;

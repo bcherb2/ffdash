@@ -1,0 +1,5 @@
+---
+source: tests/snapshot_commands.rs
+expression: to_string(&cmd)
+---
+ffmpeg -analyzeduration 200M -probesize 200M -init_hw_device qsv=qs:/dev/dri/renderD128 -hwaccel qsv -hwaccel_output_format qsv -filter_hw_device qs -i /tmp/input.mp4 -progress - -nostats -vf vpp_qsv=out_color_matrix=bt709:out_color_primaries=bt709:out_color_transfer=bt709:out_range=tv -c:v av1_qsv -rc_mode cqp -q:v 70 -preset veryslow -low_power 1 -b_strategy 0 -bf 0 -look_ahead 1 -look_ahead_depth 40 -g:v 240 -map 0:v:0? -map 0:a:0? -c:a:0 libopus -b:a:0 128k -vbr:a:0 on -map 0:s? -map 0:t? -c:s copy -c:t copy -map_metadata 0 -map_chapters 0 -y /tmp/output.mkv

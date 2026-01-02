@@ -30,6 +30,12 @@ where
         .filter_map(|e| e.ok())
     {
         let path = entry.path();
+
+        // Skip temporary VMAF calibration directories
+        if path.components().any(|c| c.as_os_str() == ".ffdash_tmp") {
+            continue;
+        }
+
         if path.is_file() && is_video_file(path) {
             on_file(path.to_path_buf());
         }

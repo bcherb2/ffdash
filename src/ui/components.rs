@@ -28,7 +28,7 @@ impl Footer {
 
         let mut spans = vec![Span::raw(stats_text)];
 
-        let controls = vec![
+        let controls = [
             ("[S]", "tart"),
             ("[R]", "escan"),
             ("[D]", "elete"),
@@ -57,8 +57,9 @@ impl Footer {
     }
 
     pub fn config() -> Self {
-        let controls = vec![
+        let controls = [
             ("[↑/↓]", "Navigate"),
+            ("[←/→]", "Adjust"),
             ("[Space]", "Toggle"),
             ("[Enter]", "Edit"),
             ("[S]", "ave Profile"),
@@ -84,7 +85,7 @@ impl Footer {
     }
 
     pub fn stats() -> Self {
-        let controls = vec![("[T]", " Toggle Stats"), ("[H]", "elp"), ("[Esc]", " Back")];
+        let controls = [("[T]", " Toggle Stats"), ("[H]", "elp"), ("[Esc]", " Back")];
 
         let mut spans = vec![Span::raw("CONTROLS: ")];
 

@@ -97,12 +97,12 @@ impl ParameterMapping {
             "video_max_bitrate" => profile.video_max_bitrate > 0,
             "video_bufsize" => profile.video_bufsize > 0,
             "fps" => profile.fps > 0,
-            "keyint_min" => profile.keyint_min > 0,
+            "keyint_min" => profile.keyint_min.parse::<u32>().unwrap_or(0) > 0,
             "lag_in_frames" => profile.lag_in_frames > 0,
             "arnr_max_frames" => profile.arnr_max_frames > 0,
             "noise_sensitivity" => profile.noise_sensitivity > 0,
-            "static_thresh" => profile.static_thresh > 0,
-            "max_intra_rate" => profile.max_intra_rate > 0,
+            "static_thresh" => profile.static_thresh.parse::<u32>().unwrap_or(0) > 0,
+            "max_intra_rate" => profile.max_intra_rate.parse::<u32>().unwrap_or(0) > 0,
             "hw_b_frames" => profile.hw_b_frames > 0,
             _ => false,
         }
@@ -131,7 +131,7 @@ impl ParameterMapping {
             "frame_parallel" => profile.frame_parallel,
             "two_pass" => profile.two_pass,
             "fixed_gop" => profile.fixed_gop,
-            "auto_alt_ref" => profile.auto_alt_ref,
+            "auto_alt_ref" => profile.auto_alt_ref > 0, // Now u32, check if enabled (>0)
             "enable_tpl" => profile.enable_tpl,
             _ => false,
         }

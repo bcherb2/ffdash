@@ -11,19 +11,20 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::ui::{
-    ConfigScreen, Dashboard, HelpModal, StatsScreen,
+    ConfigScreen, Dashboard, HelpModal, QuitModal, StatsScreen,
     focus::ConfigFocus,
     help::{HelpModalState, HelpSection},
-    state::{AppState, Screen},
+    state::{AppState, QuitConfirmationState, Screen},
 };
 
 mod config;
+mod config_profile;
 mod dashboard;
 mod help;
 mod stats;
@@ -50,7 +51,7 @@ fn spawn_scan_thread(config: ScanConfig, tx: mpsc::Sender<UiEvent>) {
                 config.custom_container.as_deref(),
             );
 
-            let _ = tx.send(UiEvent::ScanJob(job));
+            let _ = tx.send(UiEvent::ScanJob(Box::new(job)));
         });
 
         match result {
@@ -66,11 +67,11 @@ fn spawn_scan_thread(config: ScanConfig, tx: mpsc::Sender<UiEvent>) {
 
 // Event types sent from dedicated event thread to main loop
 enum UiEvent {
-    Input(Event),                     // Keyboard, mouse, or other terminal events
-    Tick,                             // Periodic update for rendering and metrics
-    ScanJob(crate::engine::VideoJob), // Discovered job during initial scan
-    ScanFinished,                     // Initial scan completed
-    ScanFailed(String),               // Initial scan failed
+    Input(Event),                          // Keyboard, mouse, or other terminal events
+    Tick,                                  // Periodic update for rendering and metrics
+    ScanJob(Box<crate::engine::VideoJob>), // Discovered job during initial scan
+    ScanFinished,                          // Initial scan completed
+    ScanFailed(String),                    // Initial scan failed
 }
 
 /// Spawn a dedicated thread for event polling.
@@ -138,8 +139,11 @@ pub fn run_ui_with_options(
         app_state.config.hw_availability_message = result.error_message.clone();
 
         if result.available {
+            app_state.config.gpu_vendor = result.gpu_vendor;
             app_state.dashboard.gpu_model = result.gpu_model;
-            app_state.dashboard.gpu_available = crate::engine::hardware::xpu_smi_available();
+            app_state.dashboard.gpu_vendor = result.gpu_vendor;
+            app_state.dashboard.gpu_available =
+                crate::engine::hardware::gpu_monitoring_available(result.gpu_vendor);
         }
     }
 
@@ -181,7 +185,7 @@ pub fn run_ui_with_options(
             } else {
                 Some(app_state.config.output_dir.clone())
             },
-            custom_pattern: app_state.config.filename_pattern.clone(),
+            custom_pattern: Some(app_state.config.filename_pattern.clone()),
             custom_container: Some(custom_container),
         };
 
@@ -231,7 +235,7 @@ fn run_app<B: ratatui::backend::Backend>(
             Ok(evt) => match evt {
                 UiEvent::Tick => pending_ticks += 1,
                 UiEvent::Input(ev) => pending_inputs.push(ev),
-                UiEvent::ScanJob(job) => pending_scan_jobs.push(job),
+                UiEvent::ScanJob(job) => pending_scan_jobs.push(*job),
                 UiEvent::ScanFinished => scan_finished = true,
                 UiEvent::ScanFailed(err) => scan_error = Some(err),
             },
@@ -245,7 +249,7 @@ fn run_app<B: ratatui::backend::Backend>(
             match evt {
                 UiEvent::Tick => pending_ticks += 1,
                 UiEvent::Input(ev) => pending_inputs.push(ev),
-                UiEvent::ScanJob(job) => pending_scan_jobs.push(job),
+                UiEvent::ScanJob(job) => pending_scan_jobs.push(*job),
                 UiEvent::ScanFinished => scan_finished = true,
                 UiEvent::ScanFailed(err) => scan_error = Some(err),
             }
@@ -257,10 +261,10 @@ fn run_app<B: ratatui::backend::Backend>(
             }
         }
 
-        if let Some(err) = scan_error {
+        if let Some(_err) = scan_error {
             state.scan_in_progress = false;
             state.pending_autostart = false;
-            eprintln!("Failed to scan directory: {}", err);
+            // Error is displayed in UI status, no need for console output
         }
 
         if scan_finished {
@@ -276,11 +280,8 @@ fn run_app<B: ratatui::backend::Backend>(
 
             // If autostart was requested, kick it off now that jobs are loaded
             if state.pending_autostart && !state.dashboard.jobs.is_empty() {
-                if let Err(e) = workers::start_encoding_from_loaded_jobs(state) {
-                    eprintln!("Warning: Failed to auto-start encoding: {}", e);
-                    eprintln!(
-                        "Jobs are loaded but not started. You can start manually from the dashboard."
-                    );
+                if let Err(_e) = workers::start_encoding_from_loaded_jobs(state) {
+                    // Error will be visible in UI status, user can start manually
                 }
                 state.pending_autostart = false;
             } else {
@@ -343,6 +344,7 @@ fn run_app<B: ratatui::backend::Backend>(
                         active_workers,
                         state.config.current_profile_name.as_deref(),
                         state.config.use_hardware_encoding,
+                        state.config.auto_vmaf_enabled,
                     );
                 }
                 Screen::Config => {
@@ -354,6 +356,11 @@ fn run_app<B: ratatui::backend::Backend>(
             // Render help modal on top if active
             if let Some(ref mut help_state) = state.help_modal {
                 HelpModal::render(frame, help_state);
+            }
+
+            // Render quit confirmation modal on top of everything
+            if let Some(ref quit_state) = state.quit_confirmation {
+                QuitModal::render(frame, quit_state);
             }
         })?;
     }
@@ -379,6 +386,25 @@ fn should_quit(key: &KeyEvent, _state: &AppState) -> bool {
 }
 
 fn handle_key(key: KeyEvent, state: &mut AppState) -> bool {
+    // Check if quit confirmation modal is open - highest priority
+    if state.quit_confirmation.is_some() {
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // Kill all running FFmpeg processes and exit
+                if let Some(pool) = &state.worker_pool {
+                    pool.kill_all_running();
+                }
+                return true;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                // Cancel quit, close modal
+                state.quit_confirmation = None;
+                return false;
+            }
+            _ => return false, // Ignore other keys
+        }
+    }
+
     // Check if help modal is open - handle help keys first
     if state.help_modal.is_some() {
         help::handle_help_key(key, state);
@@ -397,6 +423,21 @@ fn handle_key(key: KeyEvent, state: &mut AppState) -> bool {
     if !is_editing {
         // Check for quit (q or Ctrl+C)
         if should_quit(&key, state) {
+            // Check if encodes are running
+            let active_count = state
+                .worker_pool
+                .as_ref()
+                .map(|pool| pool.active_count())
+                .unwrap_or(0);
+
+            if active_count > 0 {
+                // Show confirmation modal instead of quitting immediately
+                state.quit_confirmation = Some(QuitConfirmationState {
+                    running_count: active_count,
+                });
+                return false;
+            }
+            // No active encodes, quit immediately
             return true;
         }
 

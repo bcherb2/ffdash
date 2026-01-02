@@ -29,6 +29,16 @@ impl ConfigScreen {
         let after: String = chars.iter().skip(pos).collect();
         format!("{}|{}", before, after)
     }
+
+    // Show left/right adjustment hints when a numeric control is focused.
+    fn adjustable_value_display(value: impl Into<String>, focused: bool) -> String {
+        let text = value.into();
+        if focused {
+            format!("◀ {} ▶", text)
+        } else {
+            text
+        }
+    }
     pub fn render(frame: &mut Frame, state: &mut ConfigState, viewport: &mut Rect) {
         let area = frame.area();
         *viewport = area;
@@ -59,8 +69,8 @@ impl ConfigScreen {
         let body_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(55), // Upper: General/Audio + Core Video
-                Constraint::Percentage(45), // Lower: Advanced grid
+                Constraint::Percentage(57), // Upper: General/Audio + Core Video
+                Constraint::Percentage(43), // Lower: Advanced grid
             ])
             .split(main_chunks[1]);
 

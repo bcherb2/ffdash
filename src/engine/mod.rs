@@ -3,7 +3,15 @@
 pub mod core;
 pub mod hardware;
 pub mod probe;
+pub mod validate;
+pub mod vmaf;
 pub mod worker;
+
+#[cfg(feature = "dev-tools")]
+pub mod smoke;
+
+#[cfg(feature = "dev-tools")]
+pub mod params;
 
 use crate::ui::constants::*;
 pub use core::*;

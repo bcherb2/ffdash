@@ -5,3 +5,6 @@ mod worker_pool;
 mod fps_duration_preservation;
 mod parameter_coverage;
 mod vaapi_vs_software_parity;
+mod dropdown_roundtrip;
+mod av1_commands;
+mod av1_parameter_coverage;
