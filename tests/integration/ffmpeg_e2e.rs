@@ -469,7 +469,7 @@ fn e2e_test_built_in_profiles() {
 /// the job fails, causing failed jobs to be counted as successes.
 #[test]
 fn e2e_test_failed_encode_returns_error() {
-    use ffdash::engine::{encode_job_with_callback, JobStatus, VideoJob};
+    use ffdash::engine::{JobStatus, VideoJob, encode_job_with_callback};
     use std::path::PathBuf;
 
     require_ffmpeg!();
@@ -480,7 +480,11 @@ fn e2e_test_failed_encode_returns_error() {
     let nonexistent_input = PathBuf::from("/nonexistent/path/to/video.mp4");
     let output = temp_dir.path().join("output_should_fail.webm");
 
-    let mut job = VideoJob::new(nonexistent_input.clone(), output.clone(), "test".to_string());
+    let mut job = VideoJob::new(
+        nonexistent_input.clone(),
+        output.clone(),
+        "test".to_string(),
+    );
 
     // Try to encode
     let result = encode_job_with_callback(&mut job, true, None, |_, _| {});
@@ -505,7 +509,7 @@ fn e2e_test_failed_encode_returns_error() {
 /// Test that encoding to a non-existent output directory creates the directory.
 #[test]
 fn e2e_test_creates_output_directory() {
-    use ffdash::engine::{encode_job_with_callback, JobStatus, VideoJob};
+    use ffdash::engine::{JobStatus, VideoJob, encode_job_with_callback};
 
     require_ffmpeg!();
 
@@ -540,10 +544,155 @@ fn e2e_test_creates_output_directory() {
     assert!(output.exists(), "Output file should exist");
 }
 
+// ============================================================================
+// E2E TESTS: Input == Output (overwrite guards + temp file safety)
+// ============================================================================
+
+/// When overwrite=true and input==output, encoding should succeed because
+/// temp file safety encodes to a temporary file then atomically renames.
+#[test]
+fn e2e_test_overwrite_input_equals_output_succeeds() {
+    use ffdash::engine::{JobStatus, VideoJob, encode_job_with_callback};
+
+    require_ffmpeg!();
+
+    let temp_dir = TempDir::new().unwrap();
+    let video = create_test_video(&temp_dir);
+
+    // Re-wrap as .webm so output pattern resolves to same path
+    let input_webm = temp_dir.path().join("test_inplace.webm");
+    std::fs::copy(&video, &input_webm).expect("copy to .webm");
+
+    let mut job = VideoJob::new(input_webm.clone(), input_webm.clone(), "test".to_string());
+    job.overwrite = true;
+
+    let result = encode_job_with_callback(&mut job, true, None, |_, _| {});
+
+    assert!(
+        result.is_ok(),
+        "Encoding with input==output and overwrite=true should succeed: {:?}",
+        result
+    );
+    assert_eq!(job.status, JobStatus::Done, "Job should be Done");
+    assert!(
+        input_webm.exists(),
+        "Output file should exist after in-place encode"
+    );
+    assert!(
+        std::fs::metadata(&input_webm).unwrap().len() > 0,
+        "Output file should be non-empty"
+    );
+}
+
+/// When overwrite=false and input==output, the encode-time defense-in-depth
+/// guard should catch it and fail the job.
+#[test]
+fn e2e_test_no_overwrite_input_equals_output_fails() {
+    use ffdash::engine::{JobStatus, VideoJob, encode_job_with_callback};
+
+    require_ffmpeg!();
+
+    let temp_dir = TempDir::new().unwrap();
+    let video = create_test_video(&temp_dir);
+
+    let input_webm = temp_dir.path().join("test_guard.webm");
+    std::fs::copy(&video, &input_webm).expect("copy to .webm");
+
+    let mut job = VideoJob::new(input_webm.clone(), input_webm.clone(), "test".to_string());
+    job.overwrite = false;
+
+    let result = encode_job_with_callback(&mut job, true, None, |_, _| {});
+
+    assert!(
+        result.is_err(),
+        "Encoding with input==output and overwrite=false should return Err"
+    );
+    assert_eq!(
+        job.status,
+        JobStatus::Failed,
+        "Job status should be Failed when input==output without overwrite"
+    );
+    assert!(
+        job.last_error
+            .as_ref()
+            .unwrap()
+            .contains("Output path same as input"),
+        "Error should mention input==output, got: {:?}",
+        job.last_error
+    );
+}
+
+/// When encoding fails (nonexistent input), any pre-existing output file
+/// should survive — temp file safety means FFmpeg writes to a temp file,
+/// not the real output.
+#[test]
+fn e2e_test_temp_file_protects_existing_output_on_failure() {
+    use ffdash::engine::{VideoJob, encode_job_with_callback};
+
+    require_ffmpeg!();
+
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a "precious" output file that must survive a failed encode
+    let output = temp_dir.path().join("precious_output.webm");
+    let sentinel = b"this file must survive";
+    std::fs::write(&output, sentinel).expect("write sentinel output");
+    let original_size = std::fs::metadata(&output).unwrap().len();
+
+    // Encode from a nonexistent input — this will fail
+    let nonexistent = PathBuf::from("/nonexistent/video.mp4");
+    let mut job = VideoJob::new(nonexistent, output.clone(), "test".to_string());
+    job.overwrite = true;
+
+    let _ = encode_job_with_callback(&mut job, true, None, |_, _| {});
+
+    // The original output must survive with identical size
+    assert!(
+        output.exists(),
+        "Pre-existing output file should survive a failed encode"
+    );
+    assert_eq!(
+        std::fs::metadata(&output).unwrap().len(),
+        original_size,
+        "Output file size should be unchanged after failed encode"
+    );
+}
+
+/// After a failed encode, no `.ffdash_tmp_*` temp files should linger
+/// in the output directory.
+#[test]
+fn e2e_test_temp_file_cleanup_on_failure() {
+    use ffdash::engine::{VideoJob, encode_job_with_callback};
+
+    require_ffmpeg!();
+
+    let temp_dir = TempDir::new().unwrap();
+    let output = temp_dir.path().join("output_cleanup_test.webm");
+
+    let nonexistent = PathBuf::from("/nonexistent/video.mp4");
+    let mut job = VideoJob::new(nonexistent, output.clone(), "test".to_string());
+    job.overwrite = true;
+
+    let _ = encode_job_with_callback(&mut job, true, None, |_, _| {});
+
+    // Verify no temp files linger
+    let entries: Vec<_> = std::fs::read_dir(temp_dir.path())
+        .expect("read temp dir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".ffdash_tmp_"))
+        .collect();
+
+    assert!(
+        entries.is_empty(),
+        "No .ffdash_tmp_* files should linger after failed encode, found: {:?}",
+        entries.iter().map(|e| e.file_name()).collect::<Vec<_>>()
+    );
+}
+
 /// Test that encoding with invalid FFmpeg parameters returns an error.
 #[test]
 fn e2e_test_invalid_encode_returns_error() {
-    use ffdash::engine::{encode_job_with_callback_and_profile, JobStatus, Profile, VideoJob};
+    use ffdash::engine::{JobStatus, Profile, VideoJob, encode_job_with_callback_and_profile};
 
     require_ffmpeg!();
 

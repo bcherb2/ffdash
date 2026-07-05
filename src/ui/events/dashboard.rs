@@ -8,8 +8,9 @@ pub(super) fn handle_dashboard_key(
     match key.code {
         // Switch to config
         KeyCode::Char('c') | KeyCode::Char('C') => {
-            state.config_settings_snapshot =
-                Some(crate::ui::state::JobAffectingSnapshot::capture(&state.config));
+            state.config_settings_snapshot = Some(crate::ui::state::JobAffectingSnapshot::capture(
+                &state.config,
+            ));
             state.current_screen = Screen::Config;
         }
         // Switch to stats
@@ -71,13 +72,9 @@ pub(super) fn handle_dashboard_key(
                     }
                 } else {
                     // No jobs loaded - scan directory in background, then auto-start
-                    let dir = state
-                        .root_path
-                        .clone()
-                        .unwrap_or_else(|| {
-                            std::env::current_dir()
-                                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                        });
+                    let dir = state.root_path.clone().unwrap_or_else(|| {
+                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    });
                     workers::start_encoding_with_scan(state, dir, event_tx);
                 }
             }
@@ -92,8 +89,7 @@ pub(super) fn handle_dashboard_key(
                         || state.dashboard.jobs.iter().all(|j| {
                             matches!(
                                 j.status,
-                                crate::engine::JobStatus::Done
-                                    | crate::engine::JobStatus::Failed
+                                crate::engine::JobStatus::Done | crate::engine::JobStatus::Failed
                             )
                         });
                     if all_done {

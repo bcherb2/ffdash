@@ -19,8 +19,8 @@ pub use ffmpeg_cmd::{
     validate_vaapi_config,
 };
 pub use ffmpeg_info::{
-    InputInfo, ffmpeg_version, ffprobe_version, parse_ffprobe_duration, probe_duration,
-    probe_input_info, vmaf_filter_available,
+    InputInfo, ffmpeg_version, ffprobe_version, parse_ffprobe_duration, parse_ffprobe_input_info,
+    paths_are_same_file, probe_duration, probe_input_info, vmaf_filter_available,
 };
 pub use hw_config::HwEncodingConfig;
 pub use log::write_debug_log;
@@ -177,8 +177,15 @@ mod tests {
         }
 
         // Test with overwrite=false (should skip existing outputs)
-        let jobs_no_overwrite =
-            build_job_queue(input_files.clone(), "vp9-good", false, None, None, None, false);
+        let jobs_no_overwrite = build_job_queue(
+            input_files.clone(),
+            "vp9-good",
+            false,
+            None,
+            None,
+            None,
+            false,
+        );
         assert_eq!(jobs_no_overwrite.len(), 4);
         assert_eq!(
             jobs_no_overwrite[0].status,
@@ -202,8 +209,15 @@ mod tests {
         );
 
         // Test with overwrite=true (should NOT skip any)
-        let jobs_with_overwrite =
-            build_job_queue(input_files.clone(), "vp9-good", true, None, None, None, false);
+        let jobs_with_overwrite = build_job_queue(
+            input_files.clone(),
+            "vp9-good",
+            true,
+            None,
+            None,
+            None,
+            false,
+        );
         assert_eq!(jobs_with_overwrite.len(), 4);
         assert_eq!(
             jobs_with_overwrite[0].status,
@@ -253,7 +267,15 @@ mod tests {
         }
 
         // Simulate a previous run: create .enc_state and .enc_queue with 3 completed jobs
-        let prev_jobs = build_job_queue(input_files.clone(), "vp9-good", false, None, None, None, false);
+        let prev_jobs = build_job_queue(
+            input_files.clone(),
+            "vp9-good",
+            false,
+            None,
+            None,
+            None,
+            false,
+        );
         let mut prev_state =
             EncState::new(prev_jobs, "vp9-good".to_string(), dir_path.to_path_buf());
 
@@ -272,7 +294,15 @@ mod tests {
         fs::write(dir_path.join(".enc_queue"), queue_content).unwrap();
 
         // Now simulate starting a new run with overwrite=true
-        let fresh_jobs = build_job_queue(input_files.clone(), "vp9-good", true, None, None, None, false);
+        let fresh_jobs = build_job_queue(
+            input_files.clone(),
+            "vp9-good",
+            true,
+            None,
+            None,
+            None,
+            false,
+        );
 
         // All fresh jobs should be Pending (overwrite=true)
         assert_eq!(
@@ -881,5 +911,192 @@ mod tests {
             "Pass 2 cmd missing expected -passlogfile"
         );
         assert!(cmd2.contains("-c:a"), "Pass 2 should include audio");
+    }
+
+    #[test]
+    fn test_paths_are_same_file_identical() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("video.mp4");
+        std::fs::write(&file, b"fake").unwrap();
+
+        // Exact same path
+        assert!(paths_are_same_file(&file, &file));
+    }
+
+    #[test]
+    fn test_paths_are_same_file_different_files() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("input.mp4");
+        let b = dir.path().join("output.webm");
+        std::fs::write(&a, b"fake").unwrap();
+        std::fs::write(&b, b"fake").unwrap();
+
+        assert!(!paths_are_same_file(&a, &b));
+    }
+
+    #[test]
+    fn test_paths_are_same_file_output_not_yet_created() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("video.mkv");
+        std::fs::write(&file, b"fake").unwrap();
+
+        // Output has same name but doesn't exist yet — should still detect the collision
+        let output = dir.path().join("video.mkv");
+        assert!(paths_are_same_file(&file, &output));
+    }
+
+    #[test]
+    fn test_paths_are_same_file_canonicalization() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("video.mp4");
+        std::fs::write(&file, b"fake").unwrap();
+
+        // Refer to the same file through a redundant path component
+        let roundabout = dir.path().join("subdir").join("..").join("video.mp4");
+        std::fs::create_dir_all(dir.path().join("subdir")).unwrap();
+        assert!(paths_are_same_file(&file, &roundabout));
+    }
+
+    #[test]
+    fn test_thumbnail_stream_skipped_in_codec_detection() {
+        // Simulates a file with an MJPEG thumbnail as stream 0 and AV1 as stream 1
+        let json = r#"{
+            "format": { "duration": "120.0" },
+            "streams": [
+                {
+                    "codec_name": "mjpeg",
+                    "codec_type": "video",
+                    "disposition": { "attached_pic": 1 }
+                },
+                {
+                    "codec_name": "av1",
+                    "codec_type": "video",
+                    "disposition": { "attached_pic": 0 }
+                }
+            ]
+        }"#;
+
+        let info = parse_ffprobe_input_info(json).expect("Failed to parse");
+        assert_eq!(
+            info.video_codec.as_deref(),
+            Some("av1"),
+            "Should pick AV1 (the real video stream), not MJPEG (the thumbnail)"
+        );
+    }
+
+    #[test]
+    fn test_thumbnail_only_file_returns_no_codec() {
+        // A file where the only video stream is a thumbnail
+        let json = r#"{
+            "format": { "duration": "5.0" },
+            "streams": [
+                {
+                    "codec_name": "mjpeg",
+                    "codec_type": "video",
+                    "disposition": { "attached_pic": 1 }
+                },
+                {
+                    "codec_name": "aac",
+                    "codec_type": "audio"
+                }
+            ]
+        }"#;
+
+        let info = parse_ffprobe_input_info(json).expect("Failed to parse");
+        assert_eq!(
+            info.video_codec, None,
+            "Should return None when only video stream is a thumbnail"
+        );
+    }
+
+    #[test]
+    fn test_no_disposition_field_treated_as_real_stream() {
+        // Older ffprobe output or streams without disposition data
+        let json = r#"{
+            "format": { "duration": "60.0" },
+            "streams": [
+                {
+                    "codec_name": "vp9",
+                    "codec_type": "video"
+                }
+            ]
+        }"#;
+
+        let info = parse_ffprobe_input_info(json).expect("Failed to parse");
+        assert_eq!(
+            info.video_codec.as_deref(),
+            Some("vp9"),
+            "Streams without disposition should be treated as real video"
+        );
+    }
+
+    #[test]
+    fn test_build_job_skips_when_input_equals_output_no_overwrite() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let input = dir.path().join("video.webm");
+        fs::write(&input, b"fake video").unwrap();
+
+        // Use {basename} pattern (default) with webm container → output == input
+        let job = build_job_from_path(
+            input.clone(),
+            "vp9-good",
+            false, // overwrite=false — should be skipped
+            None,
+            None,
+            None,
+            false,
+        );
+
+        assert_eq!(
+            job.status,
+            JobStatus::Skipped,
+            "Job should be Skipped when output path equals input path and overwrite is false"
+        );
+        assert!(
+            job.last_error
+                .as_ref()
+                .unwrap()
+                .contains("Output path same as input"),
+            "Skip reason should mention input==output, got: {:?}",
+            job.last_error
+        );
+    }
+
+    #[test]
+    fn test_build_job_allows_input_equals_output_with_overwrite() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let input = dir.path().join("video.webm");
+        fs::write(&input, b"fake video").unwrap();
+
+        // Use {basename} pattern (default) with webm container → output == input
+        let job = build_job_from_path(
+            input.clone(),
+            "vp9-good",
+            true, // overwrite=true — should NOT be skipped
+            None,
+            None,
+            None,
+            false,
+        );
+
+        assert_ne!(
+            job.status,
+            JobStatus::Skipped,
+            "Job should NOT be Skipped when output path equals input path and overwrite is true"
+        );
     }
 }

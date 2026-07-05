@@ -6,9 +6,15 @@ ENV LIBVA_DRIVERS_PATH=/usr/local/lib/x86_64-linux-gnu/dri
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
 ENV NVIDIA_VISIBLE_DEVICES=all
 
-# Install SSH server (password-based only)
-RUN apt-get update && apt-get install -y openssh-server && rm -rf /var/lib/apt/lists/*
+# Install SSH server + dev tools
+RUN apt-get update && apt-get install -y openssh-server tmux nano neovim git && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /var/run/sshd
+
+# Oh My Tmux + mouse support
+RUN git clone https://github.com/gpakosz/.tmux.git /root/.tmux && \
+    ln -s /root/.tmux/.tmux.conf /root/.tmux.conf && \
+    cp /root/.tmux/.tmux.conf.local /root/.tmux.conf.local && \
+    sed -i 's/^#set -g mouse on/set -g mouse on/' /root/.tmux.conf.local
 
 # Copy prebuilt ffdash binary (built on host before docker build)
 COPY target/release/ffdash /usr/local/bin/ffdash

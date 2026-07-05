@@ -1,4 +1,4 @@
-use super::ffmpeg_info::probe_input_info;
+use super::ffmpeg_info::{paths_are_same_file, probe_input_info};
 use super::log::write_debug_log;
 use super::profile::derive_output_path;
 use super::types::{JobStatus, VideoJob};
@@ -77,8 +77,32 @@ pub fn build_job_from_path(
     // Set overwrite flag
     job.overwrite = overwrite;
 
+    // Safety: block in-place encoding unless overwrite is enabled (temp file safety protects the original)
+    if !overwrite && paths_are_same_file(&input_path, &output_path) {
+        job.status = JobStatus::Skipped;
+        job.last_error = Some(
+            "Output path same as input — enable overwrite to re-encode in place (temp file safety protects the original)"
+                .to_string(),
+        );
+        let _ = write_debug_log(&format!(
+            "Skipping {}: output path is the same as input",
+            input_path.display(),
+        ));
+        return job;
+    }
+
     // Probe input info (duration and codec) in one ffprobe call
-    let input_info = probe_input_info(&input_path).ok();
+    let input_info = match probe_input_info(&input_path) {
+        Ok(info) => Some(info),
+        Err(e) => {
+            let _ = write_debug_log(&format!(
+                "ffprobe failed for {}: {}",
+                input_path.display(),
+                e
+            ));
+            None
+        }
+    };
     job.duration_s = input_info.as_ref().and_then(|i| i.duration_s);
 
     // Skip detection: check codec before output-exists check so skip reason is accurate

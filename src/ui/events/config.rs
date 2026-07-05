@@ -205,8 +205,7 @@ pub(super) fn handle_config_key(
 
             // Auto-rescan if job-affecting settings changed
             if let Some(snapshot) = state.config_settings_snapshot.take() {
-                let current =
-                    crate::ui::state::JobAffectingSnapshot::capture(&state.config);
+                let current = crate::ui::state::JobAffectingSnapshot::capture(&state.config);
                 if snapshot != current
                     && !state.dashboard.any_running()
                     && !state.scan_in_progress
@@ -419,15 +418,13 @@ fn validate_numeric_field_on_blur(state: &mut AppState) {
     use crate::ui::focus::ConfigFocus;
     match state.config.focus {
         ConfigFocus::GopLengthInput => {
-            if state.config.gop_length.is_empty()
-                || state.config.gop_length.parse::<u32>().is_err()
+            if state.config.gop_length.is_empty() || state.config.gop_length.parse::<u32>().is_err()
             {
                 state.config.gop_length = "240".to_string();
             }
         }
         ConfigFocus::KeyintMinInput => {
-            if state.config.keyint_min.is_empty()
-                || state.config.keyint_min.parse::<u32>().is_err()
+            if state.config.keyint_min.is_empty() || state.config.keyint_min.parse::<u32>().is_err()
             {
                 state.config.keyint_min = "0".to_string();
             }
@@ -605,7 +602,9 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 KeyCode::Right => {
                     let max_len = match state.config.focus {
                         ConfigFocus::OutputDirectory => state.config.output_dir.chars().count(),
-                        ConfigFocus::FilenamePattern => state.config.filename_pattern.chars().count(),
+                        ConfigFocus::FilenamePattern => {
+                            state.config.filename_pattern.chars().count()
+                        }
                         ConfigFocus::AdditionalArgsInput => {
                             state.config.additional_args.chars().count()
                         }
@@ -621,7 +620,9 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 KeyCode::End => {
                     state.config.cursor_pos = match state.config.focus {
                         ConfigFocus::OutputDirectory => state.config.output_dir.chars().count(),
-                        ConfigFocus::FilenamePattern => state.config.filename_pattern.chars().count(),
+                        ConfigFocus::FilenamePattern => {
+                            state.config.filename_pattern.chars().count()
+                        }
                         ConfigFocus::AdditionalArgsInput => {
                             state.config.additional_args.chars().count()
                         }
@@ -963,17 +964,31 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                     state.config.active_dropdown = Some(ConfigFocus::AudioPrimaryCodec);
                 }
                 KeyCode::Up => {
-                    let selected = state.config.audio_primary_codec_state.selected().unwrap_or(0);
+                    let selected = state
+                        .config
+                        .audio_primary_codec_state
+                        .selected()
+                        .unwrap_or(0);
                     if selected > 0 {
-                        state.config.audio_primary_codec_state.select(Some(selected - 1));
+                        state
+                            .config
+                            .audio_primary_codec_state
+                            .select(Some(selected - 1));
                         state.config.audio_primary_codec =
                             crate::ui::state::AudioPrimaryCodec::from_index(selected - 1);
                     }
                 }
                 KeyCode::Down => {
-                    let selected = state.config.audio_primary_codec_state.selected().unwrap_or(0);
+                    let selected = state
+                        .config
+                        .audio_primary_codec_state
+                        .selected()
+                        .unwrap_or(0);
                     if selected < 4 {
-                        state.config.audio_primary_codec_state.select(Some(selected + 1));
+                        state
+                            .config
+                            .audio_primary_codec_state
+                            .select(Some(selected + 1));
                         state.config.audio_primary_codec =
                             crate::ui::state::AudioPrimaryCodec::from_index(selected + 1);
                     }
@@ -1056,9 +1071,16 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                         state.config.active_dropdown = Some(ConfigFocus::AudioStereoCodec);
                     }
                     KeyCode::Up | KeyCode::Down => {
-                        let selected = state.config.audio_stereo_codec_state.selected().unwrap_or(0);
+                        let selected = state
+                            .config
+                            .audio_stereo_codec_state
+                            .selected()
+                            .unwrap_or(0);
                         let new_selected = if selected == 0 { 1 } else { 0 };
-                        state.config.audio_stereo_codec_state.select(Some(new_selected));
+                        state
+                            .config
+                            .audio_stereo_codec_state
+                            .select(Some(new_selected));
                         state.config.audio_stereo_codec =
                             crate::ui::state::AudioStereoCodec::from_index(new_selected);
                     }
@@ -2729,12 +2751,16 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                                     ConfigFocus::AudioPrimaryCodec => {
                                         config.audio_primary_codec_state.select(Some(item_index));
                                         config.audio_primary_codec =
-                                            crate::ui::state::AudioPrimaryCodec::from_index(item_index);
+                                            crate::ui::state::AudioPrimaryCodec::from_index(
+                                                item_index,
+                                            );
                                     }
                                     ConfigFocus::AudioStereoCodec => {
                                         config.audio_stereo_codec_state.select(Some(item_index));
                                         config.audio_stereo_codec =
-                                            crate::ui::state::AudioStereoCodec::from_index(item_index);
+                                            crate::ui::state::AudioStereoCodec::from_index(
+                                                item_index,
+                                            );
                                     }
                                     ConfigFocus::ContainerDropdown => {
                                         config.container_dropdown_state.select(Some(item_index));
@@ -2965,7 +2991,9 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
 
         // Downmix 2ch checkbox
         if let Some(area) = config.audio_primary_downmix_area {
-            if is_in_rect(mouse.column, mouse.row, area) && !config.audio_primary_codec.is_passthrough() {
+            if is_in_rect(mouse.column, mouse.row, area)
+                && !config.audio_primary_codec.is_passthrough()
+            {
                 config.focus = ConfigFocus::AudioPrimaryDownmix;
                 config.audio_primary_downmix = !config.audio_primary_downmix;
                 config.is_modified = true;
@@ -3604,10 +3632,13 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                     let click_x = mouse.column.saturating_sub(area.x);
                     let ratio = (click_x as f64) / (area.width as f64).max(1.0);
                     let range = (max_cq - min_cq) as f64;
-                    let new_value = (ratio * range + min_cq as f64).clamp(min_cq as f64, max_cq as f64) as u32;
+                    let new_value =
+                        (ratio * range + min_cq as f64).clamp(min_cq as f64, max_cq as f64) as u32;
                     // Write to the correct per-encoder field
                     match config.gpu_vendor {
-                        crate::engine::hardware::GpuVendor::Nvidia => config.av1_nvenc_cq = new_value,
+                        crate::engine::hardware::GpuVendor::Nvidia => {
+                            config.av1_nvenc_cq = new_value
+                        }
                         crate::engine::hardware::GpuVendor::Intel => config.av1_qsv_cq = new_value,
                         _ => config.av1_vaapi_cq = new_value,
                     };
@@ -3658,7 +3689,10 @@ mod tests {
         // Verify preset state is updated to index 1
         assert_eq!(state.config.colorspace_preset_state.selected(), Some(1));
         // Verify preset enum is SDR
-        assert_eq!(state.config.colorspace_preset, crate::ui::state::ColorSpacePreset::Sdr);
+        assert_eq!(
+            state.config.colorspace_preset,
+            crate::ui::state::ColorSpacePreset::Sdr
+        );
         // Verify ALL numeric values match SDR preset (1, 1, 1, 0)
         assert_eq!(state.config.colorspace, 1);
         assert_eq!(state.config.color_primaries, 1);
@@ -3713,7 +3747,6 @@ mod tests {
             crate::ui::state::CodecSelection::Av1
         );
     }
-
 
     #[test]
     fn arnr_type_key_updates_numeric_value() {
@@ -3840,7 +3873,10 @@ mod tests {
         // Verify preset state is updated
         assert_eq!(state.config.colorspace_preset_state.selected(), Some(1));
         // Verify preset enum is SDR
-        assert_eq!(state.config.colorspace_preset, crate::ui::state::ColorSpacePreset::Sdr);
+        assert_eq!(
+            state.config.colorspace_preset,
+            crate::ui::state::ColorSpacePreset::Sdr
+        );
         // Verify numeric values match SDR preset (1, 1, 1, 0)
         assert_eq!(state.config.colorspace, 1);
         assert_eq!(state.config.color_primaries, 1);

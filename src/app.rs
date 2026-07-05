@@ -36,7 +36,14 @@ pub fn run(cli: Cli) {
                 max_frames,
                 input,
                 output_dir,
-            } => handle_smoke_test(profiles, format, validate_only, max_frames, input, output_dir),
+            } => handle_smoke_test(
+                profiles,
+                format,
+                validate_only,
+                max_frames,
+                input,
+                output_dir,
+            ),
             #[cfg(feature = "dev-tools")]
             Commands::ValidateProfile { profiles, format } => {
                 handle_validate_profile(profiles, format)
@@ -279,7 +286,7 @@ fn handle_smoke_test(
 
 #[cfg(feature = "dev-tools")]
 fn handle_validate_profile(profiles: Vec<String>, format: crate::cli::ValidationFormat) {
-    use engine::validate::{validate_profile, HardwareAvailability};
+    use engine::validate::{HardwareAvailability, validate_profile};
     use serde::Serialize;
 
     #[derive(Serialize)]
@@ -343,7 +350,10 @@ fn handle_validate_profile(profiles: Vec<String>, format: crate::cli::Validation
     match format {
         crate::cli::ValidationFormat::Pretty => {
             println!("=== Profile Validation ===");
-            println!("Total: {} | Valid: {} | Invalid: {}", summary.total, summary.valid, summary.invalid);
+            println!(
+                "Total: {} | Valid: {} | Invalid: {}",
+                summary.total, summary.valid, summary.invalid
+            );
             println!();
             for result in &summary.results {
                 if result.valid {

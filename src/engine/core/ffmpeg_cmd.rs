@@ -1,4 +1,4 @@
-use super::ffmpeg_info::probe_duration;
+use super::ffmpeg_info::{paths_are_same_file, probe_duration};
 use super::log::write_debug_log;
 use super::profile::{Codec, HwEncodingConfig, Profile};
 use super::types::{JobStatus, ProgressParser, VideoJob};
@@ -157,7 +157,9 @@ fn apply_color_metadata(cmd: &mut Command, profile: &Profile) {
         && profile.color_primaries == 9
         && profile.color_trc == 16
     {
-        eprintln!("Warning: HDR10 output with 8-bit pixel format will cause severe banding. Recommend 10-bit (yuv420p10le) for HDR content.");
+        eprintln!(
+            "Warning: HDR10 output with 8-bit pixel format will cause severe banding. Recommend 10-bit (yuv420p10le) for HDR content."
+        );
     }
 
     if profile.colorspace >= 0 {
@@ -182,20 +184,50 @@ fn null_output_target() -> &'static str {
 
 /// Apply additional user-provided FFmpeg arguments to the command.
 /// Uses shell-style parsing so quoted strings with spaces are preserved.
+///
+/// Handles the common mistake of using `-map 0` which grabs ALL streams including
+/// cover art/attached pictures. When detected, we add exclusions to prevent
+/// re-mapping video/audio streams (already mapped) and encoding attached pictures.
 fn apply_additional_args(cmd: &mut Command, additional_args: &str) {
     if additional_args.is_empty() {
         return;
     }
 
     // Use shlex for shell-style parsing (respects quotes)
-    if let Some(args) = shlex::split(additional_args) {
-        for arg in args {
-            cmd.arg(arg);
-        }
+    let args = if let Some(parsed) = shlex::split(additional_args) {
+        parsed
     } else {
         // If shlex fails to parse (unbalanced quotes), fall back to simple whitespace split
-        for arg in additional_args.split_whitespace() {
-            cmd.arg(arg);
+        additional_args
+            .split_whitespace()
+            .map(String::from)
+            .collect()
+    };
+
+    // Process args, looking for bare "-map 0" patterns
+    let mut iter = args.iter().peekable();
+    while let Some(arg) = iter.next() {
+        cmd.arg(arg);
+
+        // Check if this is "-map" followed by bare "0" (no stream specifier)
+        // This would grab ALL streams including attached pictures (cover art)
+        if arg == "-map" {
+            if let Some(next) = iter.peek() {
+                // Bare "0" without stream type specifier (e.g., "0:v", "0:a", "0:s")
+                if *next == "0" {
+                    // Add the "0" arg
+                    cmd.arg(iter.next().unwrap());
+                    // Exclude video and audio streams (already explicitly mapped earlier)
+                    // This prevents duplicate encoding and attached pictures (cover art)
+                    // from being fed to the video encoder
+                    cmd.arg("-map").arg("-0:v");
+                    cmd.arg("-map").arg("-0:a");
+                    let _ = write_debug_log(
+                        "[additional_args] Detected bare '-map 0', adding '-map -0:v -map -0:a' \
+                         to prevent attached pictures from being encoded\n",
+                    );
+                }
+            }
         }
     }
 }
@@ -611,8 +643,8 @@ fn build_qsv_color_options(profile: &Profile) -> Vec<String> {
     // Color range
     if profile.color_range >= 0 {
         let value = match profile.color_range {
-            0 => "tv",      // limited/16-235
-            1 => "pc",      // full/0-255
+            0 => "tv",        // limited/16-235
+            1 => "pc",        // full/0-255
             _ => return opts, // Unsupported
         };
         opts.push(format!("out_range={}", value));
@@ -675,8 +707,8 @@ fn build_zscale_color_filter(profile: &Profile) -> Option<String> {
     // Range (r=)
     if profile.color_range >= 0 {
         let value = match profile.color_range {
-            0 => "tv",  // limited/16-235
-            1 => "pc",  // full/0-255
+            0 => "tv",        // limited/16-235
+            1 => "pc",        // full/0-255
             _ => return None, // Unsupported
         };
         opts.push(format!("r={}", value));
@@ -845,13 +877,13 @@ pub fn build_vp9_qsv_cmd(
     cmd.arg("-low_power").arg("1");
 
     // Read quality from codec config (source of truth)
-    let quality = hw_config
-        .map(|h| h.global_quality)
-        .unwrap_or_else(|| {
-            profile.codec.as_vp9()
-                .map(|vp9| vp9.hw_global_quality)
-                .unwrap_or(profile.hw_global_quality) // Final fallback to synced value
-        });
+    let quality = hw_config.map(|h| h.global_quality).unwrap_or_else(|| {
+        profile
+            .codec
+            .as_vp9()
+            .map(|vp9| vp9.hw_global_quality)
+            .unwrap_or(profile.hw_global_quality) // Final fallback to synced value
+    });
     // Use -q:v to force CQP mode. The combination "-global_quality -b:v 0" causes FFmpeg
     // to select ICQ mode, which is broken on Intel Arc (error -17: device failed).
     // This is the same issue as AV1 QSV (documented in docs/AV1_QSV_NOTES.md).
@@ -992,7 +1024,8 @@ fn build_software_cmd_internal(
     cmd.arg("-lag-in-frames")
         .arg(profile.lag_in_frames.to_string());
     if profile.auto_alt_ref > 0 {
-        cmd.arg("-auto-alt-ref").arg(profile.auto_alt_ref.to_string());
+        cmd.arg("-auto-alt-ref")
+            .arg(profile.auto_alt_ref.to_string());
     }
 
     // Adaptive quantization
@@ -1148,7 +1181,13 @@ pub fn build_av1_software_cmd(job: &VideoJob, profile: &Profile) -> Command {
 
     // Rate control - CRF mode (use AV1-specific svt_crf if set, else fallback to profile.crf)
     let crf = av1_config
-        .map(|cfg| if cfg.svt_crf > 0 { cfg.svt_crf } else { profile.crf })
+        .map(|cfg| {
+            if cfg.svt_crf > 0 {
+                cfg.svt_crf
+            } else {
+                profile.crf
+            }
+        })
         .unwrap_or(profile.crf);
     cmd.arg("-crf").arg(crf.to_string());
 
@@ -1371,7 +1410,11 @@ pub fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile) -> Command {
         // CQP mode (more reliable than ICQ on Arc for AV1)
         cmd.arg("-rc_mode").arg("cqp");
         // Use qsv_cq if set (>0), else fallback to legacy hw_cq
-        let cq = if cfg.qsv_cq > 0 { cfg.qsv_cq } else { cfg.hw_cq };
+        let cq = if cfg.qsv_cq > 0 {
+            cfg.qsv_cq
+        } else {
+            cfg.hw_cq
+        };
         cmd.arg("-q:v").arg(cq.to_string());
 
         // Preset (1-7)
@@ -1498,7 +1541,11 @@ pub fn build_av1_nvenc_cmd(job: &VideoJob, profile: &Profile) -> Command {
         // CQ mode with constant quality
         // NVENC range: 0-63 (lower=better quality)
         // Use nvenc_cq if set (>0), else fallback to legacy hw_cq
-        let cq = if cfg.nvenc_cq > 0 { cfg.nvenc_cq } else { cfg.hw_cq };
+        let cq = if cfg.nvenc_cq > 0 {
+            cfg.nvenc_cq
+        } else {
+            cfg.hw_cq
+        };
         let cq_value = cq.min(63);
         cmd.arg("-rc").arg("vbr");
         cmd.arg("-cq").arg(cq_value.to_string());
@@ -1643,7 +1690,11 @@ pub fn build_av1_vaapi_cmd(job: &VideoJob, profile: &Profile) -> Command {
         .codec
         .as_av1()
         .map(|cfg| {
-            let q = if cfg.vaapi_cq > 0 { cfg.vaapi_cq } else { cfg.hw_cq };
+            let q = if cfg.vaapi_cq > 0 {
+                cfg.vaapi_cq
+            } else {
+                cfg.hw_cq
+            };
             q.clamp(1, 255)
         })
         .unwrap_or(30);
@@ -1685,8 +1736,8 @@ pub fn build_ffmpeg_cmd_with_profile(
     // [Phase 4] Pre-encode validation and clamping (dev-tools only)
     #[cfg(feature = "dev-tools")]
     {
-        use crate::engine::params::validate_and_clamp_profile;
         use crate::engine::core::log::write_debug_log;
+        use crate::engine::params::validate_and_clamp_profile;
 
         let encoder_id = profile.resolved_encoder_id();
         let clamps = validate_and_clamp_profile(&mut profile, &encoder_id);
@@ -1706,7 +1757,8 @@ pub fn build_ffmpeg_cmd_with_profile(
         super::profile::Codec::Vp9(_) => {
             let use_hardware = hw_config.is_some() || profile.use_hardware_encoding;
             // Pass video_codec as preferred_encoder to respect profile encoder choice
-            let encoder = hardware::select_encoder(&profile.codec, use_hardware, Some(&profile.video_codec));
+            let encoder =
+                hardware::select_encoder(&profile.codec, use_hardware, Some(&profile.video_codec));
 
             match encoder {
                 hardware::VideoEncoder::Vp9Qsv => build_vp9_qsv_cmd(job, &profile, hw_config),
@@ -1724,7 +1776,8 @@ pub fn build_ffmpeg_cmd_with_profile(
             // Check both hw_config (caller's explicit request) and profile setting
             let use_hardware = hw_config.is_some() || profile.use_hardware_encoding;
             // Pass video_codec as preferred_encoder to respect profile encoder choice
-            let encoder = hardware::select_encoder(&profile.codec, use_hardware, Some(&profile.video_codec));
+            let encoder =
+                hardware::select_encoder(&profile.codec, use_hardware, Some(&profile.video_codec));
 
             match encoder {
                 hardware::VideoEncoder::LibsvtAv1 | hardware::VideoEncoder::LibaomAv1 => {
@@ -1902,6 +1955,14 @@ fn run_ffmpeg_once(
     Ok((status, parser, stderr_output))
 }
 
+/// Compute temp output path: same dir, same extension, `.ffdash_tmp_` prefix.
+/// e.g., `/path/to/video.webm` → `/path/to/.ffdash_tmp_video.webm`
+fn compute_temp_output_path(output: &Path) -> PathBuf {
+    let dir = output.parent().unwrap_or(Path::new("."));
+    let name = output.file_name().unwrap_or_default().to_string_lossy();
+    dir.join(format!(".ffdash_tmp_{}", name))
+}
+
 /// Encode a single job with progress tracking
 /// Returns the updated job with new status
 pub fn encode_job(job: &mut VideoJob) -> Result<()> {
@@ -1924,6 +1985,25 @@ pub fn encode_job_with_callback_and_profile<F>(
 where
     F: FnMut(&VideoJob, &ProgressParser),
 {
+    // Defense in depth: catch input==output even for jobs loaded from .enc_state
+    // When overwrite is enabled, temp file safety protects the original (encode to temp, rename on success)
+    if !job.overwrite && paths_are_same_file(&job.input_path, &job.output_path) {
+        job.status = JobStatus::Failed;
+        job.last_error =
+            Some("Output path same as input (enable overwrite to re-encode in place)".to_string());
+        anyhow::bail!(
+            "Output path same as input for {} (enable overwrite to re-encode in place)",
+            job.input_path.display()
+        );
+    }
+
+    // Safe encoding: write to a temp file, rename on success.
+    // This prevents data loss if the encode fails when overwrite=true:
+    // a previously-good output at the final path is untouched.
+    let final_output = job.output_path.clone();
+    let temp_output = compute_temp_output_path(&final_output);
+    job.output_path = temp_output.clone();
+
     job.status = JobStatus::Running;
     job.attempts += 1;
 
@@ -1945,7 +2025,7 @@ where
         println!(
             "Encoding: {} → {}",
             job.input_path.display(),
-            job.output_path.display()
+            final_output.display()
         );
         if let Some(dur) = job.duration_s {
             println!("Duration: {:.2}s", dur);
@@ -2152,7 +2232,14 @@ where
     }
 
     let (mut status, mut last_parser, mut last_stderr_output, mut failed_pass) =
-        run_cmds_with_progress(job, cmds, silent, cmd_strings.len(), pid_registry.as_ref(), &mut callback)?;
+        run_cmds_with_progress(
+            job,
+            cmds,
+            silent,
+            cmd_strings.len(),
+            pid_registry.as_ref(),
+            &mut callback,
+        )?;
 
     // If QSV fails at initialization (no frames encoded), retry once with VAAPI.
     // Only fallback if:
@@ -2164,7 +2251,11 @@ where
     let encoding_started = last_parser.out_time_us > 0;
     let is_qsv = selected_encoder == "vp9_qsv" || selected_encoder == "av1_qsv";
 
-    if !status.success() && is_qsv && !encoding_started && !was_user_cancelled(&status, &last_stderr_output) {
+    if !status.success()
+        && is_qsv
+        && !encoding_started
+        && !was_user_cancelled(&status, &last_stderr_output)
+    {
         qsv_stderr = Some(last_stderr_output.clone());
 
         if disable_vaapi_fallback {
@@ -2197,18 +2288,18 @@ where
                 selected_encoder, qsv_tail
             ));
 
-            // Clean up partial output file from failed QSV attempt
-            if job.output_path.exists() {
-                if let Err(e) = fs::remove_file(&job.output_path) {
+            // Clean up partial temp file from failed QSV attempt
+            if temp_output.exists() {
+                if let Err(e) = fs::remove_file(&temp_output) {
                     let _ = write_debug_log(&format!(
-                        "[cleanup] Failed to remove partial output {}: {}\n",
-                        job.output_path.display(),
+                        "[cleanup] Failed to remove temp file {}: {}\n",
+                        temp_output.display(),
                         e
                     ));
                 } else {
                     let _ = write_debug_log(&format!(
-                        "[cleanup] Removed partial output from failed QSV attempt: {}\n",
-                        job.output_path.display()
+                        "[cleanup] Removed temp file from failed QSV attempt: {}\n",
+                        temp_output.display()
                     ));
                 }
             }
@@ -2240,8 +2331,14 @@ where
                 fallback_cmd_strings[0]
             ));
 
-            let (new_status, new_parser, new_stderr, new_failed_pass) =
-                run_cmds_with_progress(job, vec![fallback_cmd], silent, 1, pid_registry.as_ref(), &mut callback)?;
+            let (new_status, new_parser, new_stderr, new_failed_pass) = run_cmds_with_progress(
+                job,
+                vec![fallback_cmd],
+                silent,
+                1,
+                pid_registry.as_ref(),
+                &mut callback,
+            )?;
 
             status = new_status;
             last_parser = new_parser;
@@ -2260,14 +2357,21 @@ where
     job.size_bytes = last_parser.total_size;
 
     if status.success() && last_parser.is_complete {
-        // Verify output file exists
-        if job.output_path.exists() {
+        // Verify temp output file exists, then rename to final path
+        if temp_output.exists() {
+            // Atomic rename: temp → final (same filesystem guarantees atomicity)
+            if let Err(e) = fs::rename(&temp_output, &final_output) {
+                job.output_path = final_output;
+                job.status = JobStatus::Failed;
+                job.last_error = Some(format!("Failed to rename temp output to final path: {}", e));
+                anyhow::bail!("Failed to rename temp output: {}", e);
+            }
             job.status = JobStatus::Done;
             if !silent {
-                println!("✓ Completed: {}", job.output_path.display());
+                println!("✓ Completed: {}", final_output.display());
             }
             // Log success
-            write_debug_log(&format!("✓ Success: {}\n", job.output_path.display())).ok();
+            write_debug_log(&format!("✓ Success: {}\n", final_output.display())).ok();
 
             // Cleanup passlog directory on success
             if cmd_strings.len() == 2 {
@@ -2328,28 +2432,32 @@ where
         ))
         .ok();
 
-        // Clean up partial output file on actual FFmpeg failure (not user cancellation)
-        // Only delete if FFmpeg returned non-zero exit code AND wasn't killed by user signal
-        if !status.success() && !was_user_cancelled(&status, &last_stderr_output) && job.output_path.exists() {
-            if let Err(e) = fs::remove_file(&job.output_path) {
+        // Clean up temp file on failure or user cancellation.
+        // The temp file is always safe to delete — the final output path is untouched.
+        if temp_output.exists() {
+            if let Err(e) = fs::remove_file(&temp_output) {
                 let _ = write_debug_log(&format!(
-                    "[cleanup] Failed to remove partial output {}: {}\n",
-                    job.output_path.display(),
+                    "[cleanup] Failed to remove temp file {}: {}\n",
+                    temp_output.display(),
                     e
                 ));
             } else {
+                let reason = if was_user_cancelled(&status, &last_stderr_output) {
+                    "user cancelled"
+                } else {
+                    "failed encode"
+                };
                 let _ = write_debug_log(&format!(
-                    "[cleanup] Removed partial output from failed encode: {}\n",
-                    job.output_path.display()
+                    "[cleanup] Removed temp file ({}): {}\n",
+                    reason,
+                    temp_output.display()
                 ));
             }
-        } else if was_user_cancelled(&status, &last_stderr_output) && job.output_path.exists() {
-            let _ = write_debug_log(&format!(
-                "[cleanup] Preserving partial output (user cancelled): {}\n",
-                job.output_path.display()
-            ));
         }
     }
+
+    // Always restore the final output path for reporting and state persistence
+    job.output_path = final_output;
 
     // Return error if job failed, so callers know to handle it as a failure
     if job.status == JobStatus::Failed {
@@ -2384,10 +2492,10 @@ mod tests {
     #[test]
     fn test_qsv_color_options_sdr() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 1;        // bt709
-        profile.color_primaries = 1;   // bt709
-        profile.color_trc = 1;         // bt709
-        profile.color_range = 0;       // tv/limited
+        profile.colorspace = 1; // bt709
+        profile.color_primaries = 1; // bt709
+        profile.color_trc = 1; // bt709
+        profile.color_range = 0; // tv/limited
 
         let opts = build_qsv_color_options(&profile);
 
@@ -2401,10 +2509,10 @@ mod tests {
     #[test]
     fn test_qsv_color_options_hdr10() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 9;        // bt2020nc
-        profile.color_primaries = 9;   // bt2020
-        profile.color_trc = 16;        // smpte2084 (PQ)
-        profile.color_range = 0;       // tv/limited
+        profile.colorspace = 9; // bt2020nc
+        profile.color_primaries = 9; // bt2020
+        profile.color_trc = 16; // smpte2084 (PQ)
+        profile.color_range = 0; // tv/limited
 
         let opts = build_qsv_color_options(&profile);
 
@@ -2428,8 +2536,8 @@ mod tests {
     #[test]
     fn test_qsv_color_options_partial() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 1;        // bt709
-        profile.color_range = 0;       // tv
+        profile.colorspace = 1; // bt709
+        profile.color_range = 0; // tv
         // primaries and trc remain -1 (auto)
 
         let opts = build_qsv_color_options(&profile);
@@ -2442,10 +2550,10 @@ mod tests {
     #[test]
     fn test_qsv_color_options_hlg() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 9;        // bt2020nc
-        profile.color_primaries = 9;   // bt2020
-        profile.color_trc = 18;        // arib-std-b67 (HLG)
-        profile.color_range = 0;       // tv
+        profile.colorspace = 9; // bt2020nc
+        profile.color_primaries = 9; // bt2020
+        profile.color_trc = 18; // arib-std-b67 (HLG)
+        profile.color_range = 0; // tv
 
         let opts = build_qsv_color_options(&profile);
 
@@ -2456,11 +2564,72 @@ mod tests {
     #[test]
     fn test_qsv_color_options_unsupported_value() {
         let mut profile = Profile::get("av1-qsv");
-        profile.colorspace = 999;      // Unsupported value
+        profile.colorspace = 999; // Unsupported value
 
         let opts = build_qsv_color_options(&profile);
 
         // Should return empty vec on unsupported value (early return)
         assert_eq!(opts.len(), 0, "Unsupported values should return empty vec");
+    }
+
+    /// Helper to extract args from a Command for testing
+    fn get_command_args(cmd: &Command) -> Vec<String> {
+        cmd.get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_apply_additional_args_normal() {
+        let mut cmd = Command::new("ffmpeg");
+        apply_additional_args(&mut cmd, "-c:s copy -map_metadata 0");
+
+        let args = get_command_args(&cmd);
+        assert_eq!(args, vec!["-c:s", "copy", "-map_metadata", "0"]);
+    }
+
+    #[test]
+    fn test_apply_additional_args_bare_map_0_gets_exclusions() {
+        let mut cmd = Command::new("ffmpeg");
+        apply_additional_args(&mut cmd, "-map 0 -c:s copy");
+
+        let args = get_command_args(&cmd);
+        // Should have: -map, 0, -map, -0:v, -map, -0:a, -c:s, copy
+        assert!(args.contains(&"-map".to_string()));
+        assert!(args.contains(&"0".to_string()));
+        assert!(
+            args.contains(&"-0:v".to_string()),
+            "Should exclude video streams"
+        );
+        assert!(
+            args.contains(&"-0:a".to_string()),
+            "Should exclude audio streams"
+        );
+        assert!(args.contains(&"copy".to_string()));
+    }
+
+    #[test]
+    fn test_apply_additional_args_stream_specifier_no_exclusions() {
+        let mut cmd = Command::new("ffmpeg");
+        apply_additional_args(&mut cmd, "-map 0:s? -map 0:t? -c:s copy");
+
+        let args = get_command_args(&cmd);
+        // Should NOT have exclusions since these have stream specifiers
+        assert!(
+            !args.contains(&"-0:v".to_string()),
+            "Should not add exclusions for stream-specific maps"
+        );
+        assert!(!args.contains(&"-0:a".to_string()));
+        assert!(args.contains(&"0:s?".to_string()));
+        assert!(args.contains(&"0:t?".to_string()));
+    }
+
+    #[test]
+    fn test_apply_additional_args_empty() {
+        let mut cmd = Command::new("ffmpeg");
+        apply_additional_args(&mut cmd, "");
+
+        let args = get_command_args(&cmd);
+        assert!(args.is_empty(), "Empty additional_args should add nothing");
     }
 }

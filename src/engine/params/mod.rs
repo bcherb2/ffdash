@@ -5,7 +5,6 @@
 /// are loaded from encoder-params.toml at build time and compiled into the binary.
 ///
 /// The module is only available when the `dev-tools` feature is enabled.
-
 pub mod types;
 
 // Generated code is only available with dev-tools feature
@@ -25,11 +24,11 @@ pub use types::{
 
 // Re-export generated data and validation when dev-tools is enabled
 #[cfg(feature = "dev-tools")]
-pub use generated::{ENCODERS, PARAMS, SCHEMA_VERSION, FFMPEG_VERSION, LAST_VERIFIED};
+pub use generated::{ENCODERS, FFMPEG_VERSION, LAST_VERIFIED, PARAMS, SCHEMA_VERSION};
 
 #[cfg(feature = "dev-tools")]
 pub use validation::{
-    validate_profile, ValidationError, ParamClamp, clamp_value, validate_and_clamp_profile,
+    ParamClamp, ValidationError, clamp_value, validate_and_clamp_profile, validate_profile,
 };
 
 /// Get parameter definition by name
@@ -94,12 +93,18 @@ mod tests {
 
     #[test]
     fn encoders_not_empty() {
-        assert!(!ENCODERS.is_empty(), "At least one encoder should be defined");
+        assert!(
+            !ENCODERS.is_empty(),
+            "At least one encoder should be defined"
+        );
     }
 
     #[test]
     fn params_not_empty() {
-        assert!(!PARAMS.is_empty(), "At least one parameter should be defined");
+        assert!(
+            !PARAMS.is_empty(),
+            "At least one parameter should be defined"
+        );
     }
 
     #[test]
@@ -112,8 +117,7 @@ mod tests {
 
     #[test]
     fn can_get_encoder_by_id() {
-        let encoder = get_encoder("libvpx-vp9")
-            .expect("libvpx-vp9 encoder should exist");
+        let encoder = get_encoder("libvpx-vp9").expect("libvpx-vp9 encoder should exist");
         assert_eq!(encoder.id, "libvpx-vp9");
     }
 
@@ -121,11 +125,15 @@ mod tests {
     fn all_encoders_have_params() {
         // Each encoder must have at least one parameter
         for encoder in ENCODERS.iter() {
-            let param_count = PARAMS.iter()
+            let param_count = PARAMS
+                .iter()
                 .filter(|p| p.is_supported_by(encoder.id))
                 .count();
-            assert!(param_count > 0,
-                "Encoder '{}' has no parameters defined", encoder.id);
+            assert!(
+                param_count > 0,
+                "Encoder '{}' has no parameters defined",
+                encoder.id
+            );
         }
     }
 
@@ -135,9 +143,13 @@ mod tests {
         for param in PARAMS.iter() {
             for (encoder_id, encoder_param) in param.encoder_support.iter() {
                 if let Some(flag) = encoder_param.flag {
-                    assert!(flag.starts_with('-'),
+                    assert!(
+                        flag.starts_with('-'),
                         "Invalid flag '{}' for param '{}' in encoder '{}'",
-                        flag, param.name, encoder_id);
+                        flag,
+                        param.name,
+                        encoder_id
+                    );
                 }
             }
         }
@@ -148,9 +160,13 @@ mod tests {
         // Check that integer ranges have min <= max
         for param in PARAMS.iter() {
             if let Range::Int { min, max } = param.range {
-                assert!(min <= max,
+                assert!(
+                    min <= max,
                     "Parameter '{}' has invalid range: min ({}) > max ({})",
-                    param.name, min, max);
+                    param.name,
+                    min,
+                    max
+                );
             }
         }
     }
@@ -159,8 +175,11 @@ mod tests {
     fn params_have_descriptions() {
         // All params must have non-empty descriptions
         for param in PARAMS.iter() {
-            assert!(!param.description.is_empty(),
-                "Parameter '{}' missing description", param.name);
+            assert!(
+                !param.description.is_empty(),
+                "Parameter '{}' missing description",
+                param.name
+            );
         }
     }
 
@@ -172,8 +191,11 @@ mod tests {
 
         // Verify all returned params are actually supported
         for param in vp9_params {
-            assert!(param.is_supported_by("libvpx-vp9"),
-                "param '{}' should be supported by libvpx-vp9", param.name);
+            assert!(
+                param.is_supported_by("libvpx-vp9"),
+                "param '{}' should be supported by libvpx-vp9",
+                param.name
+            );
         }
     }
 
@@ -182,8 +204,11 @@ mod tests {
         // Check that there are no duplicate parameter names
         let mut seen = std::collections::HashSet::new();
         for param in PARAMS.iter() {
-            assert!(seen.insert(param.name),
-                "Duplicate parameter name: '{}'", param.name);
+            assert!(
+                seen.insert(param.name),
+                "Duplicate parameter name: '{}'",
+                param.name
+            );
         }
     }
 
@@ -192,9 +217,14 @@ mod tests {
         // Every param must have support info for every encoder
         let encoder_count = ENCODERS.len();
         for param in PARAMS.iter() {
-            assert_eq!(param.encoder_support.len(), encoder_count,
+            assert_eq!(
+                param.encoder_support.len(),
+                encoder_count,
                 "Parameter '{}' has incomplete encoder support (expected {}, got {})",
-                param.name, encoder_count, param.encoder_support.len());
+                param.name,
+                encoder_count,
+                param.encoder_support.len()
+            );
         }
     }
 }

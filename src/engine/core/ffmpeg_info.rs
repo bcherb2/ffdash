@@ -9,9 +9,26 @@ struct FfprobeFormat {
 }
 
 #[derive(Debug, Deserialize)]
+struct FfprobeStreamDisposition {
+    #[serde(default)]
+    attached_pic: u8,
+}
+
+#[derive(Debug, Deserialize)]
 struct FfprobeStream {
     codec_name: Option<String>,
     codec_type: Option<String>,
+    #[serde(default)]
+    disposition: Option<FfprobeStreamDisposition>,
+}
+
+impl FfprobeStream {
+    /// Returns true if this stream is an attached picture (e.g., album art / thumbnail)
+    fn is_attached_pic(&self) -> bool {
+        self.disposition
+            .as_ref()
+            .map_or(false, |d| d.attached_pic != 0)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,16 +158,60 @@ pub fn probe_input_info(path: &Path) -> Result<InputInfo> {
         serde_json::from_str(&json_str).context("Failed to parse ffprobe JSON output")?;
 
     // Extract duration
-    let duration_s = probe
-        .format
-        .duration
-        .and_then(|s| s.parse::<f64>().ok());
+    let duration_s = probe.format.duration.and_then(|s| s.parse::<f64>().ok());
 
-    // Extract video codec (first video stream)
+    // Extract video codec from the first non-thumbnail video stream.
+    // Files with embedded cover art (e.g., MJPEG or PNG thumbnails) may have the
+    // thumbnail as stream 0, which would report the wrong codec and bypass skip logic.
     let video_codec = probe
         .streams
         .iter()
-        .find(|s| s.codec_type.as_deref() == Some("video"))
+        .find(|s| s.codec_type.as_deref() == Some("video") && !s.is_attached_pic())
+        .and_then(|s| s.codec_name.clone());
+
+    Ok(InputInfo {
+        duration_s,
+        video_codec,
+    })
+}
+
+/// Check whether two paths refer to the same file.
+///
+/// Handles the case where the output doesn't exist yet by canonicalizing the
+/// parent directory and comparing with the canonical input path.
+/// Falls back to raw path comparison if canonicalization fails entirely.
+pub fn paths_are_same_file(a: &Path, b: &Path) -> bool {
+    // Fast path: both exist and canonicalize succeeds
+    if let (Ok(ca), Ok(cb)) = (a.canonicalize(), b.canonicalize()) {
+        return ca == cb;
+    }
+    // Output may not exist yet — canonicalize parent + filename
+    if let (Ok(ca), Some(b_parent), Some(b_name)) = (a.canonicalize(), b.parent(), b.file_name()) {
+        if let Ok(cb_parent) = b_parent.canonicalize() {
+            return ca == cb_parent.join(b_name);
+        }
+    }
+    // Symmetric: also try the other direction
+    if let (Ok(cb), Some(a_parent), Some(a_name)) = (b.canonicalize(), a.parent(), a.file_name()) {
+        if let Ok(ca_parent) = a_parent.canonicalize() {
+            return cb == ca_parent.join(a_name);
+        }
+    }
+    // Last resort: raw comparison
+    a == b
+}
+
+/// Parse ffprobe JSON to extract input info (for testing)
+pub fn parse_ffprobe_input_info(json: &str) -> Result<InputInfo> {
+    let probe: FfprobeOutput =
+        serde_json::from_str(json).context("Failed to parse ffprobe JSON")?;
+
+    let duration_s = probe.format.duration.and_then(|s| s.parse::<f64>().ok());
+
+    let video_codec = probe
+        .streams
+        .iter()
+        .find(|s| s.codec_type.as_deref() == Some("video") && !s.is_attached_pic())
         .and_then(|s| s.codec_name.clone());
 
     Ok(InputInfo {

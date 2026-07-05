@@ -211,9 +211,9 @@ impl WorkerPool {
         for _ in 0..20 {
             std::thread::sleep(std::time::Duration::from_millis(100));
 
-            let all_dead = pids_vec.iter().all(|&pid| unsafe {
-                libc::kill(pid as i32, 0) != 0
-            });
+            let all_dead = pids_vec
+                .iter()
+                .all(|&pid| unsafe { libc::kill(pid as i32, 0) != 0 });
 
             if all_dead {
                 return count;

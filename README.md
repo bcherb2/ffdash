@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/f7551d5f-fe6c-4a13-81e2-92a5e2bb42c2
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)
 
-## Features
+## Why ffdash?
 
 - **Batch processing** - Encode entire directories with parallel workers, adjustable on the fly
 - **Hardware acceleration** - QSV, VA-API (Intel/AMD) and NVENC (NVIDIA >= Ada Lovelace) for fast encodes
@@ -23,7 +23,7 @@ https://github.com/user-attachments/assets/f7551d5f-fe6c-4a13-81e2-92a5e2bb42c2
 
 ### Why VP9/AV1?
 
-**VP9** delivers 20-50% smaller files than H.264 at equivalent quality. **AV1** is the next-generation codec offering slightly better compression than VP9. Both are open-source, royalty-free, and natively supported by YouTube, all modern browsers, and media servers like Plex and Jellyfin.  It's true that HEVC (h265) decoding is more common on current gen hardware, however, most (all?) consumer devices that have come out in the last few years can decode it.
+**VP9** delivers 20-50% smaller files than H.264 at equivalent quality. **AV1** is the next-generation codec offering slightly better compression than VP9. Both are open-source, royalty-free, and natively supported by YouTube, all modern browsers, and media servers like Plex and Jellyfin.
 
 Typical file sizes:
 - **1080p TV episode**: ~200-400 MB
@@ -347,13 +347,11 @@ ffmpeg -h encoder=av1_vaapi     # VA-API AV1
 #### Workflow
 - [x] Batch directory scanning
 - [x] Resume interrupted encodes
-- [x] Skip/unskip files in queue 
-- [x] Skip if already vp9/av1
+- [x] Skip/unskip files in queue
 - [x] Per-directory state persistence
 - [ ] Watch mode (auto-encode new files)
 - [ ] Post-encode scripts/hooks
-- [x] Better way to build queue
-- [ ] Better way to to use dryrun / ffmpeg command builder
+- [ ] Better way to build queue
 
 
 
