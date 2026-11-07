@@ -2,8 +2,8 @@
 
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-        MouseButton, MouseEvent, MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -317,18 +317,8 @@ fn run_app<B: ratatui::backend::Backend>(
 
         // Process input events first so user commands are never stuck behind a tick backlog
         for input in pending_inputs {
-            match input {
-                Event::Key(key) => {
-                    if handle_key(key, state, event_tx) {
-                        return Ok(());
-                    }
-                }
-                Event::Mouse(mouse) => {
-                    handle_mouse(mouse, state);
-                }
-                _ => {
-                    // Other events (resize, etc.) - ignore for now
-                }
+            if handle_input(input, state, event_tx) {
+                return Ok(());
             }
         }
 
@@ -437,6 +427,21 @@ fn restore_skip_overrides(state: &mut AppState) {
     }
 }
 
+/// Dispatch one terminal event. Returns true when the app should quit.
+fn handle_input(input: Event, state: &mut AppState, event_tx: &mpsc::Sender<UiEvent>) -> bool {
+    match input {
+        // Windows consoles emit a Release event for every keystroke; acting on it
+        // would run every shortcut twice. Keep Press (and Repeat for held keys).
+        Event::Key(key) if key.kind == KeyEventKind::Release => false,
+        Event::Key(key) => handle_key(key, state, event_tx),
+        Event::Mouse(mouse) => {
+            handle_mouse(mouse, state);
+            false
+        }
+        _ => false, // Other events (resize, etc.) - ignore for now
+    }
+}
+
 fn should_quit(key: &KeyEvent, _state: &AppState) -> bool {
     // Quit on 'q' or Ctrl+C
     matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))
@@ -521,5 +526,48 @@ fn handle_mouse(mouse: MouseEvent, state: &mut AppState) {
         Screen::Dashboard => dashboard::handle_dashboard_mouse(mouse, state),
         Screen::Config => config::handle_config_mouse(mouse, state),
         Screen::Stats => {} // No mouse handling for stats yet
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyEventState;
+
+    fn key(code: KeyCode, kind: KeyEventKind) -> Event {
+        Event::Key(KeyEvent {
+            code,
+            modifiers: KeyModifiers::NONE,
+            kind,
+            state: KeyEventState::NONE,
+        })
+    }
+
+    /// Windows consoles report both Press and Release for every keystroke.
+    /// A single physical key press must only act once.
+    #[test]
+    fn press_and_release_pair_acts_once() {
+        let (tx, _rx) = mpsc::channel();
+        let mut state = AppState {
+            help_modal: Some(HelpModalState {
+                current_section: HelpSection::About,
+                scroll_offset: 0,
+                max_scroll: 0,
+                app_version: String::new(),
+                ffmpeg_version: None,
+                ffprobe_version: None,
+                hw_preflight_result: None,
+                huc_available: None,
+                gpu_metrics_available: false,
+                vmaf_available: false,
+            }),
+            ..AppState::default()
+        };
+
+        handle_input(key(KeyCode::Tab, KeyEventKind::Press), &mut state, &tx);
+        handle_input(key(KeyCode::Tab, KeyEventKind::Release), &mut state, &tx);
+
+        let section = state.help_modal.as_ref().unwrap().current_section;
+        assert_eq!(section, HelpSection::About.next());
     }
 }
