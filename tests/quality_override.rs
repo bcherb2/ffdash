@@ -37,6 +37,7 @@ fn override_replaces_active_encoder_quality() {
         ("vp9-good", VideoEncoder::LibvpxVp9, "-crf"),
         ("hevc-x265", VideoEncoder::Libx265, "-crf"),
         ("hevc-qsv", VideoEncoder::HevcQsv, "-q:v"),
+        ("hevc-nvenc", VideoEncoder::HevcNvenc, "-cq"),
     ];
     for (name, encoder, flag) in cases {
         let profile = Profile::get(name);
@@ -104,4 +105,15 @@ fn hevc_qsv_override_replaces_qsv_quality_and_not_the_configured_value() {
     assert_eq!(value_of(&args, "-q:v").as_deref(), Some("33"));
     assert!(!args.iter().any(|a| a == "19" || a == "77"), "{args:?}");
     assert_eq!(profile.active_quality(VideoEncoder::HevcQsv), 19);
+}
+
+#[test]
+fn hevc_nvenc_override_replaces_configured_quality() {
+    let mut profile = Profile::get("hevc-nvenc");
+    profile.codec.as_hevc_mut().unwrap().nvenc_quality = 19;
+    profile.crf = 77;
+    let args = args_with_override(&profile, VideoEncoder::HevcNvenc, 33);
+    assert_eq!(value_of(&args, "-cq").as_deref(), Some("33"));
+    assert!(!args.iter().any(|a| a == "19" || a == "77"), "{args:?}");
+    assert_eq!(profile.active_quality(VideoEncoder::HevcNvenc), 19);
 }

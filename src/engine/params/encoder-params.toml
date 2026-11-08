@@ -1016,7 +1016,71 @@ color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_p
   description = "x265 parameters (key=value:key=value); ffdash sets hdr10, hdr10-opt and repeat-headers for PQ (HDR10) output"
   verification = { method = "docs", source = "x265-docs" }
 
-# --- hevc_nvenc (added by the NVENC ticket) ------------------------------------
+# --- hevc_nvenc ----------------------------------------------------------------
+
+[[encoders]]
+id = "hevc_nvenc"
+codec = "hevc"
+type = "hardware"
+ffmpeg_name = "hevc_nvenc"
+hw_api = "nvenc"
+display_name = "HEVC (NVIDIA NVENC)"
+description = "HEVC NVIDIA NVENC (Linux and Windows); Main and Main10"
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ✅, color_trc ✅ (written to the VUI); HDR10 mastering display / content light level are carried from the source frames"
+
+  [[encoders.params]]
+  id = "nvenc-cq"
+  scope = "private"
+  flag = "-cq"
+  type = "int"
+  range = { min = 0, max = 51 }
+  default = 28
+  field_path = "hevc_nvenc_quality"
+  description = "Constant quality with -rc vbr (0=auto, lower=better)"
+  verification = { method = "ffmpeg-help", source = "hevc_nvenc" }
+
+  [[encoders.params]]
+  id = "nvenc-preset"
+  scope = "private"
+  flag = "-preset"
+  type = "enum"
+  values = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+  default = "p4"
+  description = "Speed preset (p1=fastest/lowest, p7=slowest/best); the shared hardware preset 1-7 is inverted onto it"
+  warning = "Semantics INVERTED from QSV: p1=fastest, p7=slowest"
+  verification = { method = "ffmpeg-help", source = "hevc_nvenc" }
+
+  [[encoders.params]]
+  id = "nvenc-rc"
+  scope = "private"
+  flag = "-rc"
+  type = "enum"
+  values = ["vbr", "constqp", "cbr"]
+  default = "vbr"
+  description = "Rate control mode (ffdash uses vbr with -cq and -b:v 0 for constant quality)"
+  verification = { method = "ffmpeg-help", source = "hevc_nvenc" }
+
+  [[encoders.params]]
+  id = "nvenc-rc-lookahead"
+  scope = "private"
+  flag = "-rc-lookahead"
+  type = "int"
+  range = { min = 0, max = 32 }
+  default = 32
+  field_path = "hevc_hw_lookahead"
+  description = "Rate control lookahead frames (0=off)"
+  verification = { method = "ffmpeg-help", source = "hevc_nvenc" }
+
+  [[encoders.params]]
+  id = "nvenc-bf"
+  scope = "private"
+  flag = "-bf"
+  type = "int"
+  range = { min = 0, max = 4 }
+  default = 2
+  field_path = "hevc_hw_b_frames"
+  description = "Number of B-frames between references"
+  verification = { method = "ffmpeg-help", source = "hevc_nvenc" }
 
 # --- hevc_qsv (Intel Quick Sync, Linux and Windows) ----------------------------
 
@@ -1104,7 +1168,7 @@ av1_amf = "ffmpeg -h encoder=av1_amf"
 svt-av1-guide = "SVT-AV1 encoder guide"
 x265-docs = "x265 command line options documentation"
 libx265 = "ffmpeg -h encoder=libx265"
-# hevc_nvenc = "ffmpeg -h encoder=hevc_nvenc"
+hevc_nvenc = "ffmpeg -h encoder=hevc_nvenc"
 hevc_qsv = "ffmpeg -h encoder=hevc_qsv"
 # hevc_vaapi = "ffmpeg -h encoder=hevc_vaapi"
 # hevc_amf = "ffmpeg -h encoder=hevc_amf"

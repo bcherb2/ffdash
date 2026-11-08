@@ -305,6 +305,7 @@ fn extract_profile_field(profile: &Profile, field_name: &str) -> Option<Value> {
             .codec
             .as_hevc()
             .map(|h| Value::String(h.hw_rc_mode.clone())),
+        "hevc_nvenc_quality" => profile.codec.as_hevc().map(|h| Value::U32(h.nvenc_quality)),
         "cpu_used" => {
             // Read from codec config if available
             match &profile.codec {
@@ -450,6 +451,11 @@ fn apply_profile_field(profile: &mut Profile, field_name: &str, value: &Value) {
         ("hevc_hw_preset", Value::String(v)) => {
             if let Codec::Hevc(hevc) = &mut profile.codec {
                 hevc.hw_preset = v.clone();
+            }
+        }
+        ("hevc_nvenc_quality", Value::U32(v)) => {
+            if let Codec::Hevc(hevc) = &mut profile.codec {
+                hevc.nvenc_quality = *v;
             }
         }
         ("hevc_hw_lookahead", Value::U32(v)) => {

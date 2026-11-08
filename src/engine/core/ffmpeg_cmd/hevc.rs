@@ -15,7 +15,7 @@ use crate::engine::hardware::VideoEncoder;
 
 mod x265;
 
-// mod nvenc; (hevc_nvenc ticket)
+mod nvenc;
 
 mod qsv;
 
@@ -34,7 +34,7 @@ pub(super) fn build_hevc_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePla
         // Hardware Encoders: each arm moves to its own module when its ticket lands.
         // Until then they build the Software Fallback command.
         // hevc_nvenc
-        VideoEncoder::HevcNvenc => x265::build(job, profile),
+        VideoEncoder::HevcNvenc => nvenc::build(job, profile, cpu_decode),
         // hevc_qsv
         VideoEncoder::HevcQsv => qsv::build(job, profile, cpu_decode),
         // hevc_vaapi

@@ -167,6 +167,46 @@ fn snapshot_hevc_x265_mp4_is_tagged_hvc1() {
 }
 
 #[test]
+fn snapshot_hevc_nvenc() {
+    let profile = Profile::get("hevc-nvenc");
+    let job = mk_job("mkv");
+    let out = build(&job, &profile, VideoEncoder::HevcNvenc);
+    assert_snapshot!("hevc_nvenc", out);
+}
+
+#[test]
+fn snapshot_hevc_nvenc_hdr10() {
+    let mut profile = Profile::get("hevc-nvenc");
+    profile.colorspace = 9;
+    profile.color_primaries = 9;
+    profile.color_trc = 16;
+    profile.color_range = 0;
+    profile.pix_fmt = "yuv420p10le".to_string(); // Main10
+    let out = build(&mk_job("mkv"), &profile, VideoEncoder::HevcNvenc);
+    assert_snapshot!("hevc_nvenc_hdr10", out);
+}
+
+#[test]
+fn snapshot_hevc_nvenc_mp4_is_tagged_hvc1() {
+    let profile = Profile::get("hevc-nvenc");
+    let out = build(&mk_job("mp4"), &profile, VideoEncoder::HevcNvenc);
+    assert!(out.contains("-tag:v hvc1"), "{out}");
+    assert_snapshot!("hevc_nvenc_mp4", out);
+}
+
+#[test]
+fn snapshot_windows_hevc_nvenc() {
+    let out = build_on(
+        HostPlatform::Windows,
+        &mk_job("mkv"),
+        &Profile::get("hevc-nvenc"),
+        VideoEncoder::HevcNvenc,
+    );
+    assert!(!out.contains("-hwaccel"), "{out}");
+    assert_snapshot!("windows_hevc_nvenc", out);
+}
+
+#[test]
 fn hevc_in_mkv_is_not_tagged() {
     let profile = Profile::get("hevc-x265");
     let job = mk_job("mkv");

@@ -74,7 +74,7 @@ pub fn probe_args(
         // (device init here, filter below, quality flags in the last match). Until
         // then they are not probed, which keeps them unavailable.
         // hevc_nvenc: no device init needed.
-        HevcNvenc => return None,
+        HevcNvenc => {}
         // hevc_qsv: -init_hw_device qsv + -filter_hw_device.
         HevcQsv => {
             let init = match render_device {
@@ -118,7 +118,8 @@ pub fn probe_args(
         HevcQsv => push(&["-q:v", PROBE_QUALITY]),
         // The HEVC hardware Encoders return early above until their tickets land.
         LibvpxVp9 | LibsvtAv1 | LibaomAv1 | Libx265 => unreachable!(),
-        HevcNvenc | HevcVaapi | HevcAmf | HevcVideotoolbox => unreachable!(),
+        HevcNvenc => push(&["-rc", "vbr", "-cq", PROBE_QUALITY, "-b:v", "0"]),
+        HevcVaapi | HevcAmf | HevcVideotoolbox => unreachable!(),
     }
     push(&["-f", "null", "-"]);
     Some(a)
@@ -216,8 +217,14 @@ mod tests {
                 assert!(probe_args(*e, 10, None).is_some(), "{e:?}");
             }
         }
-        assert!(c.len() >= 6, "{c:?}");
+        // Encoders are unique per Codec, so candidates are exactly the listed priorities.
+        let listed: usize = CodecKind::ALL
+            .iter()
+            .map(|k| k.hardware_priority().len())
+            .sum();
+        assert_eq!(c.len(), listed);
         assert!(c.contains(&HevcQsv));
+        assert!(c.contains(&HevcNvenc));
     }
 
     #[test]
@@ -240,6 +247,9 @@ mod tests {
     #[test]
     fn probes_use_constant_quality_mode() {
         assert!(joined(Av1Nvenc, 8).contains("-rc vbr -cq 30"));
+        assert!(joined(HevcNvenc, 8).contains("-rc vbr -cq 30 -b:v 0"));
+        assert!(joined(HevcNvenc, 10).contains("-pix_fmt p010le"));
+        assert!(!joined(HevcNvenc, 8).contains("-init_hw_device"));
         assert!(joined(Av1Amf, 8).contains("-rc cqp -qp_i 30 -qp_p 30"));
         assert!(joined(Av1Qsv, 8).contains("-rc_mode cqp -q:v 30"));
         assert!(joined(Vp9Qsv, 8).contains("-q:v 30"));

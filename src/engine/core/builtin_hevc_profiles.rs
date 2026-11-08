@@ -13,7 +13,7 @@ impl Profile {
     pub(super) fn hevc(name: &str) -> Option<Self> {
         match name {
             "hevc-x265" => Some(Self::hevc_x265()),
-            // hevc-nvenc: added by the NVENC ticket.
+            "hevc-nvenc" => Some(Self::hevc_nvenc()),
             "hevc-qsv" => Some(Self::hevc_qsv()),
             // hevc-vaapi: added by the VAAPI ticket.
             // hevc-amf: added by the AMF ticket.
@@ -42,6 +42,16 @@ impl Profile {
             codec: Codec::Hevc(config),
             ..Self::get("av1-svt")
         }
+    }
+
+    fn hevc_nvenc() -> Self {
+        Self::hevc_base(
+            "hevc-nvenc",
+            "hevcnvenc",
+            "hevc_nvenc",
+            true,
+            HevcConfig::default(),
+        )
     }
 
     fn hevc_x265() -> Self {

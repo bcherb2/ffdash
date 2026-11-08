@@ -1282,6 +1282,13 @@ mod tests {
         assert!(qsv.lower_is_better);
         assert_eq!(improve_quality(26, 2, qsv), 24);
 
+        // hevc_nvenc -cq 0-51: lower is better, stops at the shared hardware floor.
+        let nv = quality_search(HevcNvenc);
+        assert_eq!(nv.best, HARDWARE_QUALITY_FLOOR);
+        assert!(nv.lower_is_better);
+        assert_eq!(improve_quality(28, 2, nv), 26);
+        assert_eq!(improve_quality(6, 2, nv), HARDWARE_QUALITY_FLOOR);
+
         // VideoToolbox q:v: higher is better, so the search climbs toward 100.
         let vt = quality_search(HevcVideotoolbox);
         assert!(!vt.lower_is_better);
