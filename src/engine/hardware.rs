@@ -4,6 +4,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::engine::core::Codec;
+use crate::engine::selection::{self, CodecKind, EncoderAvailability};
 
 /// QSV preset options (veryfast to veryslow)
 pub const QSV_PRESETS: &[&str] = &[
@@ -15,7 +16,7 @@ pub const QSV_PRESETS: &[&str] = &[
 // ============================================================================
 
 /// Supported video encoders
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VideoEncoder {
     // VP9 encoders
     LibvpxVp9, // Software VP9
@@ -59,6 +60,23 @@ pub enum GpuVendor {
 }
 
 impl VideoEncoder {
+    /// The Encoder with this FFmpeg name, if ffdash knows it.
+    pub fn from_ffmpeg_name(name: &str) -> Option<Self> {
+        [
+            Self::LibvpxVp9,
+            Self::Vp9Qsv,
+            Self::Vp9Vaapi,
+            Self::LibsvtAv1,
+            Self::LibaomAv1,
+            Self::Av1Qsv,
+            Self::Av1Nvenc,
+            Self::Av1Vaapi,
+            Self::Av1Amf,
+        ]
+        .into_iter()
+        .find(|e| e.ffmpeg_name() == name)
+    }
+
     /// Get the FFmpeg encoder name
     pub fn ffmpeg_name(&self) -> &'static str {
         match self {
@@ -187,241 +205,61 @@ pub fn check_libaom_av1_available() -> bool {
     get_av1_encoder_availability().aom
 }
 
-/// Select the best encoder based on codec choice and hardware preference
+/// Encoder Availability for this host, built from the current detection.
 ///
-/// For AV1 with hardware enabled, tries encoders in priority order:
-/// 1. av1_qsv (Intel Quick Sync)
-/// 2. av1_nvenc (NVIDIA)
-/// 3. av1_vaapi (VAAPI)
-/// 4. av1_amf (AMD)
-///
-///    Falls back to libsvtav1 if no hardware encoder is available.
+/// Cached for the session. Probe Encodes will replace this source; the selection
+/// itself ([`selection::select_encoder`]) only ever sees the resulting value.
+/// Every detected Encoder is recorded as Main10-capable, as before.
+pub fn detect_encoder_availability() -> &'static EncoderAvailability {
+    static CACHE: OnceLock<EncoderAvailability> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        // QSV encoders may exist in FFmpeg builds even when no Intel GPU runtime is
+        // present. On Linux we require both a render node AND an Intel GPU.
+        let qsv_runtime_ok =
+            !cfg!(target_os = "linux") || (detect_render_device().is_some() && has_intel_gpu());
+        let av1 = get_av1_encoder_availability();
+        let mut availability = EncoderAvailability::default()
+            .with(VideoEncoder::LibvpxVp9, true)
+            .with(VideoEncoder::LibsvtAv1, true);
+        if qsv_runtime_ok && check_vp9_qsv_available() {
+            availability = availability.with(VideoEncoder::Vp9Qsv, true);
+        }
+        if check_ffmpeg_vaapi() {
+            availability = availability.with(VideoEncoder::Vp9Vaapi, true);
+        }
+        if av1.nvenc {
+            availability = availability.with(VideoEncoder::Av1Nvenc, true);
+        }
+        if av1.amf {
+            availability = availability.with(VideoEncoder::Av1Amf, true);
+        }
+        if qsv_runtime_ok && av1.qsv {
+            availability = availability.with(VideoEncoder::Av1Qsv, true);
+        }
+        if av1.vaapi {
+            availability = availability.with(VideoEncoder::Av1Vaapi, true);
+        }
+        availability
+    })
+}
+
+/// Select the Encoder for `codec` on this host (see [`selection::select_encoder`]).
 pub fn select_encoder(
     codec: &Codec,
     use_hardware: bool,
     preferred_encoder: Option<&str>,
 ) -> VideoEncoder {
-    #[cfg(feature = "dev-logging")]
-    {
-        // Debug logging
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/ffdash_vmaf_debug.log")
-        {
-            use std::io::Write;
-            let _ = writeln!(
-                f,
-                "[select_encoder] use_hardware={}, codec={:?}, preferred={:?}",
-                use_hardware,
-                match codec {
-                    Codec::Vp9(_) => "VP9",
-                    Codec::Av1(_) => "AV1",
-                },
-                preferred_encoder
-            );
-        }
-    }
-
-    match codec {
-        Codec::Vp9(_) => {
-            // QSV encoders may exist in FFmpeg builds even when no Intel GPU runtime is present.
-            // On Linux, we require both a /dev/dri render node AND an Intel GPU to avoid
-            // selecting QSV on NVIDIA-only or AMD-only systems.
-            let qsv_runtime_ok =
-                !cfg!(target_os = "linux") || (detect_render_device().is_some() && has_intel_gpu());
-
-            if use_hardware {
-                // Check for encoder preference first
-                if let Some(pref) = preferred_encoder {
-                    match pref {
-                        "vp9_qsv" if qsv_runtime_ok && check_vp9_qsv_available() => {
-                            #[cfg(feature = "dev-logging")]
-                            {
-                                if let Ok(mut f) = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open("/tmp/ffdash_vmaf_debug.log")
-                                {
-                                    use std::io::Write;
-                                    let _ = writeln!(
-                                        f,
-                                        "[select_encoder] Using preferred VP9 encoder: vp9_qsv"
-                                    );
-                                }
-                            }
-                            return VideoEncoder::Vp9Qsv;
-                        }
-                        "vp9_vaapi" if check_ffmpeg_vaapi() => {
-                            #[cfg(feature = "dev-logging")]
-                            {
-                                if let Ok(mut f) = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open("/tmp/ffdash_vmaf_debug.log")
-                                {
-                                    use std::io::Write;
-                                    let _ = writeln!(
-                                        f,
-                                        "[select_encoder] Using preferred VP9 encoder: vp9_vaapi"
-                                    );
-                                }
-                            }
-                            return VideoEncoder::Vp9Vaapi;
-                        }
-                        _ => {
-                            #[cfg(feature = "dev-logging")]
-                            {
-                                if let Ok(mut f) = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open("/tmp/ffdash_vmaf_debug.log")
-                                {
-                                    use std::io::Write;
-                                    let _ = writeln!(
-                                        f,
-                                        "[select_encoder] Preferred VP9 encoder '{}' not available, using fallback",
-                                        pref
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Fall back to priority order
-                if qsv_runtime_ok && check_vp9_qsv_available() {
-                    VideoEncoder::Vp9Qsv
-                } else if check_ffmpeg_vaapi() {
-                    VideoEncoder::Vp9Vaapi
-                } else {
-                    VideoEncoder::LibvpxVp9
-                }
-            } else {
-                VideoEncoder::LibvpxVp9
-            }
-        }
-        Codec::Av1(_) => {
-            if use_hardware {
-                // Try hardware encoders in priority order
-                let avail = get_av1_encoder_availability();
-
-                #[cfg(feature = "dev-logging")]
-                {
-                    // Debug log availability
-                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/ffdash_vmaf_debug.log")
-                    {
-                        use std::io::Write;
-                        let _ = writeln!(
-                            f,
-                            "[select_encoder] AV1 avail: qsv={}, nvenc={}, vaapi={}, amf={}, svt={}, aom={}",
-                            avail.qsv, avail.nvenc, avail.vaapi, avail.amf, avail.svt, avail.aom
-                        );
-                        let _ = writeln!(
-                            f,
-                            "[select_encoder] Intel Arc detected: {:?}",
-                            detect_intel_arc()
-                        );
-                    }
-                }
-
-                let qsv_runtime_ok = !cfg!(target_os = "linux")
-                    || (detect_render_device().is_some() && has_intel_gpu());
-
-                // Check for encoder preference first
-                if let Some(pref) = preferred_encoder {
-                    let encoder = match pref {
-                        "av1_qsv" if qsv_runtime_ok && avail.qsv => Some(VideoEncoder::Av1Qsv),
-                        "av1_nvenc" if avail.nvenc => Some(VideoEncoder::Av1Nvenc),
-                        "av1_vaapi" if avail.vaapi => Some(VideoEncoder::Av1Vaapi),
-                        "av1_amf" if avail.amf => Some(VideoEncoder::Av1Amf),
-                        _ => None,
-                    };
-
-                    if let Some(enc) = encoder {
-                        #[cfg(feature = "dev-logging")]
-                        {
-                            if let Ok(mut f) = std::fs::OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open("/tmp/ffdash_vmaf_debug.log")
-                            {
-                                use std::io::Write;
-                                let _ = writeln!(
-                                    f,
-                                    "[select_encoder] Using preferred AV1 encoder: {:?}",
-                                    enc
-                                );
-                            }
-                        }
-                        return enc;
-                    } else {
-                        #[cfg(feature = "dev-logging")]
-                        {
-                            if let Ok(mut f) = std::fs::OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open("/tmp/ffdash_vmaf_debug.log")
-                            {
-                                use std::io::Write;
-                                let _ = writeln!(
-                                    f,
-                                    "[select_encoder] Preferred AV1 encoder '{}' not available, using fallback",
-                                    pref
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // Fall back to priority order (discrete GPUs first, then integrated)
-                let encoder = if avail.nvenc {
-                    VideoEncoder::Av1Nvenc
-                } else if avail.amf {
-                    VideoEncoder::Av1Amf
-                } else if qsv_runtime_ok && avail.qsv {
-                    VideoEncoder::Av1Qsv
-                } else if avail.vaapi {
-                    VideoEncoder::Av1Vaapi
-                } else {
-                    // No hardware encoder available, fall back to software
-                    VideoEncoder::LibsvtAv1
-                };
-
-                #[cfg(feature = "dev-logging")]
-                {
-                    // Debug log selected encoder
-                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/ffdash_vmaf_debug.log")
-                    {
-                        use std::io::Write;
-                        let _ = writeln!(f, "[select_encoder] Selected AV1 encoder: {:?}", encoder);
-                    }
-                }
-
-                encoder
-            } else {
-                // Software encoding - prefer SVT-AV1 (faster)
-                #[cfg(feature = "dev-logging")]
-                {
-                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/ffdash_vmaf_debug.log")
-                    {
-                        use std::io::Write;
-                        let _ = writeln!(f, "[select_encoder] use_hardware=false, using LibsvtAv1");
-                    }
-                }
-                VideoEncoder::LibsvtAv1
-            }
-        }
-    }
+    let kind = match codec {
+        Codec::Vp9(_) => CodecKind::Vp9,
+        Codec::Av1(_) => CodecKind::Av1,
+    };
+    selection::select_encoder(
+        kind,
+        use_hardware,
+        preferred_encoder.and_then(VideoEncoder::from_ffmpeg_name),
+        8,
+        detect_encoder_availability(),
+    )
 }
 
 /// Get a list of all available AV1 encoders (for UI display)
