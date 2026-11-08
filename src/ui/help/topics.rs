@@ -562,6 +562,8 @@ impl HelpModal {
             Line::from("  HEVC (libx265): 0-51, default 28 (≈ x264 CRF scale)"),
             Line::from("  HEVC (NVENC): CQ 0-51, default 28, lower = better"),
             Line::from("  HEVC (Intel QSV): -q:v 1-51, default 26 (lower = better)"),
+            Line::from("  HEVC AMF (QP): 0-51, default 26 • Lower = better quality"),
+            Line::from("  HEVC VideoToolbox (q:v): 1-100, default 60 • HIGHER = better quality"),
             Line::from("  Recommended: 28-30 (high), 30-33 (good), 34-36 (lower)"),
             Line::from(""),
             Line::from(vec![Span::styled(

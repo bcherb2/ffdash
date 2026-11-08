@@ -1151,9 +1151,71 @@ color_metadata_notes = "Uses vpp_qsv filter options for all 4 fields (see ENCODE
 
 # --- hevc_vaapi (added by the VAAPI ticket) ------------------------------------
 
-# --- hevc_amf (added by the AMF ticket) ----------------------------------------
+# --- hevc_amf ------------------------------------------------------------------
 
-# --- hevc_videotoolbox (added by the VideoToolbox ticket) ----------------------
+[[encoders]]
+id = "hevc_amf"
+codec = "hevc"
+type = "hardware"
+ffmpeg_name = "hevc_amf"
+hw_api = "amf"
+display_name = "HEVC (AMD AMF)"
+description = "AMD Advanced Media Framework HEVC encoder (CPU-decoded input; no B-frames or lookahead)"
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ✅, color_trc ✅ (VUI); no HDR10 mastering display / content light level SEI"
+
+  [[encoders.params]]
+  id = "amf-qp"
+  scope = "private"
+  flag = "-qp_i"
+  type = "int"
+  range = { min = 0, max = 51 }
+  default = 26
+  field_path = "amf_qp"
+  description = "Constant QP for I and P frames (lower=better); ffdash sets -qp_i and -qp_p together"
+  verification = { method = "ffmpeg-help", source = "hevc_amf" }
+
+  [[encoders.params]]
+  id = "amf-rc"
+  scope = "private"
+  flag = "-rc"
+  type = "enum"
+  values = ["cqp"]
+  default = "cqp"
+  description = "Rate control (ffdash uses constant QP only)"
+  verification = { method = "ffmpeg-help", source = "hevc_amf" }
+
+  [[encoders.params]]
+  id = "amf-quality"
+  scope = "private"
+  flag = "-quality"
+  type = "enum"
+  values = ["speed", "balanced", "quality"]
+  default = "balanced"
+  description = "Speed/quality preset (from the shared hardware preset: 1-2 quality, 3-5 balanced, 6-7 speed)"
+  verification = { method = "ffmpeg-help", source = "hevc_amf" }
+
+# --- hevc_videotoolbox ---------------------------------------------------------
+
+[[encoders]]
+id = "hevc_videotoolbox"
+codec = "hevc"
+type = "hardware"
+ffmpeg_name = "hevc_videotoolbox"
+hw_api = "videotoolbox"
+display_name = "HEVC (Apple VideoToolbox)"
+description = "Apple VideoToolbox HEVC encoder (macOS; CPU-decoded input; Apple Silicon only for constant quality)"
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ✅, color_trc ✅"
+
+  [[encoders.params]]
+  id = "videotoolbox-q"
+  scope = "private"
+  flag = "-q:v"
+  type = "int"
+  range = { min = 1, max = 100 }
+  default = 60
+  field_path = "videotoolbox_q"
+  description = "Constant quality (1-100, HIGHER=better; the reverse of CRF/QP)"
+  verification = { method = "ffmpeg-help", source = "hevc_videotoolbox" }
 
 # =============================================================================
 # Verification Source Map
@@ -1171,5 +1233,5 @@ libx265 = "ffmpeg -h encoder=libx265"
 hevc_nvenc = "ffmpeg -h encoder=hevc_nvenc"
 hevc_qsv = "ffmpeg -h encoder=hevc_qsv"
 # hevc_vaapi = "ffmpeg -h encoder=hevc_vaapi"
-# hevc_amf = "ffmpeg -h encoder=hevc_amf"
-# hevc_videotoolbox = "ffmpeg -h encoder=hevc_videotoolbox"
+hevc_amf = "ffmpeg -h encoder=hevc_amf"
+hevc_videotoolbox = "ffmpeg -h encoder=hevc_videotoolbox"

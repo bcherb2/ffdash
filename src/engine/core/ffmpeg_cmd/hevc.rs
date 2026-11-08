@@ -13,6 +13,9 @@ use super::super::types::VideoJob;
 use super::container_from_output;
 use crate::engine::hardware::VideoEncoder;
 
+mod amf;
+mod cpu_fed;
+mod videotoolbox;
 mod x265;
 
 mod nvenc;
@@ -20,10 +23,6 @@ mod nvenc;
 mod qsv;
 
 // mod vaapi; (hevc_vaapi ticket)
-
-// mod amf; (hevc_amf ticket)
-
-// mod videotoolbox; (hevc_videotoolbox ticket)
 
 /// Build the command for an HEVC Encode Plan.
 pub(super) fn build_hevc_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePlan) -> Command {
@@ -40,9 +39,9 @@ pub(super) fn build_hevc_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePla
         // hevc_vaapi
         VideoEncoder::HevcVaapi => x265::build(job, profile),
         // hevc_amf
-        VideoEncoder::HevcAmf => x265::build(job, profile),
+        VideoEncoder::HevcAmf => amf::build(job, profile, cpu_decode),
         // hevc_videotoolbox
-        VideoEncoder::HevcVideotoolbox => x265::build(job, profile),
+        VideoEncoder::HevcVideotoolbox => videotoolbox::build(job, profile, cpu_decode),
 
         // Not HEVC Encoders: the Software Fallback.
         _ => x265::build(job, profile),

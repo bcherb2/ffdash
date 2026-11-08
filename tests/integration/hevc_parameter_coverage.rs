@@ -32,12 +32,20 @@ const NVENC_FIELDS: &[(&str, &str)] = &[
     ("hw_b_frames", "-bf"),
 ];
 
+/// HevcConfig fields hevc_amf reads, and the flag each produces.
+const AMF_FIELDS: &[(&str, &str)] = &[
+    ("amf_qp", "-qp_i"),
+    ("amf_qp", "-qp_p"),
+    ("hw_preset", "-quality"),
+];
+
+/// HevcConfig fields hevc_videotoolbox reads, and the flag each produces.
+const VIDEOTOOLBOX_FIELDS: &[(&str, &str)] = &[("videotoolbox_q", "-q:v")];
+
 /// Fields no Encoder reads yet, with the Encoder ticket that owns them.
 const PENDING_HARDWARE: &[(&str, &str)] = &[
     // per-Encoder quality
     ("vaapi_quality", "hevc_vaapi"),
-    ("amf_qp", "hevc_amf"),
-    ("videotoolbox_q", "hevc_videotoolbox"),
 ];
 
 fn args(profile: &Profile) -> Vec<String> {
@@ -80,6 +88,8 @@ fn every_hevc_field_is_owned_by_x265_or_a_pending_hardware_encoder() {
         let owned = X265_FIELDS.iter().any(|(f, _)| f == field)
             || QSV_FIELDS.iter().any(|(f, _)| f == field)
             || NVENC_FIELDS.iter().any(|(f, _)| f == field)
+            || AMF_FIELDS.iter().any(|(f, _)| f == field)
+            || VIDEOTOOLBOX_FIELDS.iter().any(|(f, _)| f == field)
             || PENDING_HARDWARE.iter().any(|(f, _)| f == field);
         assert!(
             owned,
@@ -91,6 +101,8 @@ fn every_hevc_field_is_owned_by_x265_or_a_pending_hardware_encoder() {
         .iter()
         .chain(QSV_FIELDS)
         .chain(NVENC_FIELDS)
+        .chain(AMF_FIELDS)
+        .chain(VIDEOTOOLBOX_FIELDS)
         .chain(PENDING_HARDWARE)
     {
         assert!(json.get(*field).is_some(), "stale coverage entry {field}");
@@ -106,6 +118,88 @@ fn every_x265_field_reaches_its_flag_with_its_value() {
     for (field, flag) in X265_FIELDS {
         assert!(args.iter().any(|a| a == flag), "{field}: {flag} missing");
     }
+}
+
+fn hardware_args(profile: &Profile, encoder: VideoEncoder) -> Vec<String> {
+    let job = VideoJob::new(
+        PathBuf::from("does-not-exist.mkv"),
+        PathBuf::from("/tmp/out.mkv"),
+        profile.name.clone(),
+    );
+    build_encode_cmds(&job, profile, &EncodePlan::new(encoder))
+        .pop()
+        .unwrap()
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect()
+}
+
+#[test]
+fn every_amf_field_reaches_its_flag_with_its_value() {
+    let mut p = Profile::get("hevc-amf");
+    let h = p.codec.as_hevc_mut().unwrap();
+    h.amf_qp = 23;
+    h.hw_preset = "7".to_string();
+    let args = hardware_args(&p, VideoEncoder::HevcAmf);
+    assert_eq!(value_of(&args, "-qp_i").as_deref(), Some("23"));
+    assert_eq!(value_of(&args, "-qp_p").as_deref(), Some("23"));
+    assert_eq!(value_of(&args, "-quality").as_deref(), Some("speed"));
+    for (field, flag) in AMF_FIELDS {
+        assert!(args.iter().any(|a| a == flag), "{field}: {flag} missing");
+    }
+}
+
+#[test]
+fn every_videotoolbox_field_reaches_its_flag_with_its_value() {
+    let mut p = Profile::get("hevc-videotoolbox");
+    p.codec.as_hevc_mut().unwrap().videotoolbox_q = 77;
+    let args = hardware_args(&p, VideoEncoder::HevcVideotoolbox);
+    assert_eq!(value_of(&args, "-q:v").as_deref(), Some("77"));
+}
+
+#[cfg(feature = "dev-tools")]
+#[test]
+fn amf_and_videotoolbox_registry_params_have_a_flag_the_command_emits() {
+    use ffdash::engine::params::params_for_encoder;
+    for (id, profile, encoder) in [
+        ("hevc_amf", "hevc-amf", VideoEncoder::HevcAmf),
+        (
+            "hevc_videotoolbox",
+            "hevc-videotoolbox",
+            VideoEncoder::HevcVideotoolbox,
+        ),
+    ] {
+        let args = hardware_args(&Profile::get(profile), encoder);
+        let mut seen = 0;
+        for param in params_for_encoder(id) {
+            let flag = param
+                .get_encoder_config(id)
+                .and_then(|c| c.flag)
+                .expect("registry flag");
+            assert!(
+                args.iter().any(|a| a == flag),
+                "{id}: registry param {} ({flag}) is not emitted",
+                param.name
+            );
+            seen += 1;
+        }
+        assert!(seen >= 1, "{id} registry entry looks empty");
+    }
+}
+
+#[cfg(feature = "dev-tools")]
+#[test]
+fn registry_clamps_amf_qp_and_videotoolbox_q_to_their_native_ranges() {
+    use ffdash::engine::params::validate_and_clamp_profile;
+    let mut amf = Profile::get("hevc-amf");
+    amf.codec.as_hevc_mut().unwrap().amf_qp = 90;
+    assert!(!validate_and_clamp_profile(&mut amf, "hevc_amf").is_empty());
+    assert_eq!(amf.codec.as_hevc().unwrap().amf_qp, 51);
+
+    let mut vt = Profile::get("hevc-videotoolbox");
+    vt.codec.as_hevc_mut().unwrap().videotoolbox_q = 250;
+    assert!(!validate_and_clamp_profile(&mut vt, "hevc_videotoolbox").is_empty());
+    assert_eq!(vt.codec.as_hevc().unwrap().videotoolbox_q, 100);
 }
 
 #[test]

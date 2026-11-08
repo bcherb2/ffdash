@@ -94,6 +94,11 @@ pub enum ConfigFocus {
     HevcQsvLookaheadInput,
     HevcQsvBFramesInput,
 
+    // HEVC hardware settings: AMF QP and preset, VideoToolbox quality
+    HevcAmfQpSlider,
+    HevcAmfPresetSlider,
+    HevcVideotoolboxQSlider,
+
     // Parallelism
     RowMtCheckbox,
     TileColumnsSlider,
@@ -207,7 +212,10 @@ impl ConfigFocus {
             Self::HevcQsvQualityInput => Self::HevcQsvPresetInput,
             Self::HevcQsvPresetInput => Self::HevcQsvLookaheadInput,
             Self::HevcQsvLookaheadInput => Self::HevcQsvBFramesInput,
-            Self::HevcQsvBFramesInput => Self::RowMtCheckbox,
+            Self::HevcQsvBFramesInput => Self::HevcAmfQpSlider,
+            Self::HevcAmfQpSlider => Self::HevcAmfPresetSlider,
+            Self::HevcAmfPresetSlider => Self::HevcVideotoolboxQSlider,
+            Self::HevcVideotoolboxQSlider => Self::RowMtCheckbox,
             Self::RowMtCheckbox => Self::TileColumnsSlider,
             Self::TileColumnsSlider => Self::TileRowsSlider,
             Self::TileRowsSlider => Self::ThreadsInput,
@@ -307,7 +315,10 @@ impl ConfigFocus {
             Self::HevcQsvPresetInput => Self::HevcQsvQualityInput,
             Self::HevcQsvLookaheadInput => Self::HevcQsvPresetInput,
             Self::HevcQsvBFramesInput => Self::HevcQsvLookaheadInput,
-            Self::RowMtCheckbox => Self::HevcQsvBFramesInput,
+            Self::HevcAmfQpSlider => Self::HevcQsvBFramesInput,
+            Self::HevcAmfPresetSlider => Self::HevcAmfQpSlider,
+            Self::HevcVideotoolboxQSlider => Self::HevcAmfPresetSlider,
+            Self::RowMtCheckbox => Self::HevcVideotoolboxQSlider,
             Self::TileColumnsSlider => Self::RowMtCheckbox,
             Self::TileRowsSlider => Self::TileColumnsSlider,
             Self::ThreadsInput => Self::TileRowsSlider,

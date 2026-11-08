@@ -51,6 +51,21 @@ Called "HEVC" everywhere (H.265 is an alias). Each Encoder has its own quality f
 
 The other hardware HEVC Encoders (`hevc_vaapi`, `hevc_amf`, `hevc_videotoolbox`) get a section each as they are added.
 
+### hevc_amf and hevc_videotoolbox
+
+Both are fed from CPU decode on every host (no `-hwaccel`, no device init) and are used only where their constant-quality Probe Encode passes. Built-in profiles: `hevc-amf`, `hevc-videotoolbox`.
+
+| Parameter        | hevc_amf (AMD, Windows/Linux)          | hevc_videotoolbox (macOS)              |
+|------------------|----------------------------------------|----------------------------------------|
+| Quality knob     | `-rc cqp -qp_i/-qp_p` 0–51 (default 26, lower=better) | `-q:v` 1–100 (default 60, **higher=better**) |
+| Speed knob       | `-quality` speed/balanced/quality from the hardware preset (1–2 quality, 3–5 balanced, 6–7 speed) | n/a |
+| Lookahead        | n/a                                    | n/a                                    |
+| B-frames         | n/a                                    | n/a                                    |
+| Bit depth        | 8/10 (`p010le`, Main10)                | 8/10 (`p010le`, Main10)                |
+| MP4              | always `-tag:v hvc1`                   | always `-tag:v hvc1`                   |
+| Auto-VMAF        | QP searched downward to the hardware floor | `q:v` searched upward to 100       |
+| Probe Encode     | `-rc cqp -qp_i 30 -qp_p 30`            | `-q:v 30` (Intel Macs fail it and fall back to libx265) |
+
 ## VP9 Encoders
 
 | Parameter        | libvpx-vp9            | vp9_vaapi                       | vp9_qsv                         |

@@ -1595,6 +1595,30 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 state.config.is_modified = true;
             }
         }
+        ConfigFocus::HevcAmfQpSlider => {
+            let old = state.config.hevc.amf_qp.min(51);
+            let new = step_value(key.code, old, 0, 51);
+            if new != old {
+                state.config.hevc.amf_qp = new;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HevcAmfPresetSlider => {
+            let old: u32 = state.config.hevc.hw_preset.parse().unwrap_or(4).clamp(1, 7);
+            let new = step_value(key.code, old, 1, 7);
+            if new != old {
+                state.config.hevc.hw_preset = new.to_string();
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HevcVideotoolboxQSlider => {
+            let old = state.config.hevc.videotoolbox_q.clamp(1, 100);
+            let new = step_value(key.code, old, 1, 100);
+            if new != old {
+                state.config.hevc.videotoolbox_q = new;
+                state.config.is_modified = true;
+            }
+        }
         ConfigFocus::Av1FilmGrainSlider => {
             let old_value = state.config.av1_film_grain;
             match key.code {
@@ -3683,6 +3707,39 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                     return;
                 }
             }
+        }
+
+        if let Some(area) = config.hevc_amf_qp_area
+            && is_in_rect(mouse.column, mouse.row, area)
+        {
+            config.focus = ConfigFocus::HevcAmfQpSlider;
+            if let Some(v) = slider_click_value(mouse, area, 0, 51) {
+                config.hevc.amf_qp = v;
+                config.is_modified = true;
+            }
+            return;
+        }
+
+        if let Some(area) = config.hevc_amf_preset_area
+            && is_in_rect(mouse.column, mouse.row, area)
+        {
+            config.focus = ConfigFocus::HevcAmfPresetSlider;
+            if let Some(v) = slider_click_value(mouse, area, 1, 7) {
+                config.hevc.hw_preset = v.to_string();
+                config.is_modified = true;
+            }
+            return;
+        }
+
+        if let Some(area) = config.hevc_videotoolbox_q_area
+            && is_in_rect(mouse.column, mouse.row, area)
+        {
+            config.focus = ConfigFocus::HevcVideotoolboxQSlider;
+            if let Some(v) = slider_click_value(mouse, area, 1, 100) {
+                config.hevc.videotoolbox_q = v;
+                config.is_modified = true;
+            }
+            return;
         }
 
         if let Some(area) = config.av1_film_grain_slider_area {

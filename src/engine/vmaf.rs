@@ -1295,6 +1295,12 @@ mod tests {
         assert_eq!(improve_quality(60, 2, vt), 62);
         assert_eq!(improve_quality(99, 2, vt), 100);
         assert!(at_best_quality(100, vt));
+
+        // AMF QP: lower is better, floor shared with the other hardware Encoders.
+        let amf = quality_search(HevcAmf);
+        assert!(amf.lower_is_better);
+        assert_eq!(amf.best, HARDWARE_QUALITY_FLOOR);
+        assert_eq!(improve_quality(26, 2, amf), 24);
     }
 
     #[test]

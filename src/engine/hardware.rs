@@ -68,6 +68,7 @@ pub enum GpuVendor {
     Intel,
     Nvidia,
     Amd,
+    Apple,
 }
 
 impl VideoEncoder {
@@ -347,6 +348,11 @@ pub fn detect_gpu() -> (GpuVendor, Option<String>) {
     // Try Intel
     if let Some(model) = detect_intel_arc() {
         return (GpuVendor::Intel, Some(model));
+    }
+
+    // Apple silicon / Macs: VideoToolbox is the only hardware Encoder there
+    if cfg!(target_os = "macos") {
+        return (GpuVendor::Apple, Some("Apple VideoToolbox".to_string()));
     }
 
     (GpuVendor::Unknown, None)

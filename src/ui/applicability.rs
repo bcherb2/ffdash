@@ -71,6 +71,12 @@ pub fn applies(field: ConfigFocus, codec: CodecSelection, backend: Backend) -> b
         // libx265 (software) only. Extension point: each HEVC hardware Encoder adds its
         // own focus variants here with `hevc && backend == Backend::Hardware(<vendor>)`.
         HevcX265PresetDropdown | HevcX265TuneDropdown => hevc && software,
+        // hevc_amf: constant QP and the shared hardware preset (no lookahead or B-frames)
+        HevcAmfQpSlider | HevcAmfPresetSlider => {
+            hevc && backend == Backend::Hardware(GpuVendor::Amd)
+        }
+        // hevc_videotoolbox: its `q:v` quality is the only setting
+        HevcVideotoolboxQSlider => hevc && backend == Backend::Hardware(GpuVendor::Apple),
 
         // hevc_nvenc
         HevcNvencPresetSlider
@@ -648,6 +654,88 @@ mod tests {
             assert!(f.area(&intel).is_none(), "{f:?} on Intel");
             assert!(!tab_order(&sw).contains(&f));
         }
+    }
+
+    #[test]
+    fn hevc_amf_and_videotoolbox_show_only_their_own_controls() {
+        let amf_only = [HevcAmfQpSlider, HevcAmfPresetSlider];
+        let vt_only = [HevcVideotoolboxQSlider];
+
+        let mut amd = state_for(CodecSelection::Hevc, true);
+        amd.gpu_vendor = GpuVendor::Amd;
+        let text = render_text(&mut amd);
+        assert!(text.contains("QP (Lower=Better"), "{text}");
+        for f in amf_only {
+            assert!(f.area(&amd).is_some(), "{f:?} should be clickable on AMD");
+            assert!(tab_order(&amd).contains(&f), "{f:?} should be in Tab order");
+        }
+        for f in vt_only.into_iter().chain([HevcX265PresetDropdown]) {
+            assert!(f.area(&amd).is_none(), "{f:?} must not show on AMD");
+        }
+
+        let mut apple = state_for(CodecSelection::Hevc, true);
+        apple.gpu_vendor = GpuVendor::Apple;
+        let text = render_text(&mut apple);
+        assert!(text.contains("Quality (Higher=Better"), "{text}");
+        for f in vt_only {
+            assert!(
+                f.area(&apple).is_some(),
+                "{f:?} should be clickable on Apple"
+            );
+            assert!(
+                tab_order(&apple).contains(&f),
+                "{f:?} should be in Tab order"
+            );
+        }
+        for f in amf_only {
+            assert!(f.area(&apple).is_none(), "{f:?} must not show on Apple");
+        }
+
+        // Neither shows for other vendors, software, or other codecs
+        let mut nv = state_for(CodecSelection::Hevc, true);
+        nv.gpu_vendor = GpuVendor::Nvidia;
+        render_text(&mut nv);
+        let mut sw = state_for(CodecSelection::Hevc, false);
+        render_text(&mut sw);
+        for f in amf_only.into_iter().chain(vt_only) {
+            assert!(f.area(&nv).is_none(), "{f:?}");
+            assert!(f.area(&sw).is_none(), "{f:?}");
+            assert!(!applies(f, CodecSelection::Av1, AMD), "{f:?}");
+            assert!(!applies(
+                f,
+                CodecSelection::Av1,
+                Backend::Hardware(GpuVendor::Apple)
+            ));
+        }
+    }
+
+    #[test]
+    fn applies_matches_flags_the_hevc_amf_and_videotoolbox_builders_emit() {
+        let amf = emitted_flags(&software_cmd(
+            &exercised(Profile::get("hevc-amf")),
+            VideoEncoder::HevcAmf,
+        ));
+        let amd = Backend::Hardware(GpuVendor::Amd);
+        let emitted = |args: &[String], flag: &str| args.iter().any(|a| a == flag);
+        assert_eq!(
+            applies(HevcAmfQpSlider, CodecSelection::Hevc, amd),
+            emitted(&amf, "-qp_i")
+        );
+        assert_eq!(
+            applies(HevcAmfPresetSlider, CodecSelection::Hevc, amd),
+            emitted(&amf, "-quality")
+        );
+        assert!(!emitted(&amf, "-look_ahead") && !emitted(&amf, "-bf"));
+
+        let vt = emitted_flags(&software_cmd(
+            &exercised(Profile::get("hevc-videotoolbox")),
+            VideoEncoder::HevcVideotoolbox,
+        ));
+        let apple = Backend::Hardware(GpuVendor::Apple);
+        assert_eq!(
+            applies(HevcVideotoolboxQSlider, CodecSelection::Hevc, apple),
+            emitted(&vt, "-q:v")
+        );
     }
 
     #[test]

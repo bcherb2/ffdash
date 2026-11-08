@@ -88,7 +88,10 @@ impl ConfigFocus {
             | Self::HevcQsvQualityInput
             | Self::HevcQsvPresetInput
             | Self::HevcQsvLookaheadInput
-            | Self::HevcQsvBFramesInput => CoreVideo,
+            | Self::HevcQsvBFramesInput
+            | Self::HevcAmfQpSlider
+            | Self::HevcAmfPresetSlider
+            | Self::HevcVideotoolboxQSlider => CoreVideo,
 
             Self::RowMtCheckbox
             | Self::TileColumnsSlider
@@ -191,6 +194,9 @@ impl ConfigFocus {
             Self::HevcQsvPresetInput => c.hevc_qsv_preset_area,
             Self::HevcQsvLookaheadInput => c.hevc_qsv_lookahead_area,
             Self::HevcQsvBFramesInput => c.hevc_qsv_b_frames_area,
+            Self::HevcAmfQpSlider => c.hevc_amf_qp_area,
+            Self::HevcAmfPresetSlider => c.hevc_amf_preset_area,
+            Self::HevcVideotoolboxQSlider => c.hevc_videotoolbox_q_area,
             Self::RowMtCheckbox => c.row_mt_checkbox_area,
             Self::TileColumnsSlider => c.tile_columns_slider_area,
             Self::TileRowsSlider => c.tile_rows_slider_area,

@@ -743,6 +743,9 @@ impl ConfigScreen {
         state.hevc_qsv_preset_area = None;
         state.hevc_qsv_lookahead_area = None;
         state.hevc_qsv_b_frames_area = None;
+        state.hevc_amf_qp_area = None;
+        state.hevc_amf_preset_area = None;
+        state.hevc_videotoolbox_q_area = None;
         match state.codec_selection {
             CodecSelection::Vp9 => {
                 // VP9-specific: Profile and Pix Fmt on one line
@@ -1367,6 +1370,53 @@ impl ConfigScreen {
                         );
                     }
                     y += 1;
+                } else if state.gpu_vendor == crate::engine::hardware::GpuVendor::Amd {
+                    // hevc_amf: constant QP (0-51, lower is better) and the shared preset
+                    let qp_area = Rect {
+                        x: inner.x,
+                        y,
+                        width: inner.width,
+                        height: 2,
+                    };
+                    state.hevc_amf_qp_area = Some(qp_area);
+                    frame.render_widget(
+                        Slider::new("QP (Lower=Better Quality, Higher=Smaller)", 0, 51)
+                            .value(state.hevc.amf_qp.min(51))
+                            .focused(state.focus == ConfigFocus::HevcAmfQpSlider),
+                        qp_area,
+                    );
+                    y += 3;
+
+                    let preset_area = Rect {
+                        x: inner.x,
+                        y,
+                        width: inner.width,
+                        height: 2,
+                    };
+                    state.hevc_amf_preset_area = Some(preset_area);
+                    frame.render_widget(
+                        Slider::new("HW Preset (1=Best Quality, 7=Fastest)", 1, 7)
+                            .value(state.hevc.hw_preset.parse::<u32>().unwrap_or(4).clamp(1, 7))
+                            .focused(state.focus == ConfigFocus::HevcAmfPresetSlider),
+                        preset_area,
+                    );
+                    y += 3;
+                } else if state.gpu_vendor == crate::engine::hardware::GpuVendor::Apple {
+                    // hevc_videotoolbox: `q:v` 1-100, HIGHER is better
+                    let q_area = Rect {
+                        x: inner.x,
+                        y,
+                        width: inner.width,
+                        height: 2,
+                    };
+                    state.hevc_videotoolbox_q_area = Some(q_area);
+                    frame.render_widget(
+                        Slider::new("Quality (Higher=Better Quality, Lower=Smaller)", 1, 100)
+                            .value(state.hevc.videotoolbox_q.clamp(1, 100))
+                            .focused(state.focus == ConfigFocus::HevcVideotoolboxQSlider),
+                        q_area,
+                    );
+                    y += 3;
                 }
 
                 // hevc_qsv: quality, preset, lookahead and b-frames, two per row.

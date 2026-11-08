@@ -85,10 +85,8 @@ pub fn probe_args(
         }
         // hevc_vaapi: -init_hw_device vaapi + -filter_hw_device.
         HevcVaapi => return None,
-        // hevc_amf: no device init needed.
-        HevcAmf => return None,
-        // hevc_videotoolbox: no device init needed.
-        HevcVideotoolbox => return None,
+        // hevc_amf and hevc_videotoolbox: no device init needed.
+        HevcAmf | HevcVideotoolbox => {}
     }
     push(&[
         "-f",
@@ -119,7 +117,12 @@ pub fn probe_args(
         // The HEVC hardware Encoders return early above until their tickets land.
         LibvpxVp9 | LibsvtAv1 | LibaomAv1 | Libx265 => unreachable!(),
         HevcNvenc => push(&["-rc", "vbr", "-cq", PROBE_QUALITY, "-b:v", "0"]),
-        HevcVaapi | HevcAmf | HevcVideotoolbox => unreachable!(),
+        // AMF QP, constant quality.
+        HevcAmf => push(&["-rc", "cqp", "-qp_i", PROBE_QUALITY, "-qp_p", PROBE_QUALITY]),
+        // VideoToolbox constant quality (`q:v`, 1-100, higher is better). Intel Macs
+        // reject it, which is how they fall back to libx265. 30 is a legal value.
+        HevcVideotoolbox => push(&["-q:v", PROBE_QUALITY]),
+        HevcVaapi => unreachable!(),
     }
     push(&["-f", "null", "-"]);
     Some(a)
@@ -225,6 +228,7 @@ mod tests {
         assert_eq!(c.len(), listed);
         assert!(c.contains(&HevcQsv));
         assert!(c.contains(&HevcNvenc));
+        assert!(c.contains(&HevcAmf) && c.contains(&HevcVideotoolbox));
     }
 
     #[test]
@@ -256,6 +260,20 @@ mod tests {
         assert!(joined(HevcQsv, 8).contains("-c:v hevc_qsv -q:v 30"));
         assert!(joined(Av1Vaapi, 8).contains("-rc_mode:v CQP -global_quality:v 30"));
         assert!(joined(Vp9Vaapi, 8).contains("-rc_mode:v 1 -global_quality:v 30"));
+    }
+
+    #[test]
+    fn hevc_amf_and_videotoolbox_probe_in_constant_quality() {
+        let amf = joined(HevcAmf, 8);
+        assert!(
+            amf.contains("-c:v hevc_amf -rc cqp -qp_i 30 -qp_p 30"),
+            "{amf}"
+        );
+        assert!(!amf.contains("-init_hw_device"));
+        let vt = joined(HevcVideotoolbox, 10);
+        assert!(vt.contains("-c:v hevc_videotoolbox -q:v 30"), "{vt}");
+        assert!(vt.contains("-pix_fmt p010le"), "{vt}");
+        assert!(!vt.contains("-init_hw_device"));
     }
 
     #[test]
