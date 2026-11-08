@@ -545,6 +545,10 @@ pub struct ConfigState {
     pub av1_hw_tile_rows_area: Option<Rect>,
     pub hevc_x265_preset_area: Option<Rect>,
     pub hevc_x265_tune_area: Option<Rect>,
+    pub hevc_qsv_quality_area: Option<Rect>,
+    pub hevc_qsv_preset_area: Option<Rect>,
+    pub hevc_qsv_lookahead_area: Option<Rect>,
+    pub hevc_qsv_b_frames_area: Option<Rect>,
 
     // VP9 QSV areas
     pub vp9_qsv_preset_area: Option<Rect>,
@@ -885,6 +889,10 @@ impl Default for ConfigState {
             av1_hw_tile_rows_area: None,
             hevc_x265_preset_area: None,
             hevc_x265_tune_area: None,
+            hevc_qsv_quality_area: None,
+            hevc_qsv_preset_area: None,
+            hevc_qsv_lookahead_area: None,
+            hevc_qsv_b_frames_area: None,
 
             // VP9 QSV areas
             vp9_qsv_preset_area: None,

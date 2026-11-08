@@ -14,7 +14,7 @@ impl Profile {
         match name {
             "hevc-x265" => Some(Self::hevc_x265()),
             // hevc-nvenc: added by the NVENC ticket.
-            // hevc-qsv: added by the QSV ticket.
+            "hevc-qsv" => Some(Self::hevc_qsv()),
             // hevc-vaapi: added by the VAAPI ticket.
             // hevc-amf: added by the AMF ticket.
             // hevc-videotoolbox: added by the VideoToolbox ticket.
@@ -50,6 +50,16 @@ impl Profile {
             "hevcx265",
             "libx265",
             false,
+            HevcConfig::default(),
+        )
+    }
+
+    fn hevc_qsv() -> Self {
+        Self::hevc_base(
+            "hevc-qsv",
+            "hevcqsv",
+            "hevc_qsv",
+            true,
             HevcConfig::default(),
         )
     }

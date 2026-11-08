@@ -72,6 +72,11 @@ pub fn applies(field: ConfigFocus, codec: CodecSelection, backend: Backend) -> b
         // own focus variants here with `hevc && backend == Backend::Hardware(<vendor>)`.
         HevcX265PresetDropdown | HevcX265TuneDropdown => hevc && software,
 
+        // hevc_qsv: quality, preset, lookahead and b-frames (Intel Quick Sync)
+        HevcQsvQualityInput | HevcQsvPresetInput | HevcQsvLookaheadInput | HevcQsvBFramesInput => {
+            hevc && backend == Backend::Hardware(GpuVendor::Intel)
+        }
+
         // AV1 hardware encoders
         Av1HwPresetSlider | Av1HwCqSlider | Av1HwLookaheadInput | Av1HwTileColsInput
         | Av1HwTileRowsInput => av1 && hardware,
@@ -354,6 +359,52 @@ mod tests {
             }
             assert!(!applies(f, CodecSelection::Vp9, SW), "{f:?}");
             assert!(!applies(f, CodecSelection::Av1, SW), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn hevc_qsv_controls_apply_only_to_hevc_on_intel_hardware() {
+        for f in [
+            HevcQsvQualityInput,
+            HevcQsvPresetInput,
+            HevcQsvLookaheadInput,
+            HevcQsvBFramesInput,
+        ] {
+            assert!(applies(f, CodecSelection::Hevc, INTEL), "{f:?}");
+            for other in [SW, NVIDIA, AMD] {
+                assert!(!applies(f, CodecSelection::Hevc, other), "{f:?} {other:?}");
+            }
+            assert!(!applies(f, CodecSelection::Av1, INTEL), "{f:?}");
+            assert!(!applies(f, CodecSelection::Vp9, INTEL), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn hevc_qsv_settings_are_shown_and_focusable_only_for_hevc_qsv() {
+        let qsv = [
+            HevcQsvQualityInput,
+            HevcQsvPresetInput,
+            HevcQsvLookaheadInput,
+            HevcQsvBFramesInput,
+        ];
+        let mut hw = state_for(CodecSelection::Hevc, true);
+        hw.gpu_vendor = GpuVendor::Intel;
+        let text = render_text(&mut hw);
+        assert!(text.contains("Quality (QP):"), "{text}");
+        for f in qsv {
+            assert!(f.area(&hw).is_some(), "{f:?} should be clickable");
+            assert!(tab_order(&hw).contains(&f), "{f:?} should be in Tab order");
+        }
+        // The x265 controls give way to them
+        assert!(HevcX265PresetDropdown.area(&hw).is_none());
+
+        let mut sw = state_for(CodecSelection::Hevc, false);
+        render_text(&mut sw);
+        for f in qsv {
+            assert!(
+                f.area(&sw).is_none(),
+                "{f:?} must have no hit area on software"
+            );
         }
     }
 

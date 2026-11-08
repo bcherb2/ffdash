@@ -294,6 +294,17 @@ fn extract_profile_field(profile: &Profile, field_name: &str) -> Option<Value> {
             .codec
             .as_hevc()
             .map(|h| Value::String(h.x265_tune.clone())),
+        "qsv_quality" => profile.codec.as_hevc().map(|h| Value::U32(h.qsv_quality)),
+        "hevc_hw_preset" => profile
+            .codec
+            .as_hevc()
+            .map(|h| Value::String(h.hw_preset.clone())),
+        "hevc_hw_lookahead" => profile.codec.as_hevc().map(|h| Value::U32(h.hw_lookahead)),
+        "hevc_hw_b_frames" => profile.codec.as_hevc().map(|h| Value::U32(h.hw_b_frames)),
+        "hevc_hw_rc_mode" => profile
+            .codec
+            .as_hevc()
+            .map(|h| Value::String(h.hw_rc_mode.clone())),
         "cpu_used" => {
             // Read from codec config if available
             match &profile.codec {
@@ -429,6 +440,31 @@ fn apply_profile_field(profile: &mut Profile, field_name: &str, value: &Value) {
         ("x265_tune", Value::String(v)) => {
             if let Codec::Hevc(hevc) = &mut profile.codec {
                 hevc.x265_tune = v.clone();
+            }
+        }
+        ("qsv_quality", Value::U32(v)) => {
+            if let Codec::Hevc(hevc) = &mut profile.codec {
+                hevc.qsv_quality = *v;
+            }
+        }
+        ("hevc_hw_preset", Value::String(v)) => {
+            if let Codec::Hevc(hevc) = &mut profile.codec {
+                hevc.hw_preset = v.clone();
+            }
+        }
+        ("hevc_hw_lookahead", Value::U32(v)) => {
+            if let Codec::Hevc(hevc) = &mut profile.codec {
+                hevc.hw_lookahead = *v;
+            }
+        }
+        ("hevc_hw_b_frames", Value::U32(v)) => {
+            if let Codec::Hevc(hevc) = &mut profile.codec {
+                hevc.hw_b_frames = *v;
+            }
+        }
+        ("hevc_hw_rc_mode", Value::String(v)) => {
+            if let Codec::Hevc(hevc) = &mut profile.codec {
+                hevc.hw_rc_mode = v.clone();
             }
         }
         ("cpu_used", Value::U32(v)) => {

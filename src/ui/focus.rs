@@ -82,6 +82,12 @@ pub enum ConfigFocus {
     HevcX265PresetDropdown,
     HevcX265TuneDropdown,
 
+    // HEVC QSV settings (hevc_qsv)
+    HevcQsvQualityInput,
+    HevcQsvPresetInput,
+    HevcQsvLookaheadInput,
+    HevcQsvBFramesInput,
+
     // Parallelism
     RowMtCheckbox,
     TileColumnsSlider,
@@ -187,7 +193,11 @@ impl ConfigFocus {
             Self::Av1HwTileColsInput => Self::Av1HwTileRowsInput,
             Self::Av1HwTileRowsInput => Self::HevcX265PresetDropdown,
             Self::HevcX265PresetDropdown => Self::HevcX265TuneDropdown,
-            Self::HevcX265TuneDropdown => Self::RowMtCheckbox,
+            Self::HevcX265TuneDropdown => Self::HevcQsvQualityInput,
+            Self::HevcQsvQualityInput => Self::HevcQsvPresetInput,
+            Self::HevcQsvPresetInput => Self::HevcQsvLookaheadInput,
+            Self::HevcQsvLookaheadInput => Self::HevcQsvBFramesInput,
+            Self::HevcQsvBFramesInput => Self::RowMtCheckbox,
             Self::RowMtCheckbox => Self::TileColumnsSlider,
             Self::TileColumnsSlider => Self::TileRowsSlider,
             Self::TileRowsSlider => Self::ThreadsInput,
@@ -279,7 +289,11 @@ impl ConfigFocus {
             Self::Av1HwTileRowsInput => Self::Av1HwTileColsInput,
             Self::HevcX265PresetDropdown => Self::Av1HwTileRowsInput,
             Self::HevcX265TuneDropdown => Self::HevcX265PresetDropdown,
-            Self::RowMtCheckbox => Self::HevcX265TuneDropdown,
+            Self::HevcQsvQualityInput => Self::HevcX265TuneDropdown,
+            Self::HevcQsvPresetInput => Self::HevcQsvQualityInput,
+            Self::HevcQsvLookaheadInput => Self::HevcQsvPresetInput,
+            Self::HevcQsvBFramesInput => Self::HevcQsvLookaheadInput,
+            Self::RowMtCheckbox => Self::HevcQsvBFramesInput,
             Self::TileColumnsSlider => Self::RowMtCheckbox,
             Self::TileRowsSlider => Self::TileColumnsSlider,
             Self::ThreadsInput => Self::TileRowsSlider,

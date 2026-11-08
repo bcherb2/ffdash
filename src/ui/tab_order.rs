@@ -80,7 +80,11 @@ impl ConfigFocus {
             | Self::Av1HwTileColsInput
             | Self::Av1HwTileRowsInput
             | Self::HevcX265PresetDropdown
-            | Self::HevcX265TuneDropdown => CoreVideo,
+            | Self::HevcX265TuneDropdown
+            | Self::HevcQsvQualityInput
+            | Self::HevcQsvPresetInput
+            | Self::HevcQsvLookaheadInput
+            | Self::HevcQsvBFramesInput => CoreVideo,
 
             Self::RowMtCheckbox
             | Self::TileColumnsSlider
@@ -175,6 +179,10 @@ impl ConfigFocus {
             Self::Av1HwTileRowsInput => c.av1_hw_tile_rows_area,
             Self::HevcX265PresetDropdown => c.hevc_x265_preset_area,
             Self::HevcX265TuneDropdown => c.hevc_x265_tune_area,
+            Self::HevcQsvQualityInput => c.hevc_qsv_quality_area,
+            Self::HevcQsvPresetInput => c.hevc_qsv_preset_area,
+            Self::HevcQsvLookaheadInput => c.hevc_qsv_lookahead_area,
+            Self::HevcQsvBFramesInput => c.hevc_qsv_b_frames_area,
             Self::RowMtCheckbox => c.row_mt_checkbox_area,
             Self::TileColumnsSlider => c.tile_columns_slider_area,
             Self::TileRowsSlider => c.tile_rows_slider_area,

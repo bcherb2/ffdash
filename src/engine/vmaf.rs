@@ -811,6 +811,7 @@ pub fn quality_search(encoder: VideoEncoder) -> QualitySearch {
         Libx265 => lower(SOFTWARE_QUALITY_FLOOR),
         Vp9Qsv | Vp9Vaapi | Av1Qsv | Av1Nvenc | Av1Vaapi | Av1Amf => lower(HARDWARE_QUALITY_FLOOR),
         HevcNvenc => lower(HARDWARE_QUALITY_FLOOR),
+        // hevc_qsv CQP -q:v 1-51, lower is better: same floor as the other QSV Encoders.
         HevcQsv => lower(HARDWARE_QUALITY_FLOOR),
         HevcVaapi => lower(HARDWARE_QUALITY_FLOOR),
         HevcAmf => lower(HARDWARE_QUALITY_FLOOR),
@@ -1274,6 +1275,12 @@ mod tests {
         assert_eq!(improve_quality(11, 2, x265), 10);
         assert!(at_best_quality(10, x265));
         assert!(!at_best_quality(11, x265));
+
+        // hevc_qsv -q:v: lower is better, bounded by the hardware floor.
+        let qsv = quality_search(HevcQsv);
+        assert_eq!(qsv.best, HARDWARE_QUALITY_FLOOR);
+        assert!(qsv.lower_is_better);
+        assert_eq!(improve_quality(26, 2, qsv), 24);
 
         // VideoToolbox q:v: higher is better, so the search climbs toward 100.
         let vt = quality_search(HevcVideotoolbox);

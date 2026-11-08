@@ -173,6 +173,68 @@ fn hevc_in_mkv_is_not_tagged() {
     assert!(!build(&job, &profile, VideoEncoder::Libx265).contains("-tag:v"));
 }
 
+fn hdr10(profile: &mut Profile) {
+    profile.colorspace = 9; // bt2020nc
+    profile.color_primaries = 9; // bt2020
+    profile.color_trc = 16; // smpte2084 (PQ)
+    profile.color_range = 0; // tv/limited
+    profile.pix_fmt = "yuv420p10le".to_string(); // Main10
+}
+
+#[test]
+fn snapshot_hevc_qsv_sdr() {
+    let mut profile = Profile::get("hevc-qsv");
+    profile.colorspace = 1;
+    profile.color_primaries = 1;
+    profile.color_trc = 1;
+    profile.color_range = 0;
+    let out = build(&mk_job("mkv"), &profile, VideoEncoder::HevcQsv);
+    assert_snapshot!("hevc_qsv_sdr", out);
+}
+
+#[test]
+fn snapshot_hevc_qsv_hdr10() {
+    let mut profile = Profile::get("hevc-qsv");
+    hdr10(&mut profile);
+    let out = build(&mk_job("mkv"), &profile, VideoEncoder::HevcQsv);
+    assert_snapshot!("hevc_qsv_hdr10", out);
+}
+
+#[test]
+fn snapshot_hevc_qsv_mp4_is_tagged_hvc1() {
+    let profile = Profile::get("hevc-qsv");
+    let out = build(&mk_job("mp4"), &profile, VideoEncoder::HevcQsv);
+    assert!(out.contains("-tag:v hvc1"), "{out}");
+}
+
+#[test]
+fn snapshot_windows_hevc_qsv_sdr() {
+    let out = build_on(
+        HostPlatform::Windows,
+        &mk_job("mkv"),
+        &Profile::get("hevc-qsv"),
+        VideoEncoder::HevcQsv,
+    );
+    assert!(
+        !out.contains("-hwaccel") && !out.contains("/dev/dri"),
+        "{out}"
+    );
+    assert_snapshot!("windows_hevc_qsv_sdr", out);
+}
+
+#[test]
+fn snapshot_windows_hevc_qsv_hdr10() {
+    let mut profile = Profile::get("hevc-qsv");
+    hdr10(&mut profile);
+    let out = build_on(
+        HostPlatform::Windows,
+        &mk_job("mkv"),
+        &profile,
+        VideoEncoder::HevcQsv,
+    );
+    assert_snapshot!("windows_hevc_qsv_hdr10", out);
+}
+
 #[test]
 fn software_vp9_fallback_for_hardware_profile_stays_single_pass() {
     // A profile that requested hardware but was planned onto the software Encoder

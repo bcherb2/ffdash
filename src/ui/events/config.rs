@@ -1532,6 +1532,36 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 state.config.is_modified = true;
             }
         }
+        ConfigFocus::HevcQsvQualityInput
+        | ConfigFocus::HevcQsvPresetInput
+        | ConfigFocus::HevcQsvLookaheadInput
+        | ConfigFocus::HevcQsvBFramesInput => {
+            let focus = state.config.focus;
+            let hevc = &mut state.config.hevc;
+            // (current value, min, max); preset is stored as a "1".."7" string.
+            let (current, min, max) = match focus {
+                ConfigFocus::HevcQsvQualityInput => (hevc.qsv_quality, 1, 51),
+                ConfigFocus::HevcQsvPresetInput => (hevc.hw_preset.parse().unwrap_or(4), 1, 7),
+                ConfigFocus::HevcQsvLookaheadInput => (hevc.hw_lookahead, 0, 100),
+                _ => (hevc.hw_b_frames, 0, 16),
+            };
+            let new_value = match key.code {
+                KeyCode::Left => current.saturating_sub(1).max(min),
+                KeyCode::Right => (current + 1).min(max),
+                KeyCode::Home => min,
+                KeyCode::End => max,
+                _ => current,
+            };
+            match focus {
+                ConfigFocus::HevcQsvQualityInput => hevc.qsv_quality = new_value,
+                ConfigFocus::HevcQsvPresetInput => hevc.hw_preset = new_value.to_string(),
+                ConfigFocus::HevcQsvLookaheadInput => hevc.hw_lookahead = new_value,
+                _ => hevc.hw_b_frames = new_value,
+            }
+            if new_value != current {
+                state.config.is_modified = true;
+            }
+        }
         ConfigFocus::Av1FilmGrainSlider => {
             let old_value = state.config.av1_film_grain;
             match key.code {
@@ -3596,6 +3626,29 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                 config.focus = ConfigFocus::HevcX265TuneDropdown;
                 config.active_dropdown = Some(ConfigFocus::HevcX265TuneDropdown);
                 return;
+            }
+        }
+
+        for (area, focus) in [
+            (
+                config.hevc_qsv_quality_area,
+                ConfigFocus::HevcQsvQualityInput,
+            ),
+            (config.hevc_qsv_preset_area, ConfigFocus::HevcQsvPresetInput),
+            (
+                config.hevc_qsv_lookahead_area,
+                ConfigFocus::HevcQsvLookaheadInput,
+            ),
+            (
+                config.hevc_qsv_b_frames_area,
+                ConfigFocus::HevcQsvBFramesInput,
+            ),
+        ] {
+            if let Some(area) = area {
+                if is_in_rect(mouse.column, mouse.row, area) {
+                    config.focus = focus;
+                    return;
+                }
             }
         }
 

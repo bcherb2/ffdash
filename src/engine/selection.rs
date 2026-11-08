@@ -29,7 +29,7 @@ impl CodecKind {
             // Extension point: each HEVC hardware Encoder ticket adds itself here, in
             // priority order (HevcNvenc, HevcAmf, HevcQsv, HevcVaapi, HevcVideotoolbox).
             // Empty until then, so HEVC always selects the Software Fallback.
-            Self::Hevc => &[],
+            Self::Hevc => &[HevcQsv],
         }
     }
 

@@ -76,7 +76,13 @@ pub fn probe_args(
         // hevc_nvenc: no device init needed.
         HevcNvenc => return None,
         // hevc_qsv: -init_hw_device qsv + -filter_hw_device.
-        HevcQsv => return None,
+        HevcQsv => {
+            let init = match render_device {
+                Some(d) => format!("qsv=qs:{d}"),
+                None => "qsv=qs".to_string(),
+            };
+            push(&["-init_hw_device", &init, "-filter_hw_device", "qs"]);
+        }
         // hevc_vaapi: -init_hw_device vaapi + -filter_hw_device.
         HevcVaapi => return None,
         // hevc_amf: no device init needed.
@@ -93,7 +99,9 @@ pub fn probe_args(
         "5",
     ]);
     match encoder {
-        Vp9Qsv | Av1Qsv => push(&["-vf", &format!("format={fmt},hwupload=extra_hw_frames=64")]),
+        Vp9Qsv | Av1Qsv | HevcQsv => {
+            push(&["-vf", &format!("format={fmt},hwupload=extra_hw_frames=64")])
+        }
         Vp9Vaapi | Av1Vaapi => push(&["-vf", &format!("format={fmt},hwupload")]),
         _ => push(&["-pix_fmt", fmt]),
     }
@@ -106,9 +114,11 @@ pub fn probe_args(
         Av1Vaapi => push(&["-rc_mode:v", "CQP", "-global_quality:v", PROBE_QUALITY]),
         Av1Nvenc => push(&["-rc", "vbr", "-cq", PROBE_QUALITY]),
         Av1Amf => push(&["-rc", "cqp", "-qp_i", PROBE_QUALITY, "-qp_p", PROBE_QUALITY]),
+        // CQP through -q:v, the same flag the hevc_qsv command uses.
+        HevcQsv => push(&["-q:v", PROBE_QUALITY]),
         // The HEVC hardware Encoders return early above until their tickets land.
         LibvpxVp9 | LibsvtAv1 | LibaomAv1 | Libx265 => unreachable!(),
-        HevcNvenc | HevcQsv | HevcVaapi | HevcAmf | HevcVideotoolbox => unreachable!(),
+        HevcNvenc | HevcVaapi | HevcAmf | HevcVideotoolbox => unreachable!(),
     }
     push(&["-f", "null", "-"]);
     Some(a)
@@ -206,7 +216,8 @@ mod tests {
                 assert!(probe_args(*e, 10, None).is_some(), "{e:?}");
             }
         }
-        assert_eq!(c.len(), 6);
+        assert!(c.len() >= 6, "{c:?}");
+        assert!(c.contains(&HevcQsv));
     }
 
     #[test]
@@ -232,6 +243,7 @@ mod tests {
         assert!(joined(Av1Amf, 8).contains("-rc cqp -qp_i 30 -qp_p 30"));
         assert!(joined(Av1Qsv, 8).contains("-rc_mode cqp -q:v 30"));
         assert!(joined(Vp9Qsv, 8).contains("-q:v 30"));
+        assert!(joined(HevcQsv, 8).contains("-c:v hevc_qsv -q:v 30"));
         assert!(joined(Av1Vaapi, 8).contains("-rc_mode:v CQP -global_quality:v 30"));
         assert!(joined(Vp9Vaapi, 8).contains("-rc_mode:v 1 -global_quality:v 30"));
     }
@@ -242,6 +254,7 @@ mod tests {
         assert!(joined(Av1Amf, 10).contains("-pix_fmt p010le"));
         assert!(joined(Av1Vaapi, 10).contains("format=p010le,hwupload"));
         assert!(joined(Av1Qsv, 10).contains("format=p010le,hwupload=extra_hw_frames=64"));
+        assert!(joined(HevcQsv, 10).contains("format=p010le,hwupload=extra_hw_frames=64"));
         assert!(joined(Av1Nvenc, 8).contains("-pix_fmt nv12"));
         assert!(joined(Av1Vaapi, 8).contains("format=nv12,hwupload"));
     }
@@ -252,6 +265,7 @@ mod tests {
         assert!(joined(Av1Qsv, 8).contains("-init_hw_device qsv=qs:/dev/dri/renderD129"));
         let no_node = probe_args(Av1Qsv, 8, None).unwrap().join(" ");
         assert!(no_node.contains("-init_hw_device qsv=qs "));
+        assert!(joined(HevcQsv, 8).contains("-init_hw_device qsv=qs:/dev/dri/renderD129"));
         assert!(!joined(Av1Nvenc, 8).contains("-init_hw_device"));
     }
 

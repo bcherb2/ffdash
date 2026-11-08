@@ -1018,7 +1018,72 @@ color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_p
 
 # --- hevc_nvenc (added by the NVENC ticket) ------------------------------------
 
-# --- hevc_qsv (added by the QSV ticket) ----------------------------------------
+# --- hevc_qsv (Intel Quick Sync, Linux and Windows) ----------------------------
+
+[[encoders]]
+id = "hevc_qsv"
+codec = "hevc"
+type = "hardware"
+ffmpeg_name = "hevc_qsv"
+hw_api = "qsv"
+display_name = "HEVC (Intel Quick Sync)"
+description = "HEVC Intel Quick Sync (Linux and Windows); Main and Main10 where the GPU supports it"
+color_metadata_notes = "Uses vpp_qsv filter options for all 4 fields (see ENCODER_REFERENCE.md#color-metadata)"
+
+  [[encoders.params]]
+  id = "qsv-quality"
+  scope = "private"
+  flag = "-q:v"
+  type = "int"
+  range = { min = 1, max = 51 }
+  default = 26
+  field_path = "qsv_quality"
+  description = "Constant quality (CQP; lower=better)"
+  verification = { method = "ffmpeg-help", source = "hevc_qsv" }
+
+  [[encoders.params]]
+  id = "qsv-preset"
+  scope = "private"
+  flag = "-preset"
+  type = "enum"
+  values = ["1", "2", "3", "4", "5", "6", "7"]
+  default = "4"
+  field_path = "hevc_hw_preset"
+  description = "Speed preset (1=veryslow .. 7=veryfast; sent as the QSV preset name)"
+  verification = { method = "ffmpeg-help", source = "hevc_qsv" }
+
+  [[encoders.params]]
+  id = "qsv-look-ahead-depth"
+  scope = "private"
+  flag = "-look_ahead_depth"
+  type = "int"
+  range = { min = 0, max = 100 }
+  default = 40
+  field_path = "hevc_hw_lookahead"
+  description = "Lookahead depth in frames (0=off)"
+  verification = { method = "ffmpeg-help", source = "hevc_qsv" }
+
+  [[encoders.params]]
+  id = "qsv-b-frames"
+  scope = "private"
+  flag = "-bf"
+  type = "int"
+  range = { min = 0, max = 16 }
+  default = 2
+  field_path = "hevc_hw_b_frames"
+  description = "Maximum number of B-frames"
+  verification = { method = "ffmpeg-help", source = "hevc_qsv" }
+
+  [[encoders.params]]
+  id = "qsv-rc-mode"
+  scope = "private"
+  flag = "-q:v"
+  type = "enum"
+  values = ["cq"]
+  default = "cq"
+  field_path = "hevc_hw_rc_mode"
+  description = "Rate control: constant quality only (CQP, selected by -q:v)"
+  verification = { method = "ffmpeg-help", source = "hevc_qsv" }
 
 # --- hevc_vaapi (added by the VAAPI ticket) ------------------------------------
 
@@ -1040,7 +1105,7 @@ svt-av1-guide = "SVT-AV1 encoder guide"
 x265-docs = "x265 command line options documentation"
 libx265 = "ffmpeg -h encoder=libx265"
 # hevc_nvenc = "ffmpeg -h encoder=hevc_nvenc"
-# hevc_qsv = "ffmpeg -h encoder=hevc_qsv"
+hevc_qsv = "ffmpeg -h encoder=hevc_qsv"
 # hevc_vaapi = "ffmpeg -h encoder=hevc_vaapi"
 # hevc_amf = "ffmpeg -h encoder=hevc_amf"
 # hevc_videotoolbox = "ffmpeg -h encoder=hevc_videotoolbox"

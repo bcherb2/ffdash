@@ -17,18 +17,24 @@ Hardware Encoders are available on Linux (VAAPI, QSV, NVENC), Windows (NVENC, QS
 
 Called "HEVC" everywhere (H.265 is an alias). Each Encoder has its own quality field on its own scale; Auto-VMAF replaces only the active Encoder's field (the Quality Override).
 
-| Parameter        | libx265                    |
-|------------------|----------------------------|
-| Quality knob     | crf 0–51 (default 28)      |
-| Speed knob       | preset ultrafast–veryslow  |
-| Tuning           | tune none/psnr/ssim/grain/zerolatency/fastdecode/animation |
-| Bit depth        | 8/10 (10 = Main10)         |
-| HDR10            | colour flags + `-x265-params hdr10=1:hdr10-opt=1:repeat-headers=1`; mastering display and content light level carried from the source |
-| MP4              | always `-tag:v hvc1`       |
-| Container        | MKV default, MP4 selectable, WebM not allowed |
-| Auto-VMAF        | CRF searched downward from the configured value to 10 |
+| Parameter        | libx265                    | hevc_qsv                         |
+|------------------|----------------------------|----------------------------------|
+| Quality knob     | crf 0–51 (default 28)      | `-q:v` CQP 1–51 (default 26)     |
+| Speed knob       | preset ultrafast–veryslow  | preset 1–7 (sent as veryslow–veryfast) |
+| Lookahead        | (encoder-side)             | look_ahead_depth 0–100 (0 = off) |
+| B-frames         | (encoder-side)             | bf 0–16 (default 2)              |
+| Tuning           | tune none/psnr/ssim/grain/zerolatency/fastdecode/animation | n/a |
+| Bit depth        | 8/10 (10 = Main10)         | 8/10 (10 = p010 + `-profile:v main10`) |
+| HDR10            | colour flags + `-x265-params hdr10=1:hdr10-opt=1:repeat-headers=1`; mastering display and content light level carried from the source | colour metadata through `vpp_qsv` options (see [color metadata](#color-metadata)) |
+| Decoding         | CPU                        | Linux: QSV hardware decode on the VAAPI-derived device; Windows: CPU decode, frames uploaded with `hwupload` |
+| Platforms        | all                        | Linux and Windows                |
+| MP4              | always `-tag:v hvc1`       | always `-tag:v hvc1`             |
+| Container        | MKV default, MP4 selectable, WebM not allowed | same |
+| Auto-VMAF        | CRF searched downward from the configured value to 10 | QP searched downward from the configured value to the hardware floor (5) |
 
-The hardware HEVC Encoders (`hevc_nvenc`, `hevc_qsv`, `hevc_vaapi`, `hevc_amf`, `hevc_videotoolbox`) get a column each as they are added.
+`hevc_qsv` is only used when its Probe Encode passes. On Linux a failed QSV initialisation retries with `hevc_vaapi`, like the other QSV Encoders. The built-in profile is `hevc-qsv`.
+
+The other hardware HEVC Encoders (`hevc_nvenc`, `hevc_vaapi`, `hevc_amf`, `hevc_videotoolbox`) get a column each as they are added.
 
 ## VP9 Encoders
 

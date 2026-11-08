@@ -2222,7 +2222,10 @@ where
     // - User didn't cancel
     let mut qsv_stderr: Option<String> = None;
     let encoding_started = last_parser.out_time_us > 0;
-    let is_qsv = selected_encoder == "vp9_qsv" || selected_encoder == "av1_qsv";
+    // hevc_qsv only has a VAAPI fallback where VAAPI exists (Linux, GPU decode).
+    let is_qsv = selected_encoder == "vp9_qsv"
+        || selected_encoder == "av1_qsv"
+        || (selected_encoder == "hevc_qsv" && !plan.host.decodes_on_cpu());
 
     if !status.success()
         && is_qsv
@@ -2283,6 +2286,7 @@ where
             let fallback_encoder = match selected_encoder.as_str() {
                 "vp9_qsv" => hardware::VideoEncoder::Vp9Vaapi,
                 "av1_qsv" => hardware::VideoEncoder::Av1Vaapi,
+                "hevc_qsv" => hardware::VideoEncoder::HevcVaapi,
                 _ => unreachable!("fallback guarded by encoder check"),
             };
             job.encoder = Some(fallback_encoder.ffmpeg_name().to_string());

@@ -735,6 +735,10 @@ impl ConfigScreen {
 
         state.hevc_x265_preset_area = None;
         state.hevc_x265_tune_area = None;
+        state.hevc_qsv_quality_area = None;
+        state.hevc_qsv_preset_area = None;
+        state.hevc_qsv_lookahead_area = None;
+        state.hevc_qsv_b_frames_area = None;
         match state.codec_selection {
             CodecSelection::Vp9 => {
                 // VP9-specific: Profile and Pix Fmt on one line
@@ -1278,6 +1282,81 @@ impl ConfigScreen {
                         preset_tune_chunks[1],
                     );
                     y += 1;
+                }
+
+                // hevc_qsv: quality, preset, lookahead and b-frames, two per row.
+                if state.use_hardware_encoding && is_active(state, ConfigFocus::HevcQsvQualityInput)
+                {
+                    let rows = [
+                        [
+                            (
+                                ConfigFocus::HevcQsvQualityInput,
+                                "Quality (QP)",
+                                state.hevc.qsv_quality.to_string(),
+                            ),
+                            (
+                                ConfigFocus::HevcQsvPresetInput,
+                                "Preset (1-7)",
+                                state.hevc.hw_preset.clone(),
+                            ),
+                        ],
+                        [
+                            (
+                                ConfigFocus::HevcQsvLookaheadInput,
+                                "Look-ahead",
+                                state.hevc.hw_lookahead.to_string(),
+                            ),
+                            (
+                                ConfigFocus::HevcQsvBFramesInput,
+                                "B-frames",
+                                state.hevc.hw_b_frames.to_string(),
+                            ),
+                        ],
+                    ];
+                    for row in rows {
+                        let chunks = Layout::default()
+                            .direction(Direction::Horizontal)
+                            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                            .split(Rect {
+                                x: inner.x,
+                                y,
+                                width: inner.width,
+                                height: 1,
+                            });
+                        for (i, (field, label, value)) in row.into_iter().enumerate() {
+                            let focused = state.focus == field;
+                            match field {
+                                ConfigFocus::HevcQsvQualityInput => {
+                                    state.hevc_qsv_quality_area = Some(chunks[i])
+                                }
+                                ConfigFocus::HevcQsvPresetInput => {
+                                    state.hevc_qsv_preset_area = Some(chunks[i])
+                                }
+                                ConfigFocus::HevcQsvLookaheadInput => {
+                                    state.hevc_qsv_lookahead_area = Some(chunks[i])
+                                }
+                                _ => state.hevc_qsv_b_frames_area = Some(chunks[i]),
+                            }
+                            let style = if focused {
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(Color::Green)
+                            };
+                            frame.render_widget(
+                                Paragraph::new(Line::from(vec![
+                                    Span::raw(format!("{label}: ")),
+                                    Span::styled(
+                                        Self::adjustable_value_display(value, focused),
+                                        style,
+                                    ),
+                                ])),
+                                chunks[i],
+                            );
+                        }
+                        y += 1;
+                    }
                 }
             }
         }
