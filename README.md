@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/f7551d5f-fe6c-4a13-81e2-92a5e2bb42c2
 ## Why ffdash?
 
 - **Batch processing** - Encode entire directories with parallel workers, adjustable on the fly
-- **Hardware acceleration** - QSV, VA-API (Intel/AMD) and NVENC (NVIDIA >= Ada Lovelace) for fast encodes
+- **Hardware acceleration** - QSV, VA-API (Intel/AMD), NVENC (NVIDIA) and AMF (AMD) on Linux, Windows and macOS, for fast encodes
 - **Auto-VMAF calibration** - Automatically tune quality to hit a target VMAF score
 - **Encoding profiles** - Save and load encoding presets for different use cases
 - **Live dashboard** - Real-time ETA, throughput, queue progress, and system stats
@@ -56,11 +56,16 @@ make deps
 
 ### Optional (Hardware Encoding)
 
-| Platform | Requirements |
-|----------|-------------|
-| **Intel QSV** | Linux, `/dev/dri` device mapped, Intel HD 5000+ or Arc GPU |
-| **Intel/AMD VA-API** | Linux, `/dev/dri` device mapped, Mesa VAAPI drivers |
-| **NVIDIA NVENC** | Linux, CUDA drivers, Ada Lovelace+ (RTX 4000 series or newer) |
+Hardware encoding works on Linux, Windows and macOS. ffdash decides what is usable by running a short Probe Encode for each Encoder FFmpeg lists, so an Encoder your GPU or driver can't run is never offered. The Hardware Encoding control in the Config screen is enabled whenever any Hardware Encoder is available for the selected codec; the dashboard shows the Encoder each job actually uses.
+
+| Encoder | Platforms | Requirements |
+|---------|-----------|--------------|
+| **Intel QSV** | Linux, Windows | Intel HD 5000+ or Arc GPU; on Linux `/dev/dri` mapped |
+| **VA-API (Intel/AMD)** | Linux | `/dev/dri` device mapped, Mesa VAAPI drivers |
+| **NVIDIA NVENC** | Linux, Windows | NVIDIA drivers, Ada Lovelace+ for AV1 (RTX 4000 series or newer) |
+| **AMD AMF** | Windows | AMD GPU with AMF-capable driver |
+
+On Windows and macOS, input is decoded on the CPU and handed to the Hardware Encoder.
 
 Verify hardware support:
 ```bash
@@ -358,7 +363,7 @@ ffmpeg -h encoder=av1_vaapi     # VA-API AV1
 
 ## Known Limitations
 
-- Hardware encoding (QSV/VA-API/NVENC) requires Linux; Win/macOS are untested
+- Hardware encoding on Windows and macOS is untested; Linux has the most coverage
 - AMD VA-API support depends on Mesa driver version and GPU generation (AMD is untested)
 - NVENC behavior varies by driver version and GPU architecture
 - Blu-ray MKVs with complex stream layouts may show inaccurate ETA/progress (file size is accurate)

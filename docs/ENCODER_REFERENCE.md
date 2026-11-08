@@ -1,5 +1,7 @@
 # FFmpeg Encoder Parameter Reference
 
+Hardware Encoders are available on Linux (VAAPI, QSV, NVENC), Windows (NVENC, QSV, AMF) and macOS. Whether one is usable is decided at runtime by a short Probe Encode, not by operating system. The tables below list parameters per Encoder.
+
 ## AV1 Encoders
 
 | Parameter        | libsvtav1             | av1_nvenc                       | av1_qsv                         | av1_vaapi                       |
