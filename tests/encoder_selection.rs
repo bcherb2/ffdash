@@ -128,3 +128,13 @@ fn hardware_is_offered_regardless_of_host_os() {
     let a = avail(&[Av1Amf]);
     assert_eq!(select_encoder(CodecKind::Av1, true, None, 8, &a), Av1Amf);
 }
+
+#[test]
+fn has_hardware_for_is_per_codec_and_ignores_software_encoders() {
+    let a = avail(&[Av1Nvenc, LibvpxVp9]);
+    assert!(a.has_hardware_for(CodecKind::Av1));
+    assert!(!a.has_hardware_for(CodecKind::Vp9));
+    assert!(a.has_any_hardware());
+    assert!(!avail(&[LibsvtAv1, LibvpxVp9]).has_any_hardware());
+    assert!(!EncoderAvailability::default().has_any_hardware());
+}

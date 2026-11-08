@@ -100,6 +100,7 @@ fn test_worker_message_types() {
         status: ffdash::engine::JobStatus::Running,
         vmaf_result: Some(92.5),
         vmaf_target: Some(93.0),
+        encoder: None,
     };
     match msg {
         WorkerMessage::ProgressUpdate {

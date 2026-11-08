@@ -228,7 +228,6 @@ pub struct VaapiConfig {
 #[derive(Debug, Clone)]
 pub struct HwPreflightResult {
     pub available: bool,
-    pub platform_ok: bool,
     pub gpu_detected: bool,
     pub gpu_vendor: GpuVendor,
     pub vaapi_ok: bool,
@@ -238,44 +237,25 @@ pub struct HwPreflightResult {
     pub error_message: Option<String>,
 }
 
-/// Run all pre-flight checks for VAAPI hardware encoding
+/// Run the hardware encoding pre-flight: whether any hardware Encoder passed its Probe
+/// Encode (ADR 0001), plus GPU details for the dashboard. The host OS plays no part.
 pub fn run_preflight() -> HwPreflightResult {
-    let platform_ok = cfg!(target_os = "linux");
     let (gpu_vendor, gpu_model) = detect_gpu();
     let render_device = detect_render_device();
     let gpu_detected = gpu_model.is_some() || render_device.is_some();
     let driver_path = detect_vaapi_driver_path();
-    let vaapi_ok = platform_ok && check_vaapi_vp9();
-    let encoder_ok = platform_ok && check_vp9_vaapi_available();
-    let qsv_ok =
-        platform_ok && gpu_detected && (check_vp9_qsv_available() || check_av1_qsv_available());
-
-    let available = platform_ok
-        && gpu_detected
-        && driver_path.is_some()
-        && (qsv_ok || (vaapi_ok && encoder_ok));
+    let vaapi_ok = check_vaapi_vp9();
+    let encoder_ok = check_vp9_vaapi_available();
+    let available = detect_encoder_availability().has_any_hardware();
 
     let error_message = if available {
         None
-    } else if !platform_ok {
-        Some("Linux only".to_string())
-    } else if !gpu_detected {
-        Some("No /dev/dri render device".to_string())
-    } else if driver_path.is_none() {
-        Some("VAAPI driver not found".to_string())
-    } else if !vaapi_ok {
-        Some("VA-API VP9 unavailable".to_string())
-    } else if !encoder_ok && !qsv_ok {
-        Some("No supported hardware encoders found".to_string())
-    } else if !encoder_ok {
-        Some("FFmpeg vp9_vaapi not found".to_string())
     } else {
-        None
+        Some("No hardware encoders available".to_string())
     };
 
     HwPreflightResult {
         available,
-        platform_ok,
         gpu_detected,
         gpu_vendor,
         vaapi_ok,
@@ -924,22 +904,5 @@ mod tests {
         assert_eq!(QSV_PRESETS[0], "veryfast");
         assert_eq!(QSV_PRESETS[3], "medium");
         assert_eq!(QSV_PRESETS[6], "veryslow");
-    }
-
-    #[test]
-    fn test_platform_detection() {
-        let is_linux = cfg!(target_os = "linux");
-        let result = run_preflight();
-        assert_eq!(result.platform_ok, is_linux);
-    }
-
-    #[test]
-    fn test_preflight_on_non_linux() {
-        if !cfg!(target_os = "linux") {
-            let result = run_preflight();
-            assert!(!result.available);
-            assert!(!result.platform_ok);
-            assert_eq!(result.error_message, Some("Linux only".to_string()));
-        }
     }
 }

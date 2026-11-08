@@ -224,8 +224,8 @@ impl ConfigFocus {
     /// area even when they are hidden or greyed out, so rendering alone isn't enough.
     fn is_usable(&self, c: &ConfigState) -> bool {
         match self {
-            // Greyed out and inert outside Linux
-            Self::HardwareEncodingCheckbox => cfg!(target_os = "linux"),
+            // Greyed out and inert unless the Codec has a Hardware Encoder available
+            Self::HardwareEncodingCheckbox => c.hardware_control_available(),
             // Passthrough has no bitrate or downmix
             Self::AudioPrimaryBitrate | Self::AudioPrimaryDownmix => {
                 !c.audio_primary_codec.is_passthrough()
@@ -343,9 +343,40 @@ mod tests {
         }
         assert!(order.contains(&ConfigFocus::AudioAc3Checkbox));
         assert!(order.contains(&ConfigFocus::AudioStereoCheckbox));
-        if !cfg!(target_os = "linux") {
-            assert!(!order.contains(&ConfigFocus::HardwareEncodingCheckbox));
-        }
+    }
+
+    fn tab_order_with(
+        codec: crate::ui::state::CodecSelection,
+        availability: crate::engine::selection::EncoderAvailability,
+    ) -> Vec<ConfigFocus> {
+        let mut state = ConfigState {
+            codec_selection: codec,
+            encoder_availability: availability,
+            ..Default::default()
+        };
+        render(&mut state, 200, 60);
+        tab_order(&state)
+    }
+
+    #[test]
+    fn hardware_checkbox_is_in_tab_order_iff_the_codec_has_a_hardware_encoder() {
+        use crate::engine::hardware::VideoEncoder::*;
+        use crate::engine::selection::EncoderAvailability;
+        use crate::ui::state::CodecSelection::{Av1, Vp9};
+        let hw = ConfigFocus::HardwareEncodingCheckbox;
+
+        // Whatever the host OS: NVENC for AV1 enables it for AV1 only
+        let nvenc = EncoderAvailability::default().with(Av1Nvenc, true);
+        assert!(tab_order_with(Av1, nvenc.clone()).contains(&hw));
+        assert!(!tab_order_with(Vp9, nvenc).contains(&hw));
+
+        let qsv = EncoderAvailability::default().with(Vp9Qsv, false);
+        assert!(tab_order_with(Vp9, qsv).contains(&hw));
+
+        // Software only, or nothing probed: not offered
+        let software = EncoderAvailability::default().with(LibsvtAv1, true);
+        assert!(!tab_order_with(Av1, software).contains(&hw));
+        assert!(!tab_order_with(Av1, EncoderAvailability::default()).contains(&hw));
     }
 
     #[test]

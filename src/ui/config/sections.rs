@@ -635,7 +635,8 @@ impl ConfigScreen {
         let mut y = inner.y;
 
         // Hardware Encoding toggle (first item - top of Core Video section)
-        let hw_label = if cfg!(target_os = "linux") {
+        let hw_available = state.hardware_control_available();
+        let hw_label = if hw_available {
             use crate::engine::hardware::GpuVendor;
             match state.gpu_vendor {
                 GpuVendor::Nvidia => "Use Hardware Encoding (NVIDIA NVENC)",
@@ -644,11 +645,10 @@ impl ConfigScreen {
                 _ => "Use Hardware Encoding",
             }
         } else {
-            "Use Hardware Encoding (Linux only)"
+            "Use Hardware Encoding (no hardware encoder for this codec)"
         };
 
-        let hw_enabled = cfg!(target_os = "linux") && state.use_hardware_encoding;
-        let hw_available = cfg!(target_os = "linux");
+        let hw_enabled = hw_available && state.use_hardware_encoding;
 
         let hw_area = Rect {
             x: inner.x,
@@ -658,7 +658,7 @@ impl ConfigScreen {
         };
         state.hw_encoding_checkbox_area = Some(hw_area);
 
-        // Render checkbox - greyed out on non-Linux
+        // Render checkbox - greyed out when the Codec has no available Hardware Encoder
         let checkbox_char = if hw_enabled { '✓' } else { ' ' };
         let checkbox_style = if !hw_available {
             Style::default().fg(Color::DarkGray)

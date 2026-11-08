@@ -118,10 +118,6 @@ fn handle_check_vaapi(test_encode: bool) {
     println!("2. Preflight Checks:");
     let preflight = hardware::run_preflight();
     println!(
-        "   Platform (Linux): {}",
-        if preflight.platform_ok { "OK" } else { "FAIL" }
-    );
-    println!(
         "   GPU detected: {}",
         if preflight.gpu_detected { "OK" } else { "FAIL" }
     );

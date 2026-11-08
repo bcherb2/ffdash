@@ -2147,6 +2147,9 @@ where
         plan = plan.with_quality_override(calibrated_quality);
     }
 
+    job.encoder = Some(plan.encoder.ffmpeg_name().to_string());
+    callback(job, &ProgressParser::new());
+
     let cmds = build_encode_cmds_synced(job, &resolved_profile, &plan);
 
     let cmd_to_string = |cmd: &Command| -> String {
@@ -2279,6 +2282,7 @@ where
                 "av1_qsv" => hardware::VideoEncoder::Av1Vaapi,
                 _ => unreachable!("fallback guarded by encoder check"),
             };
+            job.encoder = Some(fallback_encoder.ffmpeg_name().to_string());
             let mut fallback_plan = EncodePlan::new(fallback_encoder);
             fallback_plan.quality_override = plan.quality_override;
             let fallback_cmd =

@@ -31,6 +31,7 @@ pub(super) fn handle_worker_message(
             size_bytes,
             vmaf_result,
             vmaf_target,
+            encoder,
             status,
         } => {
             // Update job progress in dashboard
@@ -64,6 +65,7 @@ pub(super) fn handle_worker_message(
                 job.size_bytes = size_bytes;
                 job.vmaf_result = vmaf_result;
                 job.vmaf_target = vmaf_target;
+                job.encoder = encoder.clone();
             }
             // Sync to enc_state
             if let Some(ref mut enc_state) = state.enc_state {
@@ -97,6 +99,7 @@ pub(super) fn handle_worker_message(
                     job.size_bytes = size_bytes;
                     job.vmaf_result = vmaf_result;
                     job.vmaf_target = vmaf_target;
+                    job.encoder = encoder;
                 }
             }
         }

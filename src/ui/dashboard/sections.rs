@@ -432,7 +432,7 @@ impl Dashboard {
 
         // Build header columns based on auto_vmaf_enabled
         let mut header_cells = vec![
-            "#", "STATUS", "SOURCE", "IN SIZE", "OUT SIZE", "SPEED", "PROGRESS", "ETA",
+            "#", "STATUS", "SOURCE", "ENCODER", "IN SIZE", "OUT SIZE", "SPEED", "PROGRESS", "ETA",
         ];
         if auto_vmaf_enabled {
             header_cells.push("VMAF");
@@ -448,6 +448,7 @@ impl Dashboard {
                 Constraint::Length(3),  // #
                 Constraint::Length(12), // STATUS
                 Constraint::Min(20),    // SOURCE
+                Constraint::Length(12), // ENCODER
                 Constraint::Length(10), // IN SIZE
                 Constraint::Length(10), // OUT SIZE
                 Constraint::Length(8),  // SPEED
@@ -571,6 +572,7 @@ impl Dashboard {
                     Cell::from(format!("{} {}", status_icon, status_text))
                         .style(Style::default().fg(status_color)),
                     Cell::from(filename),
+                    Cell::from(job.encoder.clone().unwrap_or_else(|| "—".to_string())),
                     Cell::from(Line::from(in_size).right_aligned()),
                     Cell::from(Line::from(out_size).right_aligned()),
                     Cell::from(Line::from(speed).right_aligned()),
@@ -609,6 +611,7 @@ impl Dashboard {
             Constraint::Length(3),  // #
             Constraint::Length(12), // STATUS (with icon)
             Constraint::Min(20),    // SOURCE
+            Constraint::Length(12), // ENCODER
             Constraint::Length(10), // IN SIZE
             Constraint::Length(10), // OUT SIZE
             Constraint::Length(8),  // SPEED
@@ -787,7 +790,45 @@ mod tests {
             vmaf_partial_scores: Vec::new(),
             calibrating_total_steps: None,
             calibrating_completed_steps: 0,
+            encoder: None,
         }
+    }
+
+    fn render_jobs_text(jobs: Vec<VideoJob>) -> String {
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut state = DashboardState {
+            jobs,
+            ..Default::default()
+        };
+        let mut term = Terminal::new(TestBackend::new(160, 12)).unwrap();
+        term.draw(|f| Dashboard::render_active_jobs(f, f.area(), &mut state, false))
+            .unwrap();
+        let buf = term.backend().buffer().clone();
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            )
+    }
+
+    #[test]
+    fn active_jobs_show_the_encoder_each_job_actually_uses() {
+        let mut nvenc = VideoJob::new("/a/one.mkv".into(), "/a/one.out.mkv".into(), "p".into());
+        nvenc.encoder = Some("av1_nvenc".to_string());
+        let mut software = VideoJob::new("/a/two.mkv".into(), "/a/two.out.mkv".into(), "p".into());
+        software.encoder = Some("libsvtav1".to_string());
+        let pending = VideoJob::new("/a/three.mkv".into(), "/a/three.out.mkv".into(), "p".into());
+
+        let text = render_jobs_text(vec![nvenc, software, pending]);
+        assert!(text.contains("ENCODER"), "{text}");
+        assert!(text.contains("av1_nvenc"), "{text}");
+        assert!(text.contains("libsvtav1"), "{text}");
     }
 
     #[test]

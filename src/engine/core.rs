@@ -496,6 +496,7 @@ mod tests {
             vmaf_partial_scores: Vec::new(),
             calibrating_total_steps: None,
             calibrating_completed_steps: 0,
+            encoder: None,
         };
 
         let cmd = build_encode_cmds_synced(
@@ -591,6 +592,7 @@ mod tests {
             vmaf_partial_scores: Vec::new(),
             calibrating_total_steps: None,
             calibrating_completed_steps: 0,
+            encoder: None,
         };
 
         let cmd = build_encode_cmds_synced(
@@ -672,6 +674,7 @@ mod tests {
             vmaf_partial_scores: Vec::new(),
             calibrating_total_steps: None,
             calibrating_completed_steps: 0,
+            encoder: None,
         };
 
         let cmd = build_encode_cmds_synced(
@@ -757,6 +760,7 @@ mod tests {
             vmaf_partial_scores: Vec::new(),
             calibrating_total_steps: None,
             calibrating_completed_steps: 0,
+            encoder: None,
         };
 
         let cmd = build_encode_cmds(
@@ -850,6 +854,7 @@ mod tests {
             vmaf_partial_scores: Vec::new(),
             calibrating_total_steps: None,
             calibrating_completed_steps: 0,
+            encoder: None,
         };
 
         let cmd = build_encode_cmds(

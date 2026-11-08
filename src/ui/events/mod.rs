@@ -136,6 +136,11 @@ pub fn run_ui_with_options(
     // Load default profile on startup (using config preferences)
     config::initialize_default_profile(&mut app_state, config);
 
+    // Probe which Encoders work here (cached for the session); the config panel's
+    // hardware control follows this, on every OS.
+    app_state.config.encoder_availability =
+        crate::engine::hardware::detect_encoder_availability().clone();
+
     // Run hardware encoding preflight check if enabled in config
     if config.defaults.use_hardware_encoding {
         let result = crate::engine::hardware::run_preflight();

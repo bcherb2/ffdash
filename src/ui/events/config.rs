@@ -307,9 +307,7 @@ fn reset_cursor_position_for_focus(state: &mut AppState) {
                     .count()
             }
         }
-        ConfigFocus::ThreadsInput => {
-            state.config.threads.to_string().chars().count()
-        }
+        ConfigFocus::ThreadsInput => state.config.threads.to_string().chars().count(),
         ConfigFocus::MaxWorkersInput => format!("{}", state.config.max_workers).chars().count(),
         ConfigFocus::GopLengthInput => state.config.gop_length.chars().count(),
         ConfigFocus::KeyintMinInput => state.config.keyint_min.chars().count(),
@@ -2524,8 +2522,11 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
 fn handle_hw_encoding_toggle(state: &mut AppState) {
     use std::time::Instant;
 
-    if !cfg!(target_os = "linux") {
-        state.config.status_message = Some(("Linux only".into(), Instant::now()));
+    if !state.config.hardware_control_available() {
+        state.config.status_message = Some((
+            "No hardware encoder available for this codec".into(),
+            Instant::now(),
+        ));
         return;
     }
 
@@ -2534,27 +2535,20 @@ fn handle_hw_encoding_toggle(state: &mut AppState) {
         state.config.use_hardware_encoding = false;
         state.config.status_message = Some(("HW encoding disabled".into(), Instant::now()));
     } else {
-        // Turning on - run pre-flight
+        // Turning on - availability for this Codec is already known from the Probe Encodes
         let result = crate::engine::hardware::run_preflight();
-        state.config.hw_encoding_available = Some(result.available);
-        state.config.hw_availability_message = result.error_message.clone();
+        state.config.hw_encoding_available = Some(true);
+        state.config.hw_availability_message = None;
 
-        if result.available {
-            state.config.use_hardware_encoding = true;
-            state.config.gpu_vendor = result.gpu_vendor;
-            state.dashboard.gpu_model = result.gpu_model;
-            state.dashboard.gpu_vendor = result.gpu_vendor;
-            state.dashboard.gpu_available =
-                crate::engine::hardware::gpu_monitoring_available(result.gpu_vendor);
-            // Initialize hardware encoding parameters
-            state.config.vaapi_rc_mode = "1".to_string(); // CQP mode - only supported mode
-            state.config.status_message = Some(("QSV enabled".into(), Instant::now()));
-        } else {
-            state.config.status_message = Some((
-                result.error_message.unwrap_or("Unavailable".into()),
-                Instant::now(),
-            ));
-        }
+        state.config.use_hardware_encoding = true;
+        state.config.gpu_vendor = result.gpu_vendor;
+        state.dashboard.gpu_model = result.gpu_model;
+        state.dashboard.gpu_vendor = result.gpu_vendor;
+        state.dashboard.gpu_available =
+            crate::engine::hardware::gpu_monitoring_available(result.gpu_vendor);
+        // Initialize hardware encoding parameters
+        state.config.vaapi_rc_mode = "1".to_string(); // CQP mode - only supported mode
+        state.config.status_message = Some(("Hardware encoding enabled".into(), Instant::now()));
     }
     state.config.is_modified = true;
 }
@@ -3336,17 +3330,14 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
         // Hardware encoding checkbox
         if let Some(area) = config.hw_encoding_checkbox_area {
             if is_in_rect(mouse.column, mouse.row, area) {
+                if !config.hardware_control_available() {
+                    return;
+                }
                 config.use_hardware_encoding = !config.use_hardware_encoding;
-                // Re-run preflight check if enabling
                 if config.use_hardware_encoding {
-                    use crate::engine::hardware;
-                    let result = hardware::run_preflight();
-                    config.hw_encoding_available = Some(result.available);
-                    config.hw_availability_message = if result.available {
-                        Some("Hardware encoding available".to_string())
-                    } else {
-                        result.error_message
-                    };
+                    config.hw_encoding_available = Some(true);
+                    config.hw_availability_message =
+                        Some("Hardware encoding available".to_string());
                     // Initialize hardware encoding parameters
                     config.vaapi_rc_mode = "1".to_string(); // CQP mode - only supported mode
                 }
@@ -3389,7 +3380,7 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
         }
 
         // VAAPI quality slider (1-255 range)
-        if config.use_hardware_encoding && cfg!(target_os = "linux") {
+        if config.use_hardware_encoding {
             if let Some(area) = config.qsv_quality_slider_area {
                 // Only respond to clicks on the bar line (second line of the 2-line widget)
                 if mouse.row == area.y + 1

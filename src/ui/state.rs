@@ -406,6 +406,8 @@ pub struct ConfigState {
 
     // Hardware encoding settings (Intel Arc VAAPI)
     pub use_hardware_encoding: bool,
+    /// Which Encoders passed their Probe Encode (empty until probed).
+    pub encoder_availability: crate::engine::selection::EncoderAvailability,
     pub hw_encoding_available: Option<bool>, // None=unchecked, Some=result
     pub hw_availability_message: Option<String>,
     pub gpu_vendor: crate::engine::hardware::GpuVendor, // Detected GPU vendor
@@ -736,6 +738,7 @@ impl Default for ConfigState {
 
             // Hardware encoding settings
             use_hardware_encoding: false,
+            encoder_availability: Default::default(),
             hw_encoding_available: None,
             hw_availability_message: None,
             gpu_vendor: crate::engine::hardware::GpuVendor::Unknown,
@@ -879,7 +882,31 @@ impl Default for ConfigState {
     }
 }
 
+impl CodecSelection {
+    pub fn kind(self) -> crate::engine::selection::CodecKind {
+        use crate::engine::selection::CodecKind;
+        match self {
+            Self::Vp9 => CodecKind::Vp9,
+            Self::Av1 => CodecKind::Av1,
+        }
+    }
+}
+
+/// Whether the hardware-encoding control is shown enabled: Encoder Availability has
+/// any Hardware Encoder for the selected Codec. Independent of the host OS (ADR 0001).
+pub fn hardware_control_available(
+    codec: CodecSelection,
+    availability: &crate::engine::selection::EncoderAvailability,
+) -> bool {
+    availability.has_hardware_for(codec.kind())
+}
+
 impl ConfigState {
+    /// See [`hardware_control_available`].
+    pub fn hardware_control_available(&self) -> bool {
+        hardware_control_available(self.codec_selection, &self.encoder_availability)
+    }
+
     /// Load available profiles from disk and update the cached list
     pub fn refresh_available_profiles(&mut self) {
         use crate::engine::Profile;

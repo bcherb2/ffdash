@@ -28,6 +28,7 @@ pub enum WorkerMessage {
         size_bytes: Option<u64>,
         vmaf_result: Option<f32>,
         vmaf_target: Option<f32>,
+        encoder: Option<String>,
         status: JobStatus,
     },
 
@@ -122,6 +123,7 @@ impl WorkerPool {
                     size_bytes: job.size_bytes,
                     vmaf_result: job.vmaf_result,
                     vmaf_target: job.vmaf_target,
+                    encoder: job.encoder.clone(),
                     status: job.status.clone(),
                 });
             };

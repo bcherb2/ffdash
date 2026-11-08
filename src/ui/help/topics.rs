@@ -191,14 +191,6 @@ impl HelpModal {
             };
             lines.push(Line::from(status_line));
 
-            // Platform check
-            let platform_line = if hw_result.platform_ok {
-                "  Platform:       ✓ Linux".to_string()
-            } else {
-                "  Platform:       ✗ Unsupported OS".to_string()
-            };
-            lines.push(Line::from(platform_line));
-
             // GPU detection check
             let gpu_line = if hw_result.gpu_detected {
                 if let Some(model) = &hw_result.gpu_model {
@@ -421,15 +413,17 @@ impl HelpModal {
     fn hardware_encoding_content() -> Vec<Line<'static>> {
         vec![
             Line::from(vec![Span::styled(
-                "INTEL QSV HARDWARE ENCODING (Linux Only)",
+                "HARDWARE ENCODING (Linux, Windows, macOS)",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             )]),
             Line::from(""),
-            Line::from("Hardware-accelerated VP9 encoding using Intel Quick Sync Video"),
-            Line::from("on Intel Arc GPUs. Provides significantly faster encoding with"),
-            Line::from("lower CPU usage, at the cost of some quality/compression."),
+            Line::from("Hardware-accelerated VP9/AV1 encoding (QSV, VAAPI, NVENC, AMF)."),
+            Line::from("Provides significantly faster encoding with lower CPU usage,"),
+            Line::from("at the cost of some quality/compression."),
+            Line::from("The control is enabled when an Encoder for the selected codec"),
+            Line::from("passes a short test encode; the dashboard shows each job's Encoder."),
             Line::from(""),
             Line::from(vec![Span::styled(
                 "SYSTEM REQUIREMENTS",
@@ -439,15 +433,15 @@ impl HelpModal {
             )]),
             Line::from(vec![
                 Span::styled("  Platform:  ", Style::default().fg(Color::Gray)),
-                Span::raw("Linux only (requires VA-API + iHD driver)"),
+                Span::raw("Linux (VAAPI, QSV, NVENC), Windows (NVENC, QSV, AMF), macOS"),
             ]),
             Line::from(vec![
                 Span::styled("  GPU:       ", Style::default().fg(Color::Gray)),
-                Span::raw("Intel Arc (DG2) or newer"),
+                Span::raw("Intel (QSV/VAAPI), AMD (AMF/VAAPI), NVIDIA (NVENC)"),
             ]),
             Line::from(vec![
                 Span::styled("  Drivers:   ", Style::default().fg(Color::Gray)),
-                Span::raw("libva, libva-intel-driver or intel-media-driver"),
+                Span::raw("Linux VAAPI: libva + iHD/Mesa; others: vendor GPU drivers"),
             ]),
             Line::from(vec![
                 Span::styled("  FFmpeg:    ", Style::default().fg(Color::Gray)),
@@ -455,7 +449,7 @@ impl HelpModal {
             ]),
             Line::from(""),
             Line::from(vec![Span::styled(
-                "  Pre-flight checks run automatically when enabled.",
+                "  Availability is probed once per session.",
                 Style::default()
                     .fg(Color::Gray)
                     .add_modifier(Modifier::ITALIC),

@@ -55,6 +55,11 @@ pub struct VideoJob {
     #[serde(default)]
     pub vmaf_partial_scores: Vec<f32>, // Individual window scores for progressive averaging
 
+    /// FFmpeg name of the Encoder this job actually runs with (set once the
+    /// Encode Plan is chosen), so fallbacks are visible.
+    #[serde(default)]
+    pub encoder: Option<String>,
+
     #[serde(skip)]
     pub calibrating_total_steps: Option<u32>, // Total calibration windows across attempts
     #[serde(skip)]
@@ -90,6 +95,7 @@ impl VideoJob {
             vmaf_partial_scores: Vec::new(),
             calibrating_total_steps: None,
             calibrating_completed_steps: 0,
+            encoder: None,
         }
     }
 }

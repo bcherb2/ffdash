@@ -73,6 +73,11 @@ impl EncoderAvailability {
             .any(|e| self.is_available(*e))
     }
 
+    /// Whether any hardware Encoder of any Codec is available.
+    pub fn has_any_hardware(&self) -> bool {
+        CodecKind::ALL.iter().any(|c| self.has_hardware_for(*c))
+    }
+
     fn usable(&self, encoder: VideoEncoder, bit_depth: u8) -> bool {
         self.capability(encoder)
             .is_some_and(|c| bit_depth <= 8 || c.main10)
