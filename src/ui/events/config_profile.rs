@@ -61,6 +61,9 @@ pub(super) fn delete_profile(state: &mut AppState, name: String) {
 pub(super) fn save_profile_with_name(state: &mut AppState, name: String) {
     use crate::engine::{Profile, write_debug_log};
 
+    // Never persist an out-of-range value left over from in-progress editing
+    super::config::commit_ranged_fields(state);
+
     // Create Profile from current ConfigState
     let profile = Profile::from_config(name.clone(), &state.config);
 

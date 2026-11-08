@@ -1,0 +1,13 @@
+# Normalize all text files to LF in the repo and in working trees
+* text=auto eol=lf
+
+# Windows-only scripts that require CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

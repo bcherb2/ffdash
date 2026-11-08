@@ -443,6 +443,9 @@ pub struct ConfigState {
     // Cursor position for text input fields (position in characters)
     pub cursor_pos: usize,
 
+    // True right after a numeric (non-cursor) field gains focus: the next digit replaces the value
+    pub replace_on_type: bool,
+
     // Mouse support - store widget areas
     pub overwrite_checkbox_area: Option<Rect>,
     pub two_pass_checkbox_area: Option<Rect>,
@@ -767,6 +770,7 @@ impl Default for ConfigState {
 
             // Cursor position for text inputs
             cursor_pos: 0,
+            replace_on_type: false,
 
             // Mouse support - all None by default
             overwrite_checkbox_area: None,

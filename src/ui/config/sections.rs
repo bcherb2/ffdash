@@ -1,6 +1,42 @@
 use super::*;
+use crate::ui::applicability::{Backend, applies};
 use crate::ui::constants;
 use crate::ui::state::CodecSelection;
+
+/// The encoder backend currently selected in the UI.
+fn current_backend(state: &ConfigState) -> Backend {
+    if state.use_hardware_encoding {
+        Backend::Hardware(state.gpu_vendor)
+    } else {
+        Backend::Software
+    }
+}
+
+/// Whether `field` has any effect for the selected codec and backend.
+fn is_active(state: &ConfigState, field: ConfigFocus) -> bool {
+    applies(field, state.codec_selection, current_backend(state))
+}
+
+/// Draw a control that doesn't apply: dimmed and read-only. The caller must
+/// also leave the control's hit area unset so it can't be focused or clicked.
+fn render_inactive(frame: &mut Frame, area: Rect, text: &str) {
+    frame.render_widget(
+        Paragraph::new(text.to_string()).style(Style::default().fg(Color::DarkGray)),
+        area,
+    );
+}
+
+/// Replace an already-drawn control with its greyed version (blank the cells
+/// first so nothing of the active look shows through).
+fn grey_out(frame: &mut Frame, area: Rect, text: &str) {
+    frame.render_widget(ratatui::widgets::Clear, area);
+    render_inactive(frame, area, text);
+}
+
+/// `[x] Label` / `[ ] Label`, matching the active checkbox's look.
+fn inactive_checkbox_text(label: &str, checked: bool) -> String {
+    format!("[{}] {label}", if checked { "x" } else { " " })
+}
 
 impl ConfigScreen {
     pub(super) fn render_profile_bar(frame: &mut Frame, area: Rect, state: &mut ConfigState) {
@@ -1140,6 +1176,22 @@ impl ConfigScreen {
             }
         }
 
+        // The other codec's settings collapse into one dimmed line
+        let other_codec_line = match state.codec_selection {
+            CodecSelection::Vp9 => "AV1 options (select AV1 to edit)",
+            CodecSelection::Av1 => "VP9 options (select VP9 to edit)",
+        };
+        frame.render_widget(
+            Paragraph::new(other_codec_line).style(Style::default().fg(Color::DarkGray)),
+            Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: 1,
+            },
+        );
+        y += 1;
+
         // Two-pass checkbox (VP9 software only)
         if !state.use_hardware_encoding && state.codec_selection == CodecSelection::Vp9 {
             let two_pass_area = Rect {
@@ -1158,6 +1210,20 @@ impl ConfigScreen {
             );
         } else {
             state.two_pass_checkbox_area = None;
+            let two_pass_area = Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: 1,
+            };
+            let text = inactive_checkbox_text("2-Pass Encoding", state.two_pass);
+            render_inactive(frame, two_pass_area, &text);
+            // AV1 hardware skips the Rate Control block below, which is what
+            // normally moves `y` on; step past this row so Auto-VMAF doesn't
+            // draw over it.
+            if state.codec_selection == CodecSelection::Av1 && state.use_hardware_encoding {
+                y += 1;
+            }
         }
 
         // Rate Control section (skip for AV1 hardware - already rendered in codec block)
@@ -1840,6 +1906,29 @@ impl ConfigScreen {
                     .focused(state.focus == ConfigFocus::CpuUsedSlider);
                 frame.render_widget(cpu_slider, cpu_area);
             }
+        } else {
+            // Not VP9 software: show the VP9 quality/speed rows greyed, one line each
+            let quality_value = QUALITY_MODES
+                .get(state.quality_mode_state.selected().unwrap_or(0))
+                .unwrap_or(&"good");
+            let quality_area = Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: 1,
+            };
+            let text = format!("Quality: {quality_value}");
+            render_inactive(frame, quality_area, &text);
+            y += 1;
+
+            let speed_area = Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: 1,
+            };
+            let text = format!("Speed Preset (cpu-used): {}", state.cpu_used);
+            render_inactive(frame, speed_area, &text);
         }
     }
 
@@ -1856,21 +1945,9 @@ impl ConfigScreen {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Show message when hardware encoding is enabled (parallelism settings don't apply)
-        if state.use_hardware_encoding {
-            let msg_area = Rect {
-                x: inner.x,
-                y: inner.y,
-                width: inner.width,
-                height: 3,
-            };
-            frame.render_widget(
-                Paragraph::new("Parallelism settings\n(tile-based, threading)\nonly apply to software\nencoding")
-                    .style(Style::default().fg(Color::Yellow)),
-                msg_area,
-            );
-            return;
-        }
+        // Controls that don't apply to the selected codec/backend are drawn
+        // greyed out in the same place, with no hit area (so they can't be
+        // focused or clicked). The layout never changes when switching codec.
 
         // Row MT checkbox
         let row_mt_area = Rect {
@@ -1879,14 +1956,20 @@ impl ConfigScreen {
             width: inner.width / 2,
             height: 1,
         };
-        state.row_mt_checkbox_area = Some(row_mt_area);
-        render_checkbox(
-            "Row MT",
-            state.row_mt,
-            state.focus == ConfigFocus::RowMtCheckbox,
-            row_mt_area,
-            frame.buffer_mut(),
-        );
+        if is_active(state, ConfigFocus::RowMtCheckbox) {
+            state.row_mt_checkbox_area = Some(row_mt_area);
+            render_checkbox(
+                "Row MT",
+                state.row_mt,
+                state.focus == ConfigFocus::RowMtCheckbox,
+                row_mt_area,
+                frame.buffer_mut(),
+            );
+        } else {
+            state.row_mt_checkbox_area = None;
+            let text = inactive_checkbox_text("Row MT", state.row_mt);
+            render_inactive(frame, row_mt_area, &text);
+        }
 
         // Frame parallel checkbox
         let frame_parallel_area = Rect {
@@ -1895,14 +1978,20 @@ impl ConfigScreen {
             width: inner.width / 2,
             height: 1,
         };
-        state.frame_parallel_checkbox_area = Some(frame_parallel_area);
-        render_checkbox(
-            "Frame Parallel",
-            state.frame_parallel,
-            state.focus == ConfigFocus::FrameParallelCheckbox,
-            frame_parallel_area,
-            frame.buffer_mut(),
-        );
+        if is_active(state, ConfigFocus::FrameParallelCheckbox) {
+            state.frame_parallel_checkbox_area = Some(frame_parallel_area);
+            render_checkbox(
+                "Frame Parallel",
+                state.frame_parallel,
+                state.focus == ConfigFocus::FrameParallelCheckbox,
+                frame_parallel_area,
+                frame.buffer_mut(),
+            );
+        } else {
+            state.frame_parallel_checkbox_area = None;
+            let text = inactive_checkbox_text("Frame Parallel", state.frame_parallel);
+            render_inactive(frame, frame_parallel_area, &text);
+        }
 
         // Tile columns slider
         let tile_cols_area = Rect {
@@ -1911,11 +2000,17 @@ impl ConfigScreen {
             width: inner.width,
             height: 2,
         };
-        state.tile_columns_slider_area = Some(tile_cols_area);
-        let tile_cols_slider = Slider::new("Tile Columns (log2)", 0, 6)
-            .value(state.tile_columns as u32)
-            .focused(state.focus == ConfigFocus::TileColumnsSlider);
-        frame.render_widget(tile_cols_slider, tile_cols_area);
+        if is_active(state, ConfigFocus::TileColumnsSlider) {
+            state.tile_columns_slider_area = Some(tile_cols_area);
+            let tile_cols_slider = Slider::new("Tile Columns (log2)", 0, 6)
+                .value(state.tile_columns as u32)
+                .focused(state.focus == ConfigFocus::TileColumnsSlider);
+            frame.render_widget(tile_cols_slider, tile_cols_area);
+        } else {
+            state.tile_columns_slider_area = None;
+            let text = format!("Tile Columns (log2): {}", state.tile_columns);
+            render_inactive(frame, tile_cols_area, &text);
+        }
 
         // Tile rows slider
         let tile_rows_area = Rect {
@@ -1924,24 +2019,30 @@ impl ConfigScreen {
             width: inner.width / 2,
             height: 1,
         };
-        state.tile_rows_slider_area = Some(tile_rows_area);
-        let tile_rows_focused = state.focus == ConfigFocus::TileRowsSlider;
-        let tile_rows_value =
-            Self::adjustable_value_display(state.tile_rows.to_string(), tile_rows_focused);
-        let tile_rows_line = Line::from(vec![
-            Span::raw("Tile Rows: "),
-            Span::styled(
-                tile_rows_value,
-                if tile_rows_focused {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
-        ]);
-        frame.render_widget(Paragraph::new(tile_rows_line), tile_rows_area);
+        if is_active(state, ConfigFocus::TileRowsSlider) {
+            state.tile_rows_slider_area = Some(tile_rows_area);
+            let tile_rows_focused = state.focus == ConfigFocus::TileRowsSlider;
+            let tile_rows_value =
+                Self::adjustable_value_display(state.tile_rows.to_string(), tile_rows_focused);
+            let tile_rows_line = Line::from(vec![
+                Span::raw("Tile Rows: "),
+                Span::styled(
+                    tile_rows_value,
+                    if tile_rows_focused {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Green)
+                    },
+                ),
+            ]);
+            frame.render_widget(Paragraph::new(tile_rows_line), tile_rows_area);
+        } else {
+            state.tile_rows_slider_area = None;
+            let text = format!("Tile Rows: {}", state.tile_rows);
+            render_inactive(frame, tile_rows_area, &text);
+        }
 
         // Threads
         let threads_area = Rect {
@@ -1950,33 +2051,41 @@ impl ConfigScreen {
             width: inner.width / 2,
             height: 1,
         };
-        state.threads_area = Some(threads_area);
-        let threads_base = if state.threads == 0 {
-            "Auto".to_string()
+        if !is_active(state, ConfigFocus::ThreadsInput) {
+            state.threads_area = None;
+            let value = if state.threads == 0 {
+                "Auto".to_string()
+            } else {
+                state.threads.to_string()
+            };
+            let text = format!("Threads: {value}");
+            render_inactive(frame, threads_area, &text);
         } else {
-            state.threads.to_string()
-        };
-        let threads_text = if state.focus == ConfigFocus::ThreadsInput {
-            Self::insert_cursor(&threads_base, state.cursor_pos)
-        } else {
-            threads_base
-        };
-        let threads_line = Line::from(vec![
-            Span::raw("Threads: "),
-            Span::raw("["),
-            Span::styled(
-                threads_text,
-                if state.focus == ConfigFocus::ThreadsInput {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
-            Span::raw("]"),
-        ]);
-        frame.render_widget(Paragraph::new(threads_line), threads_area);
+            state.threads_area = Some(threads_area);
+            let threads_text = if state.focus == ConfigFocus::ThreadsInput {
+                Self::insert_cursor(&state.threads.to_string(), state.cursor_pos)
+            } else if state.threads == 0 {
+                "Auto".to_string()
+            } else {
+                state.threads.to_string()
+            };
+            let threads_line = Line::from(vec![
+                Span::raw("Threads: "),
+                Span::raw("["),
+                Span::styled(
+                    threads_text,
+                    if state.focus == ConfigFocus::ThreadsInput {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Green)
+                    },
+                ),
+                Span::raw("]"),
+            ]);
+            frame.render_widget(Paragraph::new(threads_line), threads_area);
+        }
 
         // Max Workers
         let max_workers_area = Rect {
@@ -2060,14 +2169,20 @@ impl ConfigScreen {
             width: inner.width / 2,
             height: 1,
         };
-        state.fixed_gop_checkbox_area = Some(fixed_gop_area);
-        render_checkbox(
-            "Fixed GOP",
-            state.fixed_gop,
-            state.focus == ConfigFocus::FixedGopCheckbox,
-            fixed_gop_area,
-            frame.buffer_mut(),
-        );
+        if is_active(state, ConfigFocus::FixedGopCheckbox) {
+            state.fixed_gop_checkbox_area = Some(fixed_gop_area);
+            render_checkbox(
+                "Fixed GOP",
+                state.fixed_gop,
+                state.focus == ConfigFocus::FixedGopCheckbox,
+                fixed_gop_area,
+                frame.buffer_mut(),
+            );
+        } else {
+            state.fixed_gop_checkbox_area = None;
+            let text = inactive_checkbox_text("Fixed GOP", state.fixed_gop);
+            render_inactive(frame, fixed_gop_area, &text);
+        }
 
         // Keyint Min input
         let keyint_min_area = Rect {
@@ -2076,51 +2191,65 @@ impl ConfigScreen {
             width: inner.width,
             height: 1,
         };
-        state.keyint_min_area = Some(keyint_min_area);
-        let keyint_min_text = if state.focus == ConfigFocus::KeyintMinInput {
-            Self::insert_cursor(&state.keyint_min, state.cursor_pos)
-        } else if state.keyint_min == "0" {
-            "Auto".to_string()
-        } else {
-            format!("{} frames", state.keyint_min)
-        };
-        let keyint_min_line = Line::from(vec![
-            Span::raw("Min Keyframe Interval: "),
-            Span::raw("["),
-            Span::styled(
-                keyint_min_text,
-                if state.focus == ConfigFocus::KeyintMinInput {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
-            Span::raw("]"),
-        ]);
-        frame.render_widget(Paragraph::new(keyint_min_line), keyint_min_area);
-
-        // Track vertical offset for remaining controls
-        let mut y_offset = 2;
-
-        // Lag in frames slider - only for VP9 software (not used by AV1 or hardware encoders)
-        if state.codec_selection == CodecSelection::Vp9 && !state.use_hardware_encoding {
-            let lag_area = Rect {
-                x: inner.x,
-                y: inner.y + y_offset,
-                width: inner.width,
-                height: 2,
+        if !is_active(state, ConfigFocus::KeyintMinInput) {
+            state.keyint_min_area = None;
+            let value = if state.keyint_min == "0" {
+                "Auto".to_string()
+            } else {
+                format!("{} frames", state.keyint_min)
             };
+            let text = format!("Min Keyframe Interval: {value}");
+            render_inactive(frame, keyint_min_area, &text);
+        } else {
+            state.keyint_min_area = Some(keyint_min_area);
+            let keyint_min_text = if state.focus == ConfigFocus::KeyintMinInput {
+                Self::insert_cursor(&state.keyint_min, state.cursor_pos)
+            } else if state.keyint_min == "0" {
+                "Auto".to_string()
+            } else {
+                format!("{} frames", state.keyint_min)
+            };
+            let keyint_min_line = Line::from(vec![
+                Span::raw("Min Keyframe Interval: "),
+                Span::raw("["),
+                Span::styled(
+                    keyint_min_text,
+                    if state.focus == ConfigFocus::KeyintMinInput {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Green)
+                    },
+                ),
+                Span::raw("]"),
+            ]);
+            frame.render_widget(Paragraph::new(keyint_min_line), keyint_min_area);
+        }
+
+        // Rows below keep fixed positions whatever the codec, so switching
+        // codec never moves anything.
+        let y_offset = 2;
+
+        // Lag in frames slider (VP9 software only)
+        let lag_area = Rect {
+            x: inner.x,
+            y: inner.y + y_offset,
+            width: inner.width,
+            height: 2,
+        };
+        if is_active(state, ConfigFocus::LagInFramesSlider) {
             state.lag_in_frames_slider_area = Some(lag_area);
             let lag_slider = Slider::new("Lag-in-frames", 0, 25)
                 .value(state.lag_in_frames)
                 .focused(state.focus == ConfigFocus::LagInFramesSlider);
             frame.render_widget(lag_slider, lag_area);
-            y_offset += 2;
         } else {
             state.lag_in_frames_slider_area = None;
+            let text = format!("Lag-in-frames: {}", state.lag_in_frames);
+            render_inactive(frame, lag_area, &text);
         }
+        let y_offset = y_offset + 2;
 
         // Auto alt-ref checkbox
         let alt_ref_area = Rect {
@@ -2129,20 +2258,26 @@ impl ConfigScreen {
             width: inner.width,
             height: 1,
         };
-        state.auto_alt_ref_checkbox_area = Some(alt_ref_area);
         let auto_alt_ref_label = match state.auto_alt_ref {
             0 => "Auto Alt-Ref: Off",
             1 => "Auto Alt-Ref: On",
             2 => "Auto Alt-Ref: On+Stats",
             _ => "Auto Alt-Ref: On", // Fallback for invalid values
         };
-        render_checkbox(
-            auto_alt_ref_label,
-            state.auto_alt_ref > 0,
-            state.focus == ConfigFocus::AutoAltRefCheckbox,
-            alt_ref_area,
-            frame.buffer_mut(),
-        );
+        if is_active(state, ConfigFocus::AutoAltRefCheckbox) {
+            state.auto_alt_ref_checkbox_area = Some(alt_ref_area);
+            render_checkbox(
+                auto_alt_ref_label,
+                state.auto_alt_ref > 0,
+                state.focus == ConfigFocus::AutoAltRefCheckbox,
+                alt_ref_area,
+                frame.buffer_mut(),
+            );
+        } else {
+            state.auto_alt_ref_checkbox_area = None;
+            let text = inactive_checkbox_text(auto_alt_ref_label, state.auto_alt_ref > 0);
+            render_inactive(frame, alt_ref_area, &text);
+        }
     }
 
     #[allow(dead_code)]
@@ -2488,6 +2623,11 @@ impl ConfigScreen {
             ])),
             aq_area,
         );
+        if !is_active(state, ConfigFocus::AqModeDropdown) {
+            state.aq_mode_area = None;
+            let text = format!("AQ Mode: {selected_value}");
+            grey_out(frame, aq_area, &text);
+        }
         y += 1;
 
         // ARNR Frames and Strength on one line
@@ -2538,6 +2678,16 @@ impl ConfigScreen {
             ])),
             arnr_chunks[1],
         );
+        if !is_active(state, ConfigFocus::ArnrMaxFramesSlider) {
+            state.arnr_max_frames_slider_area = None;
+            let text = format!("ARNR Frames: {}", state.arnr_max_frames);
+            grey_out(frame, arnr_chunks[0], &text);
+        }
+        if !is_active(state, ConfigFocus::ArnrStrengthSlider) {
+            state.arnr_strength_slider_area = None;
+            let text = format!("ARNR Strength: {}", state.arnr_strength);
+            grey_out(frame, arnr_chunks[1], &text);
+        }
         y += 2;
 
         // Tune content dropdown (software VP9 only) and Sharpness on one line
@@ -2551,9 +2701,7 @@ impl ConfigScreen {
                 height: 1,
             });
 
-        let tune_available =
-            matches!(state.codec_selection, CodecSelection::Vp9) && !state.use_hardware_encoding;
-        if tune_available {
+        if is_active(state, ConfigFocus::TuneContentDropdown) {
             state.tune_content_area = Some(tune_sharp_chunks[0]);
             let selected_index = state.tune_content_state.selected().unwrap_or(0);
             let selected_value = TUNE_CONTENTS.get(selected_index).unwrap_or(&"default");
@@ -2574,13 +2722,10 @@ impl ConfigScreen {
             );
         } else {
             state.tune_content_area = None;
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![
-                    Span::raw("Tune: "),
-                    Span::styled("VP9 (software) only", Style::default().fg(Color::DarkGray)),
-                ])),
-                tune_sharp_chunks[0],
-            );
+            let selected_index = state.tune_content_state.selected().unwrap_or(0);
+            let selected_value = TUNE_CONTENTS.get(selected_index).unwrap_or(&"default");
+            let text = format!("Tune: {selected_value}");
+            render_inactive(frame, tune_sharp_chunks[0], &text);
         }
 
         state.sharpness_slider_area = Some(tune_sharp_chunks[1]);
@@ -2605,6 +2750,16 @@ impl ConfigScreen {
             ])),
             tune_sharp_chunks[1],
         );
+        if !is_active(state, ConfigFocus::SharpnessSlider) {
+            state.sharpness_slider_area = None;
+            let value = if state.sharpness == -1 {
+                "Auto".to_string()
+            } else {
+                state.sharpness.to_string()
+            };
+            let text = format!("Sharpness: {value}");
+            grey_out(frame, tune_sharp_chunks[1], &text);
+        }
         y += 1;
 
         // Enable TPL and Noise Sens on one line
@@ -2626,6 +2781,11 @@ impl ConfigScreen {
             tpl_noise_chunks[0],
             frame.buffer_mut(),
         );
+        if !is_active(state, ConfigFocus::EnableTplCheckbox) {
+            state.enable_tpl_checkbox_area = None;
+            let text = inactive_checkbox_text("Enable TPL", state.enable_tpl);
+            grey_out(frame, tpl_noise_chunks[0], &text);
+        }
 
         state.noise_sensitivity_slider_area = Some(tpl_noise_chunks[1]);
         let noise_focus = state.focus == ConfigFocus::NoiseSensitivitySlider;
@@ -2645,6 +2805,11 @@ impl ConfigScreen {
             ])),
             tpl_noise_chunks[1],
         );
+        if !is_active(state, ConfigFocus::NoiseSensitivitySlider) {
+            state.noise_sensitivity_slider_area = None;
+            let text = format!("Noise Sens: {}", state.noise_sensitivity);
+            grey_out(frame, tpl_noise_chunks[1], &text);
+        }
         y += 1;
 
         // ARNR Type dropdown (full width)
@@ -2672,6 +2837,11 @@ impl ConfigScreen {
             ])),
             arnr_type_area,
         );
+        if !is_active(state, ConfigFocus::ArnrTypeDropdown) {
+            state.arnr_type_area = None;
+            let text = format!("ARNR Type: {selected_value}");
+            grey_out(frame, arnr_type_area, &text);
+        }
         y += 1;
 
         // Static Thresh and Max Intra Rate on one line
@@ -2709,6 +2879,16 @@ impl ConfigScreen {
             ])),
             adv_chunks[0],
         );
+        if !is_active(state, ConfigFocus::StaticThreshInput) {
+            state.static_thresh_area = None;
+            let value = if state.static_thresh == "0" {
+                "Off".to_string()
+            } else {
+                state.static_thresh.clone()
+            };
+            let text = format!("Static Thresh: {value}");
+            grey_out(frame, adv_chunks[0], &text);
+        }
 
         state.max_intra_rate_area = Some(adv_chunks[1]);
         let max_intra_text = if state.focus == ConfigFocus::MaxIntraRateInput {
@@ -2734,6 +2914,16 @@ impl ConfigScreen {
             ])),
             adv_chunks[1],
         );
+        if !is_active(state, ConfigFocus::MaxIntraRateInput) {
+            state.max_intra_rate_area = None;
+            let value = if state.max_intra_rate == "0" {
+                "Off".to_string()
+            } else {
+                format!("{}%", state.max_intra_rate)
+            };
+            let text = format!("Max I-Rate: {value}");
+            grey_out(frame, adv_chunks[1], &text);
+        }
         y += 1;
 
         // Color Space Preset (single dropdown, full width)
