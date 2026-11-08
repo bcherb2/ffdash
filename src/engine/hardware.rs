@@ -31,6 +31,15 @@ pub enum VideoEncoder {
     Av1Nvenc,  // NVIDIA NVENC AV1
     Av1Vaapi,  // VAAPI AV1 (Intel/AMD)
     Av1Amf,    // AMD AMF AV1
+
+    // HEVC encoders. Libx265 is the Software Fallback; the hardware Encoders are only
+    // named here: their priority, commands and probes arrive with their own tickets.
+    Libx265,          // Software HEVC (default)
+    HevcNvenc,        // NVIDIA NVENC HEVC
+    HevcQsv,          // Intel Quick Sync HEVC
+    HevcVaapi,        // VAAPI HEVC (Intel/AMD)
+    HevcAmf,          // AMD AMF HEVC
+    HevcVideotoolbox, // Apple VideoToolbox HEVC
 }
 
 /// Where an Encoder runs: on the CPU (Software) or through a Hardware API.
@@ -41,6 +50,7 @@ pub enum Backend {
     Qsv,
     Nvenc,
     Amf,
+    Videotoolbox,
 }
 
 impl Backend {
@@ -73,6 +83,12 @@ impl VideoEncoder {
             Self::Av1Nvenc,
             Self::Av1Vaapi,
             Self::Av1Amf,
+            Self::Libx265,
+            Self::HevcNvenc,
+            Self::HevcQsv,
+            Self::HevcVaapi,
+            Self::HevcAmf,
+            Self::HevcVideotoolbox,
         ]
         .into_iter()
         .find(|e| e.ffmpeg_name() == name)
@@ -90,17 +106,26 @@ impl VideoEncoder {
             Self::Av1Nvenc => "av1_nvenc",
             Self::Av1Vaapi => "av1_vaapi",
             Self::Av1Amf => "av1_amf",
+            Self::Libx265 => "libx265",
+            Self::HevcNvenc => "hevc_nvenc",
+            Self::HevcQsv => "hevc_qsv",
+            Self::HevcVaapi => "hevc_vaapi",
+            Self::HevcAmf => "hevc_amf",
+            Self::HevcVideotoolbox => "hevc_videotoolbox",
         }
     }
 
     /// The Backend this Encoder runs on.
     pub fn backend(&self) -> Backend {
         match self {
-            Self::LibvpxVp9 | Self::LibsvtAv1 | Self::LibaomAv1 => Backend::Software,
-            Self::Vp9Qsv | Self::Av1Qsv => Backend::Qsv,
-            Self::Vp9Vaapi | Self::Av1Vaapi => Backend::Vaapi,
-            Self::Av1Nvenc => Backend::Nvenc,
-            Self::Av1Amf => Backend::Amf,
+            Self::LibvpxVp9 | Self::LibsvtAv1 | Self::LibaomAv1 | Self::Libx265 => {
+                Backend::Software
+            }
+            Self::Vp9Qsv | Self::Av1Qsv | Self::HevcQsv => Backend::Qsv,
+            Self::Vp9Vaapi | Self::Av1Vaapi | Self::HevcVaapi => Backend::Vaapi,
+            Self::Av1Nvenc | Self::HevcNvenc => Backend::Nvenc,
+            Self::Av1Amf | Self::HevcAmf => Backend::Amf,
+            Self::HevcVideotoolbox => Backend::Videotoolbox,
         }
     }
 
@@ -121,6 +146,12 @@ impl VideoEncoder {
             Self::Av1Nvenc => "AV1 NVENC (NVIDIA)",
             Self::Av1Vaapi => "AV1 VAAPI (Hardware)",
             Self::Av1Amf => "AV1 AMF (AMD)",
+            Self::Libx265 => "x265 (Software)",
+            Self::HevcNvenc => "HEVC NVENC (NVIDIA)",
+            Self::HevcQsv => "HEVC Quick Sync (Intel)",
+            Self::HevcVaapi => "HEVC VAAPI (Hardware)",
+            Self::HevcAmf => "HEVC AMF (AMD)",
+            Self::HevcVideotoolbox => "HEVC VideoToolbox (Apple)",
         }
     }
 }
@@ -195,6 +226,7 @@ pub fn select_encoder(
     let kind = match codec {
         Codec::Vp9(_) => CodecKind::Vp9,
         Codec::Av1(_) => CodecKind::Av1,
+        Codec::Hevc(_) => CodecKind::Hevc,
     };
     selection::select_encoder(
         kind,

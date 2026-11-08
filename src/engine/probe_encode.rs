@@ -57,7 +57,7 @@ pub fn probe_args(
 
     push(&["-hide_banner", "-loglevel", "error", "-nostdin"]);
     match encoder {
-        LibvpxVp9 | LibsvtAv1 | LibaomAv1 => return None,
+        LibvpxVp9 | LibsvtAv1 | LibaomAv1 | Libx265 => return None,
         Vp9Qsv | Av1Qsv => {
             let init = match render_device {
                 Some(d) => format!("qsv=qs:{d}"),
@@ -70,6 +70,19 @@ pub fn probe_args(
             push(&["-init_hw_device", &init, "-filter_hw_device", "va"]);
         }
         Av1Nvenc | Av1Amf => {}
+        // HEVC hardware Encoders: one arm each, filled in by that Encoder's ticket
+        // (device init here, filter below, quality flags in the last match). Until
+        // then they are not probed, which keeps them unavailable.
+        // hevc_nvenc: no device init needed.
+        HevcNvenc => return None,
+        // hevc_qsv: -init_hw_device qsv + -filter_hw_device.
+        HevcQsv => return None,
+        // hevc_vaapi: -init_hw_device vaapi + -filter_hw_device.
+        HevcVaapi => return None,
+        // hevc_amf: no device init needed.
+        HevcAmf => return None,
+        // hevc_videotoolbox: no device init needed.
+        HevcVideotoolbox => return None,
     }
     push(&[
         "-f",
@@ -93,7 +106,9 @@ pub fn probe_args(
         Av1Vaapi => push(&["-rc_mode:v", "CQP", "-global_quality:v", PROBE_QUALITY]),
         Av1Nvenc => push(&["-rc", "vbr", "-cq", PROBE_QUALITY]),
         Av1Amf => push(&["-rc", "cqp", "-qp_i", PROBE_QUALITY, "-qp_p", PROBE_QUALITY]),
-        LibvpxVp9 | LibsvtAv1 | LibaomAv1 => unreachable!(),
+        // The HEVC hardware Encoders return early above until their tickets land.
+        LibvpxVp9 | LibsvtAv1 | LibaomAv1 | Libx265 => unreachable!(),
+        HevcNvenc | HevcQsv | HevcVaapi | HevcAmf | HevcVideotoolbox => unreachable!(),
     }
     push(&["-f", "null", "-"]);
     Some(a)

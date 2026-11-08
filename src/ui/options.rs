@@ -241,6 +241,29 @@ pub fn container_to_idx(value: &str) -> usize {
     }
 }
 
+/// Whether `codec` can be written to `container`. WebM cannot carry HEVC.
+pub fn container_allowed(codec: CodecSelection, container: &str) -> bool {
+    !(codec == CodecSelection::Hevc && container == "webm")
+}
+
+/// The next Container dropdown index after `current`, wrapping and skipping any
+/// Container `codec` cannot use.
+pub fn next_container_idx(codec: CodecSelection, current: usize, forward: bool) -> usize {
+    let n = CONTAINER_FORMATS.len();
+    let mut idx = current;
+    for _ in 0..n {
+        idx = if forward {
+            (idx + 1) % n
+        } else {
+            (idx + n - 1) % n
+        };
+        if container_allowed(codec, container_from_idx(idx)) {
+            return idx;
+        }
+    }
+    current
+}
+
 pub fn pix_fmt_from_idx(idx: usize) -> &'static str {
     PIX_FMTS.get(idx).copied().unwrap_or("auto")
 }
@@ -308,6 +331,7 @@ pub fn codec_selection_from_idx(idx: usize) -> CodecSelection {
     match idx {
         0 => CodecSelection::Vp9,
         1 => CodecSelection::Av1,
+        2 => CodecSelection::Hevc,
         _ => CodecSelection::Vp9,
     }
 }
@@ -316,7 +340,24 @@ pub fn codec_selection_to_idx(selection: CodecSelection) -> usize {
     match selection {
         CodecSelection::Vp9 => 0,
         CodecSelection::Av1 => 1,
+        CodecSelection::Hevc => 2,
     }
+}
+
+pub fn x265_preset_from_idx(idx: usize) -> String {
+    X265_PRESETS.get(idx).unwrap_or(&"medium").to_string()
+}
+
+pub fn x265_preset_to_idx(preset: &str) -> usize {
+    X265_PRESETS.iter().position(|p| *p == preset).unwrap_or(5)
+}
+
+pub fn x265_tune_from_idx(idx: usize) -> String {
+    X265_TUNES.get(idx).unwrap_or(&"none").to_string()
+}
+
+pub fn x265_tune_to_idx(tune: &str) -> usize {
+    X265_TUNES.iter().position(|t| *t == tune).unwrap_or(0)
 }
 
 pub fn av1_tune_from_idx(idx: usize) -> u32 {

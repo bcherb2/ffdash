@@ -11,6 +11,8 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 
+mod hevc;
+
 /// Check if FFmpeg was cancelled by user signal (SIGTERM, SIGINT, SIGQUIT)
 /// Returns true if we should preserve partial output files
 ///
@@ -1718,6 +1720,7 @@ fn build_single_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePlan) -> Com
             // Software encoders; AMF is not implemented yet and falls back to software.
             _ => build_av1_software_cmd(job, profile),
         },
+        Codec::Hevc(_) => hevc::build_hevc_cmd(job, profile, plan),
     }
 }
 

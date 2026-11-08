@@ -35,6 +35,7 @@ fn override_replaces_active_encoder_quality() {
         ("av1-nvenc", VideoEncoder::Av1Nvenc, "-cq"),
         ("av1-vaapi", VideoEncoder::Av1Vaapi, "-global_quality:v"),
         ("vp9-good", VideoEncoder::LibvpxVp9, "-crf"),
+        ("hevc-x265", VideoEncoder::Libx265, "-crf"),
     ];
     for (name, encoder, flag) in cases {
         let profile = Profile::get(name);
@@ -80,4 +81,15 @@ fn active_quality_reads_the_active_encoders_field_not_legacy_hw_cq() {
     assert_eq!(profile.active_quality(VideoEncoder::Av1Nvenc), 21);
     assert_eq!(profile.active_quality(VideoEncoder::Av1Qsv), 44);
     assert_eq!(profile.active_quality(VideoEncoder::Av1Vaapi), 55);
+}
+
+#[test]
+fn hevc_override_replaces_x265_crf_and_not_the_configured_value() {
+    let mut profile = Profile::get("hevc-x265");
+    profile.codec.as_hevc_mut().unwrap().x265_crf = 19;
+    profile.crf = 77;
+    let args = args_with_override(&profile, VideoEncoder::Libx265, 33);
+    assert_eq!(value_of(&args, "-crf").as_deref(), Some("33"));
+    assert!(!args.iter().any(|a| a == "19" || a == "77"), "{args:?}");
+    assert_eq!(profile.active_quality(VideoEncoder::Libx265), 19);
 }

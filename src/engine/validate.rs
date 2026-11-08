@@ -125,6 +125,7 @@ pub fn validate_profile(
     let vaapi_quality = match &profile.codec {
         crate::engine::Codec::Vp9(vp9) => vp9.hw_global_quality,
         crate::engine::Codec::Av1(av1) => av1.vaapi_cq,
+        crate::engine::Codec::Hevc(hevc) => hevc.vaapi_quality,
     };
     if encoder.ends_with("_vaapi") && vaapi_quality > 255 {
         errors.push(err(

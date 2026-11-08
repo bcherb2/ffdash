@@ -42,6 +42,7 @@ fn set_resolution_selection(config: &mut crate::ui::state::ConfigState, idx: usi
 fn set_video_codec_selection(config: &mut crate::ui::state::ConfigState, idx: usize) {
     config.video_codec_state.select(Some(idx));
     config.codec_selection = options::codec_selection_from_idx(idx);
+    config.enforce_container_for_codec();
 }
 
 pub(super) fn initialize_default_profile(state: &mut AppState, config: &crate::config::Config) {
@@ -790,14 +791,9 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                         .container_dropdown_state
                         .selected()
                         .unwrap_or(0);
-                    if current > 0 {
-                        state
-                            .config
-                            .container_dropdown_state
-                            .select(Some(current - 1));
-                    } else {
-                        state.config.container_dropdown_state.select(Some(3)); // wraparound to last
-                    }
+                    let next =
+                        options::next_container_idx(state.config.codec_selection, current, false);
+                    state.config.container_dropdown_state.select(Some(next));
                 }
                 KeyCode::Right | KeyCode::Down => {
                     let current = state
@@ -805,10 +801,9 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                         .container_dropdown_state
                         .selected()
                         .unwrap_or(0);
-                    state
-                        .config
-                        .container_dropdown_state
-                        .select(Some((current + 1) % 4));
+                    let next =
+                        options::next_container_idx(state.config.codec_selection, current, true);
+                    state.config.container_dropdown_state.select(Some(next));
                 }
                 _ => {}
             }
@@ -1433,7 +1428,7 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 }
                 KeyCode::Down | KeyCode::Right => {
                     let selected = state.config.video_codec_state.selected().unwrap_or(0);
-                    if selected < 1 {
+                    if selected + 1 < crate::ui::constants::VIDEO_CODECS.len() {
                         set_video_codec_selection(&mut state.config, selected + 1);
                     }
                 }
@@ -1486,6 +1481,54 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 _ => {}
             }
             if state.config.av1_tune_state.selected() != old_selection {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HevcX265PresetDropdown => {
+            let old_selection = state.config.x265_preset_state.selected();
+            match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    state.config.active_dropdown = Some(ConfigFocus::HevcX265PresetDropdown);
+                }
+                KeyCode::Up | KeyCode::Left => {
+                    let selected = state.config.x265_preset_state.selected().unwrap_or(0);
+                    if selected > 0 {
+                        state.config.x265_preset_state.select(Some(selected - 1));
+                    }
+                }
+                KeyCode::Down | KeyCode::Right => {
+                    let selected = state.config.x265_preset_state.selected().unwrap_or(0);
+                    if selected + 1 < crate::ui::constants::X265_PRESETS.len() {
+                        state.config.x265_preset_state.select(Some(selected + 1));
+                    }
+                }
+                _ => {}
+            }
+            if state.config.x265_preset_state.selected() != old_selection {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HevcX265TuneDropdown => {
+            let old_selection = state.config.x265_tune_state.selected();
+            match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    state.config.active_dropdown = Some(ConfigFocus::HevcX265TuneDropdown);
+                }
+                KeyCode::Up | KeyCode::Left => {
+                    let selected = state.config.x265_tune_state.selected().unwrap_or(0);
+                    if selected > 0 {
+                        state.config.x265_tune_state.select(Some(selected - 1));
+                    }
+                }
+                KeyCode::Down | KeyCode::Right => {
+                    let selected = state.config.x265_tune_state.selected().unwrap_or(0);
+                    if selected + 1 < crate::ui::constants::X265_TUNES.len() {
+                        state.config.x265_tune_state.select(Some(selected + 1));
+                    }
+                }
+                _ => {}
+            }
+            if state.config.x265_tune_state.selected() != old_selection {
                 state.config.is_modified = true;
             }
         }
@@ -2668,6 +2711,18 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                     let popup = ConfigScreen::calculate_popup_area(trigger, 3, state.viewport);
                     (popup, 3)
                 }
+                ConfigFocus::HevcX265PresetDropdown => {
+                    let trigger = config.hevc_x265_preset_area.unwrap_or_default();
+                    let count = crate::ui::constants::X265_PRESETS.len();
+                    let popup = ConfigScreen::calculate_popup_area(trigger, count, state.viewport);
+                    (popup, count)
+                }
+                ConfigFocus::HevcX265TuneDropdown => {
+                    let trigger = config.hevc_x265_tune_area.unwrap_or_default();
+                    let count = crate::ui::constants::X265_TUNES.len();
+                    let popup = ConfigScreen::calculate_popup_area(trigger, count, state.viewport);
+                    (popup, count)
+                }
                 ConfigFocus::Av1ScmDropdown => {
                     let trigger = config.av1_scm_area.unwrap_or_default();
                     let popup = ConfigScreen::calculate_popup_area(trigger, 3, state.viewport);
@@ -2742,9 +2797,16 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                                     }
                                     ConfigFocus::ContainerDropdown => {
                                         config.container_dropdown_state.select(Some(item_index));
+                                        config.enforce_container_for_codec();
                                     }
                                     ConfigFocus::Av1TuneDropdown => {
                                         config.av1_tune_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::HevcX265PresetDropdown => {
+                                        config.x265_preset_state.select(Some(item_index));
+                                    }
+                                    ConfigFocus::HevcX265TuneDropdown => {
+                                        config.x265_tune_state.select(Some(item_index));
                                     }
                                     ConfigFocus::Av1ScmDropdown => {
                                         config.av1_scm_state.select(Some(item_index));
@@ -2770,13 +2832,9 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                     load_selected_profile(state);
                 } else if was_codec_dropdown {
                     // Update codec_selection enum based on video_codec_state
-                    use crate::ui::state::CodecSelection;
                     let selected = config.video_codec_state.selected().unwrap_or(0);
-                    config.codec_selection = match selected {
-                        0 => CodecSelection::Vp9,
-                        1 => CodecSelection::Av1,
-                        _ => CodecSelection::Vp9,
-                    };
+                    config.codec_selection = crate::ui::options::codec_selection_from_idx(selected);
+                    config.enforce_container_for_codec();
                     config.is_modified = true;
                 } else if was_container_dropdown {
                     // Mark as modified when container changes
@@ -3525,6 +3583,22 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
             }
         }
 
+        if let Some(area) = config.hevc_x265_preset_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::HevcX265PresetDropdown;
+                config.active_dropdown = Some(ConfigFocus::HevcX265PresetDropdown);
+                return;
+            }
+        }
+
+        if let Some(area) = config.hevc_x265_tune_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::HevcX265TuneDropdown;
+                config.active_dropdown = Some(ConfigFocus::HevcX265TuneDropdown);
+                return;
+            }
+        }
+
         if let Some(area) = config.av1_film_grain_slider_area {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::Av1FilmGrainSlider;
@@ -3820,6 +3894,8 @@ mod tests {
     fn video_codec_key_updates_enum() {
         let mut state = AppState::default();
         state.config.focus = ConfigFocus::VideoCodecDropdown;
+        state.config.video_codec_state.select(Some(0));
+        state.config.codec_selection = crate::ui::state::CodecSelection::Vp9;
 
         handle_focused_widget_key(
             KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
@@ -3830,6 +3906,21 @@ mod tests {
         assert_eq!(
             state.config.codec_selection,
             crate::ui::state::CodecSelection::Av1
+        );
+
+        // ...and on to HEVC, which moves a WebM container to MKV
+        state.config.container_dropdown_state.select(Some(0));
+        handle_focused_widget_key(
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            &mut state,
+        );
+        assert_eq!(
+            state.config.codec_selection,
+            crate::ui::state::CodecSelection::Hevc
+        );
+        assert_eq!(
+            options::container_from_idx(state.config.container_dropdown_state.selected().unwrap()),
+            "mkv"
         );
     }
 

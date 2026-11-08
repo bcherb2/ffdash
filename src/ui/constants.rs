@@ -105,7 +105,31 @@ pub const RESOLUTION_OPTIONS_DISPLAY: &[&str] = &[
 ];
 
 // Video codecs
-pub const VIDEO_CODECS: &[&str] = &["VP9", "AV1"];
+pub const VIDEO_CODECS: &[&str] = &["VP9", "AV1", "HEVC"];
+
+/// x265 presets, fastest to slowest.
+pub const X265_PRESETS: &[&str] = &[
+    "ultrafast",
+    "superfast",
+    "veryfast",
+    "faster",
+    "fast",
+    "medium",
+    "slow",
+    "slower",
+    "veryslow",
+];
+
+/// x265 tunes.
+pub const X265_TUNES: &[&str] = &[
+    "none",
+    "psnr",
+    "ssim",
+    "grain",
+    "zerolatency",
+    "fastdecode",
+    "animation",
+];
 
 // AV1 tune modes (libsvtav1)
 pub const AV1_TUNES: &[&str] = &["Visual Quality", "SSIM", "VMAF"];

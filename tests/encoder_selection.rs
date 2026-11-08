@@ -138,3 +138,12 @@ fn has_hardware_for_is_per_codec_and_ignores_software_encoders() {
     assert!(!avail(&[LibsvtAv1, LibvpxVp9]).has_any_hardware());
     assert!(!EncoderAvailability::default().has_any_hardware());
 }
+
+#[test]
+fn hevc_is_software_only_until_hardware_encoders_land() {
+    assert!(CodecKind::ALL.contains(&CodecKind::Hevc));
+    assert_eq!(CodecKind::Hevc.software_fallback(), Libx265);
+    let a = avail(&[Libx265]);
+    assert_eq!(select_encoder(CodecKind::Hevc, true, None, 10, &a), Libx265);
+    assert_eq!(select_encoder(CodecKind::Hevc, false, None, 8, &a), Libx265);
+}

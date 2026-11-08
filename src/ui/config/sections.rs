@@ -733,6 +733,8 @@ impl ConfigScreen {
         // Codec-specific settings
         use crate::ui::state::CodecSelection;
 
+        state.hevc_x265_preset_area = None;
+        state.hevc_x265_tune_area = None;
         match state.codec_selection {
             CodecSelection::Vp9 => {
                 // VP9-specific: Profile and Pix Fmt on one line
@@ -1174,12 +1176,117 @@ impl ConfigScreen {
                     state.av1_hw_tile_rows_area = None;
                 }
             }
+            CodecSelection::Hevc => {
+                // HEVC-specific settings. Clear the other codecs' areas to prevent ghost
+                // interactions.
+                state.vp9_profile_list_area = None;
+                state.av1_preset_slider_area = None;
+                state.av1_tune_area = None;
+                state.av1_film_grain_slider_area = None;
+                state.av1_film_grain_denoise_checkbox_area = None;
+                state.av1_enable_overlays_checkbox_area = None;
+                state.av1_scd_checkbox_area = None;
+                state.av1_scm_area = None;
+                state.av1_enable_tf_checkbox_area = None;
+                state.av1_hw_preset_area = None;
+                state.av1_hw_cq_slider_area = None;
+                state.av1_hw_lookahead_area = None;
+                state.av1_hw_tile_cols_area = None;
+                state.av1_hw_tile_rows_area = None;
+
+                // Bit depth (8-bit vs 10-bit Main10): shared by software and hardware
+                let pix_fmt_area = Rect {
+                    x: inner.x,
+                    y,
+                    width: inner.width,
+                    height: 1,
+                };
+                state.pix_fmt_area = Some(pix_fmt_area);
+                let selected_index = state.pix_fmt_state.selected().unwrap_or(0);
+                let selected_value = PIX_FMTS.get(selected_index).unwrap_or(&"yuv420p");
+                let pix_style = if state.focus == ConfigFocus::PixFmtDropdown {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Green)
+                };
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::raw("Bit Depth: "),
+                        Span::styled(*selected_value, pix_style),
+                        Span::raw(" ▼"),
+                    ])),
+                    pix_fmt_area,
+                );
+                y += 1;
+
+                state.vaapi_compression_level_slider_area = None;
+                state.qsv_quality_slider_area = None;
+                state.cpu_used_slider_area = None;
+                state.cpu_used_pass1_slider_area = None;
+                state.cpu_used_pass2_slider_area = None;
+
+                // Extension point: each HEVC hardware Encoder renders its own settings
+                // block here (libx265's CRF is the shared CRF slider).
+                if !state.use_hardware_encoding {
+                    let preset_tune_chunks = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                        .split(Rect {
+                            x: inner.x,
+                            y,
+                            width: inner.width,
+                            height: 1,
+                        });
+
+                    state.hevc_x265_preset_area = Some(preset_tune_chunks[0]);
+                    let preset_idx = state.x265_preset_state.selected().unwrap_or(0);
+                    let preset_value = constants::X265_PRESETS.get(preset_idx).unwrap_or(&"medium");
+                    let preset_style = if state.focus == ConfigFocus::HevcX265PresetDropdown {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Green)
+                    };
+                    frame.render_widget(
+                        Paragraph::new(Line::from(vec![
+                            Span::raw("Preset: "),
+                            Span::styled(*preset_value, preset_style),
+                            Span::raw(" ▼"),
+                        ])),
+                        preset_tune_chunks[0],
+                    );
+
+                    state.hevc_x265_tune_area = Some(preset_tune_chunks[1]);
+                    let tune_idx = state.x265_tune_state.selected().unwrap_or(0);
+                    let tune_value = constants::X265_TUNES.get(tune_idx).unwrap_or(&"none");
+                    let tune_style = if state.focus == ConfigFocus::HevcX265TuneDropdown {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Green)
+                    };
+                    frame.render_widget(
+                        Paragraph::new(Line::from(vec![
+                            Span::raw("Tune: "),
+                            Span::styled(*tune_value, tune_style),
+                            Span::raw(" ▼"),
+                        ])),
+                        preset_tune_chunks[1],
+                    );
+                    y += 1;
+                }
+            }
         }
 
         // The other codec's settings collapse into one dimmed line
         let other_codec_line = match state.codec_selection {
             CodecSelection::Vp9 => "AV1 options (select AV1 to edit)",
             CodecSelection::Av1 => "VP9 options (select VP9 to edit)",
+            CodecSelection::Hevc => "VP9 and AV1 options (select one to edit)",
         };
         frame.render_widget(
             Paragraph::new(other_codec_line).style(Style::default().fg(Color::DarkGray)),
@@ -3371,6 +3478,32 @@ impl ConfigScreen {
                     constants::AV1_TUNES,
                     area,
                     &mut state.av1_tune_state,
+                );
+            }
+            ConfigFocus::HevcX265PresetDropdown => {
+                let area = state.hevc_x265_preset_area.unwrap_or_default();
+                let selected = state.x265_preset_state.selected().unwrap_or(0);
+                if selected >= constants::X265_PRESETS.len() {
+                    state.x265_preset_state.select(Some(0));
+                }
+                Self::render_popup_list(
+                    frame,
+                    constants::X265_PRESETS,
+                    area,
+                    &mut state.x265_preset_state,
+                );
+            }
+            ConfigFocus::HevcX265TuneDropdown => {
+                let area = state.hevc_x265_tune_area.unwrap_or_default();
+                let selected = state.x265_tune_state.selected().unwrap_or(0);
+                if selected >= constants::X265_TUNES.len() {
+                    state.x265_tune_state.select(Some(0));
+                }
+                Self::render_popup_list(
+                    frame,
+                    constants::X265_TUNES,
+                    area,
+                    &mut state.x265_tune_state,
                 );
             }
             ConfigFocus::Av1ScmDropdown => {

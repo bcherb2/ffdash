@@ -2,7 +2,8 @@
 //!
 //! This module contains all the hardcoded profile presets that ship with ffdash.
 //! Profiles are organized into categories:
-//! - Base codec profiles (av1-svt, av1-qsv, av1-nvenc, av1-vaapi, vp9-*, hevc-*)
+//! - Base codec profiles (av1-svt, av1-qsv, av1-nvenc, av1-vaapi, vp9-*; hevc-* live in
+//!   `builtin_hevc_profiles`)
 //! - Hardware test profiles (for validation and testing)
 //! - User-friendly named profiles (4K Film, 1080p Shrinker, etc.)
 
@@ -23,6 +24,7 @@ impl Profile {
             "av1-vaapi" => Self::av1_vaapi(),
             "vp9-good" => Self::vp9_good(),
             "vp9-best" => Self::vp9_best(),
+            n if n.starts_with("hevc-") => Self::hevc(n).unwrap_or_else(Self::vp9_good),
             _ => Self::vp9_good(), // default
         }
     }

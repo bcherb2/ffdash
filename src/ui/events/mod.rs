@@ -215,6 +215,14 @@ fn build_scan_config(state: &AppState, root: &std::path::Path) -> ScanConfig {
         .copied()
         .unwrap_or("webm")
         .to_string();
+    // WebM cannot carry HEVC (the dropdown snaps away from it, this guards other paths).
+    let custom_container = if state.config.codec_selection == crate::ui::state::CodecSelection::Hevc
+        && custom_container == "webm"
+    {
+        "mkv".to_string()
+    } else {
+        custom_container
+    };
 
     let profile = state
         .config

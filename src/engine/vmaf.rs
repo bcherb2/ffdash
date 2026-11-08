@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 use crate::engine::core::{
     Codec, EncodePlan, Profile, ProgressParser, build_encode_cmds_synced, write_debug_log,
 };
+use crate::engine::hardware::VideoEncoder;
 use crate::engine::{JobStatus, VideoJob, probe_duration};
 
 /// Quality floor for software encoding (CRF)
@@ -762,6 +763,8 @@ pub fn is_vmaf_compatible(profile: &Profile) -> bool {
             Codec::Vp9(vp9) => vp9.hw_rc_mode == 1,
             // AV1 hardware Encoders are always CQP
             Codec::Av1(_) => true,
+            // HEVC hardware Encoders are constant-quality only
+            Codec::Hevc(hevc) => hevc.hw_rc_mode == "cq",
         }
     } else {
         // Software: CQ or CQCap mode (quality-driven, max_bitrate is optional ceiling)
@@ -794,10 +797,61 @@ fn get_baseline_quality(profile: &Profile, plan: &EncodePlan) -> u32 {
 /// # Returns
 /// The quality floor value
 fn get_quality_floor(plan: &EncodePlan) -> u32 {
-    if plan.uses_hardware() {
-        HARDWARE_QUALITY_FLOOR
+    quality_search(plan.encoder).best
+}
+
+/// How Auto-VMAF searches an Encoder's own quality scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QualitySearch {
+    /// The best-quality bound the search never goes past (the floor when lower is better).
+    pub best: u32,
+    /// Whether a lower value means better quality (CRF/QP) rather than worse (`q:v`).
+    pub lower_is_better: bool,
+}
+
+/// The Auto-VMAF search range and direction for `encoder`.
+///
+/// Extension point: every HEVC hardware Encoder has its own arm; set `best` and
+/// `lower_is_better` from that Encoder's native quality scale.
+pub fn quality_search(encoder: VideoEncoder) -> QualitySearch {
+    use VideoEncoder::*;
+    let lower = |best| QualitySearch {
+        best,
+        lower_is_better: true,
+    };
+    match encoder {
+        LibvpxVp9 | LibsvtAv1 | LibaomAv1 => lower(SOFTWARE_QUALITY_FLOOR),
+        // libx265 CRF 0-51: stop at CRF 10 like the other software Encoders.
+        Libx265 => lower(SOFTWARE_QUALITY_FLOOR),
+        Vp9Qsv | Vp9Vaapi | Av1Qsv | Av1Nvenc | Av1Vaapi | Av1Amf => lower(HARDWARE_QUALITY_FLOOR),
+        HevcNvenc => lower(HARDWARE_QUALITY_FLOOR),
+        HevcQsv => lower(HARDWARE_QUALITY_FLOOR),
+        HevcVaapi => lower(HARDWARE_QUALITY_FLOOR),
+        HevcAmf => lower(HARDWARE_QUALITY_FLOOR),
+        // VideoToolbox q:v is 1-100 and HIGHER is better: set the ceiling here.
+        HevcVideotoolbox => QualitySearch {
+            best: 100,
+            lower_is_better: false,
+        },
+    }
+}
+
+/// The next quality to try after `quality` missed the target, one `step` toward
+/// better quality, clamped to the search bound.
+fn improve_quality(quality: u32, step: u32, search: QualitySearch) -> u32 {
+    if search.lower_is_better {
+        quality.saturating_sub(step).max(search.best)
     } else {
-        SOFTWARE_QUALITY_FLOOR
+        quality.saturating_add(step).min(search.best)
+    }
+}
+
+/// Whether `quality` is already at the best the search allows.
+fn at_best_quality(quality: u32, search: QualitySearch) -> bool {
+    if search.lower_is_better {
+        quality <= search.best
+    } else {
+        quality >= search.best
     }
 }
 
@@ -878,7 +932,8 @@ where
 
     // Get calibration parameters
     let mut quality = get_baseline_quality(profile, plan);
-    let quality_floor = get_quality_floor(plan);
+    let search = quality_search(plan.encoder);
+    let quality_floor = search.best;
     let target_vmaf = profile.vmaf_target;
     let step = profile.vmaf_step as u32;
     let max_attempts = profile.vmaf_max_attempts;
@@ -1012,7 +1067,7 @@ where
         }
 
         // Check if we hit quality floor
-        if quality <= quality_floor {
+        if at_best_quality(quality, search) {
             let _ = write_debug_log(&format!(
                 "[Auto-VAMF] WARNING: Quality floor ({}) reached without meeting target. Best VMAF: {:.2}",
                 quality_floor, avg_vmaf
@@ -1033,8 +1088,7 @@ where
         }
 
         // Increase quality for next iteration (lower CRF/global_quality = higher quality)
-        let new_quality = quality.saturating_sub(step);
-        quality = new_quality.max(quality_floor);
+        quality = improve_quality(quality, step, search);
 
         let _ = write_debug_log(&format!(
             "[Auto-VAMF] Increasing quality to {} for next attempt",
@@ -1222,6 +1276,25 @@ mod tests {
         cfg.hw_cq = 99;
         let plan = EncodePlan::new(VideoEncoder::Av1Vaapi);
         assert_eq!(get_baseline_quality(&av1, &plan), 41);
+    }
+
+    #[test]
+    fn hevc_search_ranges_and_directions() {
+        use crate::engine::hardware::VideoEncoder::*;
+        let x265 = quality_search(Libx265);
+        assert_eq!(x265.best, 10);
+        assert!(x265.lower_is_better);
+        assert_eq!(improve_quality(28, 2, x265), 26);
+        assert_eq!(improve_quality(11, 2, x265), 10);
+        assert!(at_best_quality(10, x265));
+        assert!(!at_best_quality(11, x265));
+
+        // VideoToolbox q:v: higher is better, so the search climbs toward 100.
+        let vt = quality_search(HevcVideotoolbox);
+        assert!(!vt.lower_is_better);
+        assert_eq!(improve_quality(60, 2, vt), 62);
+        assert_eq!(improve_quality(99, 2, vt), 100);
+        assert!(at_best_quality(100, vt));
     }
 
     #[test]

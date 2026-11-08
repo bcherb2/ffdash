@@ -12,11 +12,12 @@ use super::hardware::VideoEncoder;
 pub enum CodecKind {
     Vp9,
     Av1,
+    Hevc,
 }
 
 impl CodecKind {
     /// Every Codec ffdash can encode.
-    pub const ALL: [CodecKind; 2] = [Self::Vp9, Self::Av1];
+    pub const ALL: [CodecKind; 3] = [Self::Vp9, Self::Av1, Self::Hevc];
 
     /// Hardware Encoders of this Codec in default priority order:
     /// NVENC, AMF, QSV, VAAPI (VideoToolbox last once it exists).
@@ -25,6 +26,10 @@ impl CodecKind {
         match self {
             Self::Vp9 => &[Vp9Qsv, Vp9Vaapi],
             Self::Av1 => &[Av1Nvenc, Av1Amf, Av1Qsv, Av1Vaapi],
+            // Extension point: each HEVC hardware Encoder ticket adds itself here, in
+            // priority order (HevcNvenc, HevcAmf, HevcQsv, HevcVaapi, HevcVideotoolbox).
+            // Empty until then, so HEVC always selects the Software Fallback.
+            Self::Hevc => &[],
         }
     }
 
@@ -33,6 +38,7 @@ impl CodecKind {
         match self {
             Self::Vp9 => VideoEncoder::LibvpxVp9,
             Self::Av1 => VideoEncoder::LibsvtAv1,
+            Self::Hevc => VideoEncoder::Libx265,
         }
     }
 }

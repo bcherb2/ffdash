@@ -423,6 +423,18 @@ impl Profile {
                     hw_denoise: config.hw_denoise.parse().unwrap_or(0),
                     hw_detail: config.hw_detail.parse().unwrap_or(0),
                 }),
+                crate::ui::state::CodecSelection::Hevc => {
+                    let mut hevc = config.hevc.clone();
+                    hevc.x265_preset = crate::ui::options::x265_preset_from_idx(
+                        config.x265_preset_state.selected().unwrap_or(0),
+                    );
+                    hevc.x265_tune = crate::ui::options::x265_tune_from_idx(
+                        config.x265_tune_state.selected().unwrap_or(0),
+                    );
+                    // libx265's CRF is edited with the shared CRF slider (x265 tops out at 51).
+                    hevc.x265_crf = config.crf.min(51);
+                    Codec::Hevc(hevc)
+                }
                 crate::ui::state::CodecSelection::Av1 => {
                     let tune_idx = config.av1_tune_state.selected().unwrap_or(0);
                     let scm_idx = config.av1_scm_state.selected().unwrap_or(0);
@@ -705,6 +717,24 @@ impl Profile {
                 config.hw_denoise = av1.hw_denoise.to_string();
                 config.hw_detail = av1.hw_detail.to_string();
             }
+            Codec::Hevc(hevc) => {
+                config.codec_selection = crate::ui::options::codec_selection_from_idx(2);
+                config
+                    .video_codec_state
+                    .select(Some(crate::ui::options::codec_selection_to_idx(
+                        config.codec_selection,
+                    )));
+                config.hevc = hevc.clone();
+                config.crf = hevc.x265_crf;
+                config
+                    .x265_preset_state
+                    .select(Some(crate::ui::options::x265_preset_to_idx(
+                        &hevc.x265_preset,
+                    )));
+                config
+                    .x265_tune_state
+                    .select(Some(crate::ui::options::x265_tune_to_idx(&hevc.x265_tune)));
+            }
         }
 
         // Auto-VAMF settings
@@ -769,6 +799,17 @@ impl Profile {
             (Codec::Av1(av1), VideoEncoder::Av1Nvenc) => av1.nvenc_cq = quality,
             (Codec::Av1(av1), VideoEncoder::Av1Vaapi) => av1.vaapi_cq = quality,
             (Codec::Av1(av1), VideoEncoder::Av1Amf) => av1.hw_cq = quality,
+            (Codec::Hevc(hevc), VideoEncoder::Libx265) => {
+                hevc.x265_crf = quality;
+                self.crf = quality;
+            }
+            // Extension point: one arm per HEVC hardware Encoder, setting its own field.
+            // (Until an Encoder's ticket lands, it keeps the shared `crf` fallback.)
+            (Codec::Hevc(hevc), VideoEncoder::HevcNvenc) => hevc.nvenc_quality = quality,
+            (Codec::Hevc(hevc), VideoEncoder::HevcQsv) => hevc.qsv_quality = quality,
+            (Codec::Hevc(hevc), VideoEncoder::HevcVaapi) => hevc.vaapi_quality = quality,
+            (Codec::Hevc(hevc), VideoEncoder::HevcAmf) => hevc.amf_qp = quality,
+            (Codec::Hevc(hevc), VideoEncoder::HevcVideotoolbox) => hevc.videotoolbox_q = quality,
             _ => self.crf = quality,
         }
     }
@@ -784,6 +825,12 @@ impl Profile {
             (Codec::Av1(av1), VideoEncoder::Av1Nvenc) => av1.nvenc_cq,
             (Codec::Av1(av1), VideoEncoder::Av1Vaapi) => av1.vaapi_cq,
             (Codec::Av1(av1), VideoEncoder::Av1Amf) => av1.hw_cq,
+            (Codec::Hevc(hevc), VideoEncoder::Libx265) => hevc.x265_crf,
+            (Codec::Hevc(hevc), VideoEncoder::HevcNvenc) => hevc.nvenc_quality,
+            (Codec::Hevc(hevc), VideoEncoder::HevcQsv) => hevc.qsv_quality,
+            (Codec::Hevc(hevc), VideoEncoder::HevcVaapi) => hevc.vaapi_quality,
+            (Codec::Hevc(hevc), VideoEncoder::HevcAmf) => hevc.amf_qp,
+            (Codec::Hevc(hevc), VideoEncoder::HevcVideotoolbox) => hevc.videotoolbox_q,
             _ => self.crf,
         }
     }
@@ -842,6 +889,15 @@ impl Profile {
                     "libsvtav1".to_string()
                 };
             }
+            Codec::Hevc(_) => {
+                // Only the Software Fallback is named: hardware has no placeholder
+                // preference, so `select_encoder` uses its default priority order.
+                self.video_codec = if self.use_hardware_encoding {
+                    String::new()
+                } else {
+                    "libx265".to_string()
+                };
+            }
         }
     }
 
@@ -874,6 +930,21 @@ impl Profile {
                     }
                 } else {
                     "libsvtav1"
+                }
+            }
+            Codec::Hevc(_) => {
+                if self.use_hardware_encoding {
+                    // Extension point: one arm per hardware Encoder, by `video_codec`.
+                    match self.video_codec.as_str() {
+                        "hevc_nvenc" => "hevc_nvenc",
+                        "hevc_qsv" => "hevc_qsv",
+                        "hevc_vaapi" => "hevc_vaapi",
+                        "hevc_amf" => "hevc_amf",
+                        "hevc_videotoolbox" => "hevc_videotoolbox",
+                        _ => "libx265",
+                    }
+                } else {
+                    "libx265"
                 }
             }
         }
@@ -1002,6 +1073,12 @@ pub fn derive_output_path(
 
     // Use custom container or profile's default
     let container = custom_container.unwrap_or(&profile_obj.container);
+    // WebM cannot carry HEVC.
+    let container = if profile_obj.codec.is_hevc() && container == "webm" {
+        "mkv"
+    } else {
+        container
+    };
 
     // Use custom pattern (filename_pattern is now a global setting, not part of profiles)
     let filename = if let Some(pat) = custom_pattern {

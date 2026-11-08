@@ -136,6 +136,44 @@ fn snapshot_av1_qsv_hdr10() {
 }
 
 #[test]
+fn snapshot_hevc_x265() {
+    let profile = Profile::get("hevc-x265");
+    let job = mk_job("mkv");
+    let out = build(&job, &profile, VideoEncoder::Libx265);
+    assert_snapshot!("hevc_x265", out);
+}
+
+#[test]
+fn snapshot_hevc_x265_hdr10() {
+    let mut profile = Profile::get("hevc-x265");
+    profile.colorspace = 9; // bt2020nc
+    profile.color_primaries = 9; // bt2020
+    profile.color_trc = 16; // smpte2084 (PQ)
+    profile.color_range = 0; // tv/limited
+    profile.pix_fmt = "yuv420p10le".to_string(); // Main10
+
+    let job = mk_job("mkv");
+    let out = build(&job, &profile, VideoEncoder::Libx265);
+    assert_snapshot!("hevc_x265_hdr10", out);
+}
+
+#[test]
+fn snapshot_hevc_x265_mp4_is_tagged_hvc1() {
+    let profile = Profile::get("hevc-x265");
+    let job = mk_job("mp4");
+    let out = build(&job, &profile, VideoEncoder::Libx265);
+    assert!(out.contains("-tag:v hvc1"), "{out}");
+    assert_snapshot!("hevc_x265_mp4", out);
+}
+
+#[test]
+fn hevc_in_mkv_is_not_tagged() {
+    let profile = Profile::get("hevc-x265");
+    let job = mk_job("mkv");
+    assert!(!build(&job, &profile, VideoEncoder::Libx265).contains("-tag:v"));
+}
+
+#[test]
 fn software_vp9_fallback_for_hardware_profile_stays_single_pass() {
     // A profile that requested hardware but was planned onto the software Encoder
     // (hardware unavailable) builds one single-pass command, even with two-pass and a

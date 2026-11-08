@@ -1,8 +1,10 @@
 mod av1_config;
+mod builtin_hevc_profiles;
 mod builtin_profiles;
 mod encode_plan;
 mod ffmpeg_cmd;
 mod ffmpeg_info;
+mod hevc_config;
 mod log;
 mod profile;
 mod scan;
@@ -22,6 +24,7 @@ pub use ffmpeg_info::{
     InputInfo, ffmpeg_version, ffprobe_version, parse_ffprobe_duration, parse_ffprobe_input_info,
     paths_are_same_file, probe_duration, probe_input_info, vmaf_filter_available,
 };
+pub use hevc_config::HevcConfig;
 pub use log::write_debug_log;
 pub use profile::{Profile, derive_output_path};
 pub use scan::{build_job_from_path, build_job_queue, is_video_file, scan, scan_streaming};

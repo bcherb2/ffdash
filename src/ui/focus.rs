@@ -78,6 +78,10 @@ pub enum ConfigFocus {
     Av1HwTileColsInput,
     Av1HwTileRowsInput,
 
+    // HEVC software settings (libx265); CRF uses the shared CrfSlider
+    HevcX265PresetDropdown,
+    HevcX265TuneDropdown,
+
     // Parallelism
     RowMtCheckbox,
     TileColumnsSlider,
@@ -181,7 +185,9 @@ impl ConfigFocus {
             Self::Av1HwCqSlider => Self::Av1HwLookaheadInput,
             Self::Av1HwLookaheadInput => Self::Av1HwTileColsInput,
             Self::Av1HwTileColsInput => Self::Av1HwTileRowsInput,
-            Self::Av1HwTileRowsInput => Self::RowMtCheckbox,
+            Self::Av1HwTileRowsInput => Self::HevcX265PresetDropdown,
+            Self::HevcX265PresetDropdown => Self::HevcX265TuneDropdown,
+            Self::HevcX265TuneDropdown => Self::RowMtCheckbox,
             Self::RowMtCheckbox => Self::TileColumnsSlider,
             Self::TileColumnsSlider => Self::TileRowsSlider,
             Self::TileRowsSlider => Self::ThreadsInput,
@@ -271,7 +277,9 @@ impl ConfigFocus {
             Self::Av1HwLookaheadInput => Self::Av1HwCqSlider,
             Self::Av1HwTileColsInput => Self::Av1HwLookaheadInput,
             Self::Av1HwTileRowsInput => Self::Av1HwTileColsInput,
-            Self::RowMtCheckbox => Self::Av1HwTileRowsInput,
+            Self::HevcX265PresetDropdown => Self::Av1HwTileRowsInput,
+            Self::HevcX265TuneDropdown => Self::HevcX265PresetDropdown,
+            Self::RowMtCheckbox => Self::HevcX265TuneDropdown,
             Self::TileColumnsSlider => Self::RowMtCheckbox,
             Self::TileRowsSlider => Self::TileColumnsSlider,
             Self::ThreadsInput => Self::TileRowsSlider,

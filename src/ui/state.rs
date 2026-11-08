@@ -1,5 +1,6 @@
 // Application state management
 
+use crate::engine::core::HevcConfig;
 use crate::engine::hardware::HwPreflightResult;
 use crate::stats::StatsState;
 use crate::ui::focus::ConfigFocus;
@@ -39,6 +40,7 @@ pub enum CodecSelection {
     #[default]
     Vp9,
     Av1,
+    Hevc,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -283,9 +285,15 @@ pub struct ConfigState {
     pub fps_dropdown_state: ListState,
     pub resolution_dropdown_state: ListState,
 
-    // Video codec selection (VP9 vs AV1)
+    // Video codec selection (VP9, AV1 or HEVC)
     pub video_codec_state: ListState,
     pub codec_selection: CodecSelection,
+
+    // HEVC settings. Held as the engine config so every field (including per-Encoder
+    // quality for Encoders the UI does not edit yet) survives a profile round trip.
+    pub hevc: HevcConfig,
+    pub x265_preset_state: ListState,
+    pub x265_tune_state: ListState,
 
     // AV1 software settings (libsvtav1)
     pub av1_preset: u32,              // 0-13, default 8
@@ -535,6 +543,8 @@ pub struct ConfigState {
     pub av1_hw_lookahead_area: Option<Rect>,
     pub av1_hw_tile_cols_area: Option<Rect>,
     pub av1_hw_tile_rows_area: Option<Rect>,
+    pub hevc_x265_preset_area: Option<Rect>,
+    pub hevc_x265_tune_area: Option<Rect>,
 
     // VP9 QSV areas
     pub vp9_qsv_preset_area: Option<Rect>,
@@ -617,6 +627,17 @@ impl Default for ConfigState {
             // Video codec selection
             video_codec_state,
             codec_selection: CodecSelection::Av1,
+            hevc: HevcConfig::default(),
+            x265_preset_state: {
+                let mut s = ListState::default();
+                s.select(Some(crate::ui::options::x265_preset_to_idx("medium")));
+                s
+            },
+            x265_tune_state: {
+                let mut s = ListState::default();
+                s.select(Some(0));
+                s
+            },
 
             // AV1 software settings
             av1_preset: 8,
@@ -862,6 +883,8 @@ impl Default for ConfigState {
             av1_hw_lookahead_area: None,
             av1_hw_tile_cols_area: None,
             av1_hw_tile_rows_area: None,
+            hevc_x265_preset_area: None,
+            hevc_x265_tune_area: None,
 
             // VP9 QSV areas
             vp9_qsv_preset_area: None,
@@ -888,6 +911,7 @@ impl CodecSelection {
         match self {
             Self::Vp9 => CodecKind::Vp9,
             Self::Av1 => CodecKind::Av1,
+            Self::Hevc => CodecKind::Hevc,
         }
     }
 }
@@ -905,6 +929,19 @@ impl ConfigState {
     /// See [`hardware_control_available`].
     pub fn hardware_control_available(&self) -> bool {
         hardware_control_available(self.codec_selection, &self.encoder_availability)
+    }
+
+    /// Move the selected Container to MKV if the selected Codec cannot use it
+    /// (WebM with HEVC). Call after the Codec or the Container changes.
+    pub fn enforce_container_for_codec(&mut self) {
+        let idx = self.container_dropdown_state.selected().unwrap_or(0);
+        if !crate::ui::options::container_allowed(
+            self.codec_selection,
+            crate::ui::options::container_from_idx(idx),
+        ) {
+            self.container_dropdown_state
+                .select(Some(crate::ui::options::container_to_idx("mkv")));
+        }
     }
 
     /// Load available profiles from disk and update the cached list

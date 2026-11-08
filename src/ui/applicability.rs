@@ -28,6 +28,7 @@ pub fn applies(field: ConfigFocus, codec: CodecSelection, backend: Backend) -> b
 
     let vp9 = codec == CodecSelection::Vp9;
     let av1 = codec == CodecSelection::Av1;
+    let hevc = codec == CodecSelection::Hevc;
     let software = !backend.is_hardware();
     let hardware = backend.is_hardware();
 
@@ -67,6 +68,10 @@ pub fn applies(field: ConfigFocus, codec: CodecSelection, backend: Backend) -> b
         | Av1ScmDropdown
         | Av1EnableTfCheckbox => av1 && software,
 
+        // libx265 (software) only. Extension point: each HEVC hardware Encoder adds its
+        // own focus variants here with `hevc && backend == Backend::Hardware(<vendor>)`.
+        HevcX265PresetDropdown | HevcX265TuneDropdown => hevc && software,
+
         // AV1 hardware encoders
         Av1HwPresetSlider | Av1HwCqSlider | Av1HwLookaheadInput | Av1HwTileColsInput
         | Av1HwTileRowsInput => av1 && hardware,
@@ -83,7 +88,7 @@ pub fn applies(field: ConfigFocus, codec: CodecSelection, backend: Backend) -> b
 
         // VPP denoise/detail: QSV and VAAPI, not NVENC
         HwDenoiseInput | HwDetailInput => {
-            matches!(backend, Backend::Hardware(v) if v != GpuVendor::Nvidia)
+            !hevc && matches!(backend, Backend::Hardware(v) if v != GpuVendor::Nvidia)
         }
 
         // Passed as -threads by the software builders only
