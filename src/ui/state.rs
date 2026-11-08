@@ -549,6 +549,10 @@ pub struct ConfigState {
     pub hevc_qsv_preset_area: Option<Rect>,
     pub hevc_qsv_lookahead_area: Option<Rect>,
     pub hevc_qsv_b_frames_area: Option<Rect>,
+    pub hevc_nvenc_preset_area: Option<Rect>,
+    pub hevc_nvenc_cq_area: Option<Rect>,
+    pub hevc_nvenc_lookahead_area: Option<Rect>,
+    pub hevc_nvenc_b_frames_area: Option<Rect>,
 
     // VP9 QSV areas
     pub vp9_qsv_preset_area: Option<Rect>,
@@ -893,6 +897,10 @@ impl Default for ConfigState {
             hevc_qsv_preset_area: None,
             hevc_qsv_lookahead_area: None,
             hevc_qsv_b_frames_area: None,
+            hevc_nvenc_preset_area: None,
+            hevc_nvenc_cq_area: None,
+            hevc_nvenc_lookahead_area: None,
+            hevc_nvenc_b_frames_area: None,
 
             // VP9 QSV areas
             vp9_qsv_preset_area: None,

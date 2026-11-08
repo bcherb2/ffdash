@@ -735,6 +735,10 @@ impl ConfigScreen {
 
         state.hevc_x265_preset_area = None;
         state.hevc_x265_tune_area = None;
+        state.hevc_nvenc_preset_area = None;
+        state.hevc_nvenc_cq_area = None;
+        state.hevc_nvenc_lookahead_area = None;
+        state.hevc_nvenc_b_frames_area = None;
         state.hevc_qsv_quality_area = None;
         state.hevc_qsv_preset_area = None;
         state.hevc_qsv_lookahead_area = None;
@@ -1281,6 +1285,87 @@ impl ConfigScreen {
                         ])),
                         preset_tune_chunks[1],
                     );
+                    y += 1;
+                } else if state.gpu_vendor == crate::engine::hardware::GpuVendor::Nvidia {
+                    // hevc_nvenc: preset (shared 1-7 scale), CQ, lookahead and B-frames
+                    let preset_area = Rect {
+                        x: inner.x,
+                        y,
+                        width: inner.width,
+                        height: 2,
+                    };
+                    state.hevc_nvenc_preset_area = Some(preset_area);
+                    let preset: u32 = state.hevc.hw_preset.parse().unwrap_or(4).clamp(1, 7);
+                    frame.render_widget(
+                        Slider::new("NVENC Preset (1=Best Quality, 7=Fastest)", 1, 7)
+                            .value(preset)
+                            .focused(state.focus == ConfigFocus::HevcNvencPresetSlider),
+                        preset_area,
+                    );
+                    y += 2;
+
+                    let cq_area = Rect {
+                        x: inner.x,
+                        y,
+                        width: inner.width,
+                        height: 2,
+                    };
+                    state.hevc_nvenc_cq_area = Some(cq_area);
+                    frame.render_widget(
+                        Slider::new("NVENC CQ (Lower=Better Quality, Higher=Smaller)", 0, 51)
+                            .value(state.hevc.nvenc_quality.min(51))
+                            .focused(state.focus == ConfigFocus::HevcNvencCqSlider),
+                        cq_area,
+                    );
+                    y += 2;
+
+                    let la_bf_chunks = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                        .split(Rect {
+                            x: inner.x,
+                            y,
+                            width: inner.width,
+                            height: 1,
+                        });
+                    for (idx, (label, value, focus_variant)) in [
+                        (
+                            "Lookahead (0-32): ",
+                            state.hevc.hw_lookahead,
+                            ConfigFocus::HevcNvencLookaheadInput,
+                        ),
+                        (
+                            "B-Frames (0-4): ",
+                            state.hevc.hw_b_frames,
+                            ConfigFocus::HevcNvencBFramesInput,
+                        ),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        let area = la_bf_chunks[idx];
+                        if idx == 0 {
+                            state.hevc_nvenc_lookahead_area = Some(area);
+                        } else {
+                            state.hevc_nvenc_b_frames_area = Some(area);
+                        }
+                        let focused = state.focus == focus_variant;
+                        let text = Self::adjustable_value_display(value.to_string(), focused);
+                        let style = if focused {
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::Green)
+                        };
+                        frame.render_widget(
+                            Paragraph::new(Line::from(vec![
+                                Span::raw(label),
+                                Span::styled(text, style),
+                            ])),
+                            area,
+                        );
+                    }
                     y += 1;
                 }
 

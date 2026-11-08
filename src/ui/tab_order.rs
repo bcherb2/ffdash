@@ -81,6 +81,10 @@ impl ConfigFocus {
             | Self::Av1HwTileRowsInput
             | Self::HevcX265PresetDropdown
             | Self::HevcX265TuneDropdown
+            | Self::HevcNvencPresetSlider
+            | Self::HevcNvencCqSlider
+            | Self::HevcNvencLookaheadInput
+            | Self::HevcNvencBFramesInput
             | Self::HevcQsvQualityInput
             | Self::HevcQsvPresetInput
             | Self::HevcQsvLookaheadInput
@@ -179,6 +183,10 @@ impl ConfigFocus {
             Self::Av1HwTileRowsInput => c.av1_hw_tile_rows_area,
             Self::HevcX265PresetDropdown => c.hevc_x265_preset_area,
             Self::HevcX265TuneDropdown => c.hevc_x265_tune_area,
+            Self::HevcNvencPresetSlider => c.hevc_nvenc_preset_area,
+            Self::HevcNvencCqSlider => c.hevc_nvenc_cq_area,
+            Self::HevcNvencLookaheadInput => c.hevc_nvenc_lookahead_area,
+            Self::HevcNvencBFramesInput => c.hevc_nvenc_b_frames_area,
             Self::HevcQsvQualityInput => c.hevc_qsv_quality_area,
             Self::HevcQsvPresetInput => c.hevc_qsv_preset_area,
             Self::HevcQsvLookaheadInput => c.hevc_qsv_lookahead_area,

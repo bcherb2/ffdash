@@ -72,6 +72,11 @@ pub fn applies(field: ConfigFocus, codec: CodecSelection, backend: Backend) -> b
         // own focus variants here with `hevc && backend == Backend::Hardware(<vendor>)`.
         HevcX265PresetDropdown | HevcX265TuneDropdown => hevc && software,
 
+        // hevc_nvenc
+        HevcNvencPresetSlider
+        | HevcNvencCqSlider
+        | HevcNvencLookaheadInput
+        | HevcNvencBFramesInput => hevc && backend == Backend::Hardware(GpuVendor::Nvidia),
         // hevc_qsv: quality, preset, lookahead and b-frames (Intel Quick Sync)
         HevcQsvQualityInput | HevcQsvPresetInput | HevcQsvLookaheadInput | HevcQsvBFramesInput => {
             hevc && backend == Backend::Hardware(GpuVendor::Intel)
@@ -595,6 +600,53 @@ mod tests {
                 "{f:?} must have no hit area on hardware"
             );
             assert!(!tab_order(&hw).contains(&f), "{f:?} must be skipped by Tab");
+        }
+    }
+
+    const NVENC_CONTROLS: [ConfigFocus; 4] = [
+        HevcNvencPresetSlider,
+        HevcNvencCqSlider,
+        HevcNvencLookaheadInput,
+        HevcNvencBFramesInput,
+    ];
+
+    #[test]
+    fn hevc_nvenc_controls_apply_only_to_hevc_on_nvidia_hardware() {
+        for f in NVENC_CONTROLS {
+            assert!(applies(f, CodecSelection::Hevc, NVIDIA), "{f:?}");
+            assert!(!applies(f, CodecSelection::Hevc, SW), "{f:?}");
+            assert!(!applies(f, CodecSelection::Hevc, INTEL), "{f:?}");
+            assert!(!applies(f, CodecSelection::Hevc, AMD), "{f:?}");
+            assert!(!applies(f, CodecSelection::Av1, NVIDIA), "{f:?}");
+            assert!(!applies(f, CodecSelection::Vp9, NVIDIA), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn hevc_nvenc_shows_only_its_settings() {
+        let mut nv = state_for(CodecSelection::Hevc, true);
+        nv.gpu_vendor = GpuVendor::Nvidia;
+        let text = render_text(&mut nv);
+        assert!(text.contains("NVENC Preset"), "{text}");
+        assert!(text.contains("NVENC CQ"), "{text}");
+        for f in NVENC_CONTROLS {
+            assert!(f.area(&nv).is_some(), "{f:?} should be clickable");
+            assert!(tab_order(&nv).contains(&f), "{f:?} should be in Tab order");
+        }
+        // libx265 and AV1 hardware controls stay off
+        assert!(HevcX265PresetDropdown.area(&nv).is_none());
+        assert!(Av1HwCqSlider.area(&nv).is_none());
+
+        // Software HEVC and non-NVIDIA hardware hide them
+        let mut sw = state_for(CodecSelection::Hevc, false);
+        render_text(&mut sw);
+        let mut intel = state_for(CodecSelection::Hevc, true);
+        intel.gpu_vendor = GpuVendor::Intel;
+        render_text(&mut intel);
+        for f in NVENC_CONTROLS {
+            assert!(f.area(&sw).is_none(), "{f:?} on software");
+            assert!(f.area(&intel).is_none(), "{f:?} on Intel");
+            assert!(!tab_order(&sw).contains(&f));
         }
     }
 

@@ -560,6 +560,7 @@ impl HelpModal {
             Line::from("  Range: 0-63 • Lower = better quality, larger files"),
             Line::from("  VP9 CRF 31 ≈ x264 CRF 23 (different scales!)"),
             Line::from("  HEVC (libx265): 0-51, default 28 (≈ x264 CRF scale)"),
+            Line::from("  HEVC (NVENC): CQ 0-51, default 28, lower = better"),
             Line::from("  HEVC (Intel QSV): -q:v 1-51, default 26 (lower = better)"),
             Line::from("  Recommended: 28-30 (high), 30-33 (good), 34-36 (lower)"),
             Line::from(""),

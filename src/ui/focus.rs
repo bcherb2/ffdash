@@ -82,6 +82,12 @@ pub enum ConfigFocus {
     HevcX265PresetDropdown,
     HevcX265TuneDropdown,
 
+    // HEVC hardware settings (hevc_nvenc)
+    HevcNvencPresetSlider,
+    HevcNvencCqSlider,
+    HevcNvencLookaheadInput,
+    HevcNvencBFramesInput,
+
     // HEVC QSV settings (hevc_qsv)
     HevcQsvQualityInput,
     HevcQsvPresetInput,
@@ -193,7 +199,11 @@ impl ConfigFocus {
             Self::Av1HwTileColsInput => Self::Av1HwTileRowsInput,
             Self::Av1HwTileRowsInput => Self::HevcX265PresetDropdown,
             Self::HevcX265PresetDropdown => Self::HevcX265TuneDropdown,
-            Self::HevcX265TuneDropdown => Self::HevcQsvQualityInput,
+            Self::HevcX265TuneDropdown => Self::HevcNvencPresetSlider,
+            Self::HevcNvencPresetSlider => Self::HevcNvencCqSlider,
+            Self::HevcNvencCqSlider => Self::HevcNvencLookaheadInput,
+            Self::HevcNvencLookaheadInput => Self::HevcNvencBFramesInput,
+            Self::HevcNvencBFramesInput => Self::HevcQsvQualityInput,
             Self::HevcQsvQualityInput => Self::HevcQsvPresetInput,
             Self::HevcQsvPresetInput => Self::HevcQsvLookaheadInput,
             Self::HevcQsvLookaheadInput => Self::HevcQsvBFramesInput,
@@ -289,7 +299,11 @@ impl ConfigFocus {
             Self::Av1HwTileRowsInput => Self::Av1HwTileColsInput,
             Self::HevcX265PresetDropdown => Self::Av1HwTileRowsInput,
             Self::HevcX265TuneDropdown => Self::HevcX265PresetDropdown,
-            Self::HevcQsvQualityInput => Self::HevcX265TuneDropdown,
+            Self::HevcNvencPresetSlider => Self::HevcX265TuneDropdown,
+            Self::HevcNvencCqSlider => Self::HevcNvencPresetSlider,
+            Self::HevcNvencLookaheadInput => Self::HevcNvencCqSlider,
+            Self::HevcNvencBFramesInput => Self::HevcNvencLookaheadInput,
+            Self::HevcQsvQualityInput => Self::HevcNvencBFramesInput,
             Self::HevcQsvPresetInput => Self::HevcQsvQualityInput,
             Self::HevcQsvLookaheadInput => Self::HevcQsvPresetInput,
             Self::HevcQsvBFramesInput => Self::HevcQsvLookaheadInput,

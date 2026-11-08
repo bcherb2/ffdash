@@ -1562,6 +1562,39 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 state.config.is_modified = true;
             }
         }
+        // hevc_nvenc settings
+        ConfigFocus::HevcNvencPresetSlider => {
+            let old: u32 = state.config.hevc.hw_preset.parse().unwrap_or(4).clamp(1, 7);
+            let new = step_value(key.code, old, 1, 7);
+            if new != old {
+                state.config.hevc.hw_preset = new.to_string();
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HevcNvencCqSlider => {
+            let old = state.config.hevc.nvenc_quality.min(51);
+            let new = step_value(key.code, old, 0, 51);
+            if new != old {
+                state.config.hevc.nvenc_quality = new;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HevcNvencLookaheadInput => {
+            let old = state.config.hevc.hw_lookahead.min(32);
+            let new = step_value(key.code, old, 0, 32);
+            if new != old {
+                state.config.hevc.hw_lookahead = new;
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HevcNvencBFramesInput => {
+            let old = state.config.hevc.hw_b_frames.min(4);
+            let new = step_value(key.code, old, 0, 4);
+            if new != old {
+                state.config.hevc.hw_b_frames = new;
+                state.config.is_modified = true;
+            }
+        }
         ConfigFocus::Av1FilmGrainSlider => {
             let old_value = state.config.av1_film_grain;
             match key.code {
@@ -3771,9 +3804,73 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
         if let Some(area) = config.av1_hw_tile_rows_area {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::Av1HwTileRowsInput;
+                return;
+            }
+        }
+
+        // hevc_nvenc settings
+        if let Some(area) = config.hevc_nvenc_preset_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::HevcNvencPresetSlider;
+                if let Some(v) = slider_click_value(mouse, area, 1, 7) {
+                    config.hevc.hw_preset = v.to_string();
+                    config.is_modified = true;
+                }
+                return;
+            }
+        }
+
+        if let Some(area) = config.hevc_nvenc_cq_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::HevcNvencCqSlider;
+                if let Some(v) = slider_click_value(mouse, area, 0, 51) {
+                    config.hevc.nvenc_quality = v;
+                    config.is_modified = true;
+                }
+                return;
+            }
+        }
+
+        if let Some(area) = config.hevc_nvenc_lookahead_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::HevcNvencLookaheadInput;
+                return;
+            }
+        }
+
+        if let Some(area) = config.hevc_nvenc_b_frames_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::HevcNvencBFramesInput;
             }
         }
     }
+}
+
+/// New value after a Left/Right/Home/End key on a bounded numeric control.
+fn step_value(code: KeyCode, current: u32, min: u32, max: u32) -> u32 {
+    match code {
+        KeyCode::Left => current.saturating_sub(1).max(min),
+        KeyCode::Right => (current + 1).min(max),
+        KeyCode::Home => min,
+        KeyCode::End => max,
+        _ => current,
+    }
+}
+
+/// The value a click on a slider's bar line selects, if the click hit the bar.
+fn slider_click_value(
+    mouse: crossterm::event::MouseEvent,
+    area: ratatui::layout::Rect,
+    min: u32,
+    max: u32,
+) -> Option<u32> {
+    if mouse.row != area.y + 1 || mouse.column < area.x || mouse.column >= area.x + area.width {
+        return None;
+    }
+    let click_x = mouse.column.saturating_sub(area.x);
+    let ratio = (click_x as f64) / (area.width as f64).max(1.0);
+    let range = (max - min) as f64;
+    Some((ratio * range + min as f64).clamp(min as f64, max as f64) as u32)
 }
 
 // Helper function to check if mouse is within table area

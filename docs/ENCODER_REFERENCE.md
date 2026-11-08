@@ -34,7 +34,22 @@ Called "HEVC" everywhere (H.265 is an alias). Each Encoder has its own quality f
 
 `hevc_qsv` is only used when its Probe Encode passes. On Linux a failed QSV initialisation retries with `hevc_vaapi`, like the other QSV Encoders. The built-in profile is `hevc-qsv`.
 
-The other hardware HEVC Encoders (`hevc_nvenc`, `hevc_vaapi`, `hevc_amf`, `hevc_videotoolbox`) get a column each as they are added.
+### hevc_nvenc (NVIDIA NVENC, Linux and Windows)
+
+| Parameter        | hevc_nvenc                 |
+|------------------|----------------------------|
+| Quality knob     | `-rc vbr -cq 0–51 -b:v 0` (default 28, lower = better; `-b:v 0` removes the bitrate cap so `-cq` alone decides quality) |
+| Speed knob       | `-preset p1`–`p7` (p1 fastest, p7 best); the shared hardware preset 1–7 is inverted onto it (default 4 = p4) |
+| Lookahead        | `-rc-lookahead` 0–32 (0 omits the flag) |
+| B-frames         | `-bf` 0–4 (default 2) |
+| Bit depth        | 8/10: 10-bit adds `-pix_fmt p010le -profile:v main10` |
+| HDR10            | colour flags (`-colorspace`, `-color_primaries`, `-color_trc`, `-color_range`); mastering display and content light level carried from the source |
+| MP4              | always `-tag:v hvc1`       |
+| Decoding         | Linux: `-hwaccel cuda`; Windows: CPU decode |
+| Availability     | Probe Encode (`-rc vbr -cq 30 -b:v 0`, plus a Main10 probe) |
+| Auto-VMAF        | CQ searched downward from the configured value to 5 |
+
+The other hardware HEVC Encoders (`hevc_vaapi`, `hevc_amf`, `hevc_videotoolbox`) get a section each as they are added.
 
 ## VP9 Encoders
 

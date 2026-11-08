@@ -150,8 +150,14 @@ fn hevc_is_software_only_until_hardware_encoders_land() {
 
 #[test]
 fn hevc_nvenc_is_the_first_hardware_choice() {
-    assert_eq!(CodecKind::Hevc.hardware_priority().first(), Some(&HevcNvenc));
+    assert_eq!(
+        CodecKind::Hevc.hardware_priority().first(),
+        Some(&HevcNvenc)
+    );
     let a = avail(&[Libx265, HevcNvenc]);
-    assert_eq!(select_encoder(CodecKind::Hevc, true, None, 8, &a), HevcNvenc);
+    assert_eq!(
+        select_encoder(CodecKind::Hevc, true, None, 8, &a),
+        HevcNvenc
+    );
     assert_eq!(select_encoder(CodecKind::Hevc, false, None, 8, &a), Libx265);
 }

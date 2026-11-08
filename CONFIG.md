@@ -76,6 +76,7 @@ Pick **HEVC** in the Video Codec dropdown (or the built-in `hevc-x265` profile) 
 - **Quality**: x265 CRF, 0-51 (default 28), set with the CRF slider. HEVC hardware Encoders keep their own quality values, each on its own scale.
 - **Intel Quick Sync (`hevc_qsv`, built-in profile `hevc-qsv`)**: Linux and Windows. Quality is `-q:v` (CQP, 1-51, default 26); Preset 1-7, Look-ahead depth (0 = off) and B-frames apply too. Used when its Probe Encode passes.
 - **Preset / Tune**: x265 preset (`ultrafast` to `veryslow`, default `medium`) and optional tune. These controls apply to `libx265` only and are greyed out when a hardware Encoder is selected.
+- **NVIDIA NVENC** (`hevc_nvenc`, built-in profile `hevc-nvenc`): with hardware encoding on and an NVIDIA GPU, the panel shows NVENC Preset (1 = best quality, 7 = fastest), NVENC CQ (0-51, default 28, lower = better), Lookahead (0-32) and B-Frames (0-4). It is used only when its Probe Encode passes.
 - **Main10 / HDR10**: choose a 10-bit Bit Depth. With an HDR10 colour space the colour primaries, transfer and matrix are written to the stream, and mastering display / content light level are carried over from the source.
 - **Container**: MKV is the default and MP4 is selectable (always tagged `hvc1` so QuickTime and Apple players open it). WebM cannot hold HEVC and is not selectable.
 
