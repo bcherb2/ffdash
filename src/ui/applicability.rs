@@ -338,6 +338,51 @@ mod tests {
         assert_matches_builder(&args, CodecSelection::Av1);
     }
 
+    #[test]
+    fn applies_matches_flags_the_hevc_software_builder_emits() {
+        let profile = exercised(Profile::get("hevc-x265"));
+        let args = emitted_flags(&software_cmd(&profile, VideoEncoder::Libx265));
+        assert_matches_builder(&args, CodecSelection::Hevc);
+    }
+
+    #[test]
+    fn x265_controls_apply_only_to_hevc_software() {
+        for f in [HevcX265PresetDropdown, HevcX265TuneDropdown] {
+            assert!(applies(f, CodecSelection::Hevc, SW), "{f:?}");
+            for hw in [INTEL, NVIDIA, AMD] {
+                assert!(!applies(f, CodecSelection::Hevc, hw), "{f:?} {hw:?}");
+            }
+            assert!(!applies(f, CodecSelection::Vp9, SW), "{f:?}");
+            assert!(!applies(f, CodecSelection::Av1, SW), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn vp9_and_av1_controls_are_greyed_for_hevc() {
+        for f in [
+            RowMtCheckbox,
+            AqModeDropdown,
+            TwoPassCheckbox,
+            Av1PresetSlider,
+            Av1TuneDropdown,
+            Av1HwCqSlider,
+            QsvGlobalQualitySlider,
+            HwDenoiseInput,
+        ] {
+            for backend in [SW, INTEL, NVIDIA] {
+                assert!(
+                    !applies(f, CodecSelection::Hevc, backend),
+                    "{f:?} {backend:?}"
+                );
+            }
+        }
+        // shared controls stay active
+        for f in [GopLengthInput, PixFmtDropdown, ColorSpacePresetDropdown] {
+            assert!(applies(f, CodecSelection::Hevc, SW), "{f:?}");
+            assert!(applies(f, CodecSelection::Hevc, NVIDIA), "{f:?}");
+        }
+    }
+
     // ---- Rendering: inactive controls are greyed, not focusable ------------
 
     use crate::ui::{ConfigScreen, state::ConfigState, tab_order::tab_order};
@@ -475,6 +520,31 @@ mod tests {
         assert!(two_pass.is_some(), "greyed 2-Pass row is missing");
         assert!(vmaf.is_some(), "Auto-VMAF row is missing");
         assert_ne!(two_pass, vmaf);
+    }
+
+    #[test]
+    fn hevc_software_shows_x265_controls_and_hardware_greys_them() {
+        let mut sw = state_for(CodecSelection::Hevc, false);
+        let text = render_text(&mut sw);
+        assert!(text.contains("Preset:"), "x265 preset row missing");
+        assert!(text.contains("Bit Depth:"));
+        for f in [HevcX265PresetDropdown, HevcX265TuneDropdown] {
+            assert!(f.area(&sw).is_some(), "{f:?} should be clickable");
+            assert!(tab_order(&sw).contains(&f), "{f:?} should be in Tab order");
+        }
+        // VP9-only rows are greyed for HEVC
+        assert!(RowMtCheckbox.area(&sw).is_none());
+
+        let mut hw = state_for(CodecSelection::Hevc, true);
+        hw.gpu_vendor = GpuVendor::Nvidia;
+        render_text(&mut hw);
+        for f in [HevcX265PresetDropdown, HevcX265TuneDropdown] {
+            assert!(
+                f.area(&hw).is_none(),
+                "{f:?} must have no hit area on hardware"
+            );
+            assert!(!tab_order(&hw).contains(&f), "{f:?} must be skipped by Tab");
+        }
     }
 
     #[test]

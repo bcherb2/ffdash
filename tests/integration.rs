@@ -36,3 +36,9 @@ mod dropdown_roundtrip;
 
 #[path = "integration/av1_commands.rs"]
 mod av1_commands;
+
+#[path = "integration/hevc_config.rs"]
+mod hevc_config;
+
+#[path = "integration/hevc_parameter_coverage.rs"]
+mod hevc_parameter_coverage;

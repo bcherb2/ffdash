@@ -368,6 +368,7 @@ impl HelpModal {
             Line::from("  Output container format"),
             Line::from("  Options: webm, mp4, mkv, avi"),
             Line::from("  Recommended: webm for VP9 • Impact: Compatibility"),
+            Line::from("  HEVC: mkv by default, mp4 is tagged hvc1; webm is not available"),
             Line::from(""),
             Line::from(vec![Span::styled(
                 "FPS (Frame Rate Limit)",
@@ -558,6 +559,7 @@ impl HelpModal {
             Line::from("  Controls quality-to-compression ratio"),
             Line::from("  Range: 0-63 • Lower = better quality, larger files"),
             Line::from("  VP9 CRF 31 ≈ x264 CRF 23 (different scales!)"),
+            Line::from("  HEVC (libx265): 0-51, default 28 (≈ x264 CRF scale)"),
             Line::from("  Recommended: 28-30 (high), 30-33 (good), 34-36 (lower)"),
             Line::from(""),
             Line::from(vec![Span::styled(

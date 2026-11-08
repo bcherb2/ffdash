@@ -1,6 +1,6 @@
 # ffdash
 
-A terminal UI for batch VP9/AV1 video encoding with hardware acceleration, real-time progress monitoring, and full control over quality settings. Made to work as a dashboard over SSH.
+A terminal UI for batch VP9/AV1/HEVC video encoding with hardware acceleration, real-time progress monitoring, and full control over quality settings. Made to work as a dashboard over SSH.
 
 https://github.com/user-attachments/assets/f7551d5f-fe6c-4a13-81e2-92a5e2bb42c2
 
@@ -21,9 +21,11 @@ https://github.com/user-attachments/assets/f7551d5f-fe6c-4a13-81e2-92a5e2bb42c2
 
 ![stats](https://github.com/user-attachments/assets/44fa1a89-e541-4557-9dc0-81463c5567e5)
 
-### Why VP9/AV1?
+### Why VP9/AV1/HEVC?
 
 **VP9** delivers 20-50% smaller files than H.264 at equivalent quality. **AV1** is the next-generation codec offering slightly better compression than VP9. Both are open-source, royalty-free, and natively supported by YouTube, all modern browsers, and media servers like Plex and Jellyfin.
+
+**HEVC** (also known as H.265) is the choice when the files must play on TVs, Apple devices, or other players without AV1 or VP9 support. ffdash encodes it with `libx265` (Main and Main10, HDR10 kept), writes MKV by default, and tags MP4 output `hvc1` so QuickTime and Apple players open it. WebM cannot hold HEVC, so it is not offered with this codec.
 
 Typical file sizes:
 - **1080p TV episode**: ~200-400 MB
@@ -70,7 +72,7 @@ On Windows and macOS, input is decoded on the CPU and handed to the Hardware Enc
 Verify hardware support:
 ```bash
 ffdash check-vaapi                    # Intel/AMD VA-API
-ffmpeg -encoders | grep -E "vp9|av1"  # List available VP9/AV1 encoders
+ffmpeg -encoders | grep -E "vp9|av1|265|hevc"  # List available VP9/AV1/HEVC encoders
 ```
 
 ## Installation
@@ -318,6 +320,9 @@ ffmpeg -h encoder=libsvtav1     # Software AV1 (SVT-AV1)
 ffmpeg -h encoder=av1_qsv       # Intel Quick Sync AV1
 ffmpeg -h encoder=av1_nvenc     # NVIDIA NVENC AV1
 ffmpeg -h encoder=av1_vaapi     # VA-API AV1
+
+# HEVC encoders
+ffmpeg -h encoder=libx265       # Software HEVC (x265)
 ```
 
 
@@ -325,6 +330,7 @@ ffmpeg -h encoder=av1_vaapi     # VA-API AV1
 #### Encoding
 - [x] VP9 software encoding (libvpx-vp9)
 - [x] AV1 software encoding (SVT-AV1)
+- [x] HEVC software encoding (libx265, Main10/HDR10)
 - [x] Intel QSV hardware encoding (VP9, AV1)
 - [x] Intel/AMD VA-API hardware encoding (VP9, AV1)
 - [x] NVIDIA NVENC hardware encoding (AV1)

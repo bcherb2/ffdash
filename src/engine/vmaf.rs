@@ -786,20 +786,6 @@ fn get_baseline_quality(profile: &Profile, plan: &EncodePlan) -> u32 {
     profile.active_quality(plan.encoder)
 }
 
-/// Get quality floor for the encoder type
-///
-/// Returns the minimum quality setting we'll try.
-/// Going lower than this produces diminishing returns.
-///
-/// # Arguments
-/// * `plan` - The Encode Plan
-///
-/// # Returns
-/// The quality floor value
-fn get_quality_floor(plan: &EncodePlan) -> u32 {
-    quality_search(plan.encoder).best
-}
-
 /// How Auto-VMAF searches an Encoder's own quality scale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QualitySearch {
@@ -1301,11 +1287,11 @@ mod tests {
     fn test_get_quality_floor() {
         use crate::engine::hardware::VideoEncoder;
         assert_eq!(
-            get_quality_floor(&EncodePlan::new(VideoEncoder::LibvpxVp9)),
+            quality_search(VideoEncoder::LibvpxVp9).best,
             SOFTWARE_QUALITY_FLOOR
         );
         assert_eq!(
-            get_quality_floor(&EncodePlan::new(VideoEncoder::Vp9Vaapi)),
+            quality_search(VideoEncoder::Vp9Vaapi).best,
             HARDWARE_QUALITY_FLOOR
         );
     }

@@ -121,7 +121,10 @@ fn stepping_the_container_dropdown_skips_webm_for_hevc() {
         3
     );
     // other codecs still reach webm
-    assert_eq!(options::next_container_idx(CodecSelection::Av1, 1, false), 0);
+    assert_eq!(
+        options::next_container_idx(CodecSelection::Av1, 1, false),
+        0
+    );
 }
 
 #[test]

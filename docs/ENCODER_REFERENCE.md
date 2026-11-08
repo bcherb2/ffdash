@@ -13,6 +13,23 @@ Hardware Encoders are available on Linux (VAAPI, QSV, NVENC), Windows (NVENC, QS
 | Film grain       | film-grain 0–50       | n/a                             | n/a                             | n/a                             |
 | Bit depth        | 8/10                  | 8/10                            | 8/10                            | 8/10                            |
 
+## HEVC Encoders
+
+Called "HEVC" everywhere (H.265 is an alias). Each Encoder has its own quality field on its own scale; Auto-VMAF replaces only the active Encoder's field (the Quality Override).
+
+| Parameter        | libx265                    |
+|------------------|----------------------------|
+| Quality knob     | crf 0–51 (default 28)      |
+| Speed knob       | preset ultrafast–veryslow  |
+| Tuning           | tune none/psnr/ssim/grain/zerolatency/fastdecode/animation |
+| Bit depth        | 8/10 (10 = Main10)         |
+| HDR10            | colour flags + `-x265-params hdr10=1:hdr10-opt=1:repeat-headers=1`; mastering display and content light level carried from the source |
+| MP4              | always `-tag:v hvc1`       |
+| Container        | MKV default, MP4 selectable, WebM not allowed |
+| Auto-VMAF        | CRF searched downward from the configured value to 10 |
+
+The hardware HEVC Encoders (`hevc_nvenc`, `hevc_qsv`, `hevc_vaapi`, `hevc_amf`, `hevc_videotoolbox`) get a column each as they are added.
+
 ## VP9 Encoders
 
 | Parameter        | libvpx-vp9            | vp9_vaapi                       | vp9_qsv                         |

@@ -69,6 +69,15 @@ The `additional_args` field is saved with profiles, so you can create specialize
 
 Saved profiles still load, but the old top-level `hw_*` fields (`hw_rc_mode`, `hw_global_quality`, `hw_b_frames`, `hw_loop_filter_level`, `hw_loop_filter_sharpness`, `hw_compression_level`) are now ignored. The VP9 VAAPI settings live in the VP9 codec config, so on profiles saved before this change they reset to their defaults. Re-apply any custom values in the config panel and save the profile again.
 
+## HEVC
+
+Pick **HEVC** in the Video Codec dropdown (or the built-in `hevc-x265` profile) to encode with `libx265`.
+
+- **Quality**: x265 CRF, 0-51 (default 28), set with the CRF slider. HEVC hardware Encoders keep their own quality values, each on its own scale.
+- **Preset / Tune**: x265 preset (`ultrafast` to `veryslow`, default `medium`) and optional tune. These controls apply to `libx265` only and are greyed out when a hardware Encoder is selected.
+- **Main10 / HDR10**: choose a 10-bit Bit Depth. With an HDR10 colour space the colour primaries, transfer and matrix are written to the stream, and mastering display / content light level are carried over from the source.
+- **Container**: MKV is the default and MP4 is selectable (always tagged `hvc1` so QuickTime and Apple players open it). WebM cannot hold HEVC and is not selectable.
+
 ## Auto-VMAF Settings
 
 Auto-VMAF calibrates encoder quality to achieve a target perceptual quality score (VMAF).
@@ -98,8 +107,8 @@ These settings are not exposed in the TUI. Edit `~/.config/ffdash/profiles/*.tom
 
 Auto-VMAF only works with quality-based rate control modes:
 
-- ✅ **Software VP9/AV1**: CQ (constant quality), CQCap (CQ with max bitrate ceiling)
-- ✅ **Hardware VP9/AV1**: CQP mode only
+- ✅ **Software VP9/AV1/HEVC**: CQ (constant quality), CQCap (CQ with max bitrate ceiling)
+- ✅ **Hardware VP9/AV1/HEVC**: constant-quality modes only (CQP)
 - ❌ **Not supported**: VBR, CBR bitrate modes
 
 When enabled with an incompatible mode, Auto-VMAF is silently skipped and encoding proceeds with baseline settings.
