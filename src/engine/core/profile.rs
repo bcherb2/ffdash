@@ -816,6 +816,21 @@ impl Profile {
         }
     }
 
+    /// The *active Encoder's* own configured quality (what a Quality Override replaces).
+    pub fn active_quality(&self, encoder: VideoEncoder) -> u32 {
+        match (&self.codec, encoder) {
+            (Codec::Vp9(vp9), VideoEncoder::Vp9Qsv | VideoEncoder::Vp9Vaapi) => {
+                vp9.hw_global_quality
+            }
+            (Codec::Av1(av1), VideoEncoder::LibsvtAv1 | VideoEncoder::LibaomAv1) => av1.svt_crf,
+            (Codec::Av1(av1), VideoEncoder::Av1Qsv) => av1.qsv_cq,
+            (Codec::Av1(av1), VideoEncoder::Av1Nvenc) => av1.nvenc_cq,
+            (Codec::Av1(av1), VideoEncoder::Av1Vaapi) => av1.vaapi_cq,
+            (Codec::Av1(av1), VideoEncoder::Av1Amf) => av1.hw_cq,
+            _ => self.crf,
+        }
+    }
+
     /// Synchronize legacy fields from the codec-specific configuration.
     ///
     /// This ensures video_codec, crf, hw_global_quality, and other legacy fields

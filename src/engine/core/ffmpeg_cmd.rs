@@ -240,15 +240,10 @@ pub fn two_pass_log_prefix(job: &VideoJob) -> PathBuf {
         .join("ffmpeg2pass")
 }
 
-fn should_use_two_pass_software_vp9(
-    profile: &Profile,
-    plan: &EncodePlan,
-    hw_config: Option<&HwEncodingConfig>,
-) -> bool {
+fn should_use_two_pass_software_vp9(profile: &Profile, plan: &EncodePlan) -> bool {
     // A profile that asked for hardware never gets two-pass, even when the plan fell
     // back to the software Encoder (unchanged from before the Encode Plan).
     !plan.uses_hardware()
-        && hw_config.is_none()
         && !profile.use_hardware_encoding
         && matches!(profile.codec, Codec::Vp9(_))
         && profile.two_pass
@@ -300,17 +295,17 @@ fn resolve_profile(job: &VideoJob, profile_override: Option<&Profile>) -> Profil
 }
 
 /// Validates VAAPI encoding configuration for known incompatibilities
-pub fn validate_vaapi_config(profile: &Profile, hw: &HwEncodingConfig) -> Result<(), String> {
-    // Validate quality range (1-255, where lower=better quality/bigger files)
-    if hw.global_quality < 1 || hw.global_quality > 255 {
+pub fn validate_vaapi_config(profile: &Profile, plan: &EncodePlan) -> Result<(), String> {
+    // Validate the active Encoder's quality range (1-255, lower=better quality/bigger files)
+    let quality = plan
+        .quality_override
+        .unwrap_or(profile.active_quality(plan.encoder));
+    if !(1..=255).contains(&quality) {
         return Err(format!(
             "VAAPI quality must be 1-255 (lower=better/bigger, higher=worse/smaller), got {}",
-            hw.global_quality
+            quality
         ));
     }
-
-    // Mark unused parameter so future refactors can extend validation.
-    let _ = profile;
     Ok(())
 }
 
@@ -318,11 +313,12 @@ pub fn validate_vaapi_config(profile: &Profile, hw: &HwEncodingConfig) -> Result
 fn build_vaapi_cmd(
     job: &VideoJob,
     profile: &Profile,
+    plan: &EncodePlan,
     hw: &HwEncodingConfig,
     cpu_decode: bool,
 ) -> Command {
     // Validate configuration (log warning if invalid)
-    if let Err(msg) = validate_vaapi_config(profile, hw) {
+    if let Err(msg) = validate_vaapi_config(profile, plan) {
         let _ = write_debug_log(&format!("[VAAPI] WARNING: {}\n", msg));
     }
 
@@ -769,12 +765,7 @@ where
 }
 
 /// Build VP9 QSV (Intel Quick Sync) encoding command
-fn build_vp9_qsv_cmd(
-    job: &VideoJob,
-    profile: &Profile,
-    hw_config: Option<&HwEncodingConfig>,
-    cpu_decode: bool,
-) -> Command {
+fn build_vp9_qsv_cmd(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Command {
     let mut cmd = Command::new("ffmpeg");
 
     init_qsv_from_vaapi(&mut cmd, cpu_decode);
@@ -876,13 +867,11 @@ fn build_vp9_qsv_cmd(
     cmd.arg("-low_power").arg("1");
 
     // Read quality from codec config (source of truth)
-    let quality = hw_config.map(|h| h.global_quality).unwrap_or_else(|| {
-        profile
-            .codec
-            .as_vp9()
-            .map(|vp9| vp9.hw_global_quality)
-            .unwrap_or(profile.hw_global_quality) // Final fallback to synced value
-    });
+    let quality = profile
+        .codec
+        .as_vp9()
+        .map(|vp9| vp9.hw_global_quality)
+        .unwrap_or(profile.hw_global_quality); // Final fallback to synced value
     // Use -q:v to force CQP mode. The combination "-global_quality -b:v 0" causes FFmpeg
     // to select ICQ mode, which is broken on Intel Arc (error -17: device failed).
     // This is the same issue as AV1 QSV (documented in docs/AV1_QSV_NOTES.md).
@@ -1731,24 +1720,18 @@ fn build_av1_vaapi_cmd(job: &VideoJob, profile: &Profile) -> Command {
 
 /// Dispatch a single (already synced, override-applied) profile to the builder for the
 /// plan's Encoder.
-fn build_single_cmd(
-    job: &VideoJob,
-    profile: &Profile,
-    plan: &EncodePlan,
-    hw_config: Option<&HwEncodingConfig>,
-) -> Command {
+fn build_single_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePlan) -> Command {
     let cpu_decode = plan.host.decodes_on_cpu();
     match &profile.codec {
         Codec::Vp9(_) => match plan.encoder {
-            hardware::VideoEncoder::Vp9Qsv => {
-                build_vp9_qsv_cmd(job, profile, hw_config, cpu_decode)
-            }
-            hardware::VideoEncoder::Vp9Vaapi => {
-                let effective_hw = hw_config
-                    .cloned()
-                    .unwrap_or_else(|| hw_config_from_profile(profile));
-                build_vaapi_cmd(job, profile, &effective_hw, cpu_decode)
-            }
+            hardware::VideoEncoder::Vp9Qsv => build_vp9_qsv_cmd(job, profile, cpu_decode),
+            hardware::VideoEncoder::Vp9Vaapi => build_vaapi_cmd(
+                job,
+                profile,
+                plan,
+                &hw_config_from_profile(profile),
+                cpu_decode,
+            ),
             _ => build_software_cmd(job, profile),
         },
         Codec::Av1(_) => match plan.encoder {
@@ -1770,25 +1753,23 @@ fn build_single_cmd(
 /// The profile is used as given: legacy root fields are not re-synced from the codec
 /// config, so callers pass a profile that is already consistent.
 pub fn build_encode_cmds(job: &VideoJob, profile: &Profile, plan: &EncodePlan) -> Vec<Command> {
-    build_cmds_inner(job, profile, plan, None, false)
+    build_cmds_inner(job, profile, plan, false)
 }
 
-/// Like [`build_encode_cmds`], but with explicit VP9 VAAPI/QSV settings from a legacy
-/// `HwEncodingConfig`. Temporary until `HwEncodingConfig` is removed (ADR 0002).
-pub(crate) fn build_encode_cmds_with_hw(
+/// Like [`build_encode_cmds`], but first re-syncs the profile's legacy root fields from
+/// its codec config (production paths, where the profile may be stale).
+pub(crate) fn build_encode_cmds_synced(
     job: &VideoJob,
     profile: &Profile,
     plan: &EncodePlan,
-    hw_config: Option<&HwEncodingConfig>,
 ) -> Vec<Command> {
-    build_cmds_inner(job, profile, plan, hw_config, true)
+    build_cmds_inner(job, profile, plan, true)
 }
 
 fn build_cmds_inner(
     job: &VideoJob,
     profile: &Profile,
     plan: &EncodePlan,
-    hw_config: Option<&HwEncodingConfig>,
     sync_legacy: bool,
 ) -> Vec<Command> {
     let mut profile = profile.clone();
@@ -1798,15 +1779,11 @@ fn build_cmds_inner(
         profile.sync_legacy_fields();
     }
 
-    let mut hw_config = hw_config.cloned();
     if let Some(quality) = plan.quality_override {
         profile.apply_quality_override(plan.encoder, quality);
-        if let Some(hw) = hw_config.as_mut() {
-            hw.global_quality = quality;
-        }
     }
 
-    if should_use_two_pass_software_vp9(&profile, plan, hw_config.as_ref()) {
+    if should_use_two_pass_software_vp9(&profile, plan) {
         let passlog_prefix = two_pass_log_prefix(job);
         let pass1_output = Path::new(null_output_target());
 
@@ -1844,7 +1821,7 @@ fn build_cmds_inner(
         }
     }
 
-    vec![build_single_cmd(job, &profile, plan, hw_config.as_ref())]
+    vec![build_single_cmd(job, &profile, plan)]
 }
 
 /// Build the ffmpeg command(s) for a job, resolving its profile by name and selecting
@@ -1980,6 +1957,14 @@ pub fn encode_job(job: &mut VideoJob) -> Result<()> {
     encode_job_with_callback(job, false, None, |_job, _parser| {})
 }
 
+/// The Encode Plan for a profile: the caller's plan when given, else the Encoder
+/// selected for this machine.
+fn plan_for(plan_override: Option<&EncodePlan>, profile: &Profile) -> EncodePlan {
+    plan_override
+        .copied()
+        .unwrap_or_else(|| EncodePlan::for_profile(profile, false))
+}
+
 /// Encode a single job with custom progress callback and optional profile override
 /// Callback is called after each progress update with (job, parser)
 /// Set silent=true to suppress console output (for TUI usage)
@@ -1988,7 +1973,7 @@ pub fn encode_job(job: &mut VideoJob) -> Result<()> {
 pub fn encode_job_with_callback_and_profile<F>(
     job: &mut VideoJob,
     silent: bool,
-    hw_config: Option<&HwEncodingConfig>,
+    plan_override: Option<&EncodePlan>,
     profile_override: Option<&Profile>,
     pid_registry: Option<PidRegistry>,
     mut callback: F,
@@ -2055,18 +2040,16 @@ where
             let _ = write_debug_log("[Auto-VAMF] Calibration enabled, starting...");
 
             // Run calibration
+            let calibration_plan = plan_for(plan_override, provided_profile);
             let calibrated_profile = match crate::engine::vmaf::calibrate_quality(
                 job,
                 provided_profile,
-                hw_config,
+                &calibration_plan,
                 &mut callback,
             ) {
                 Ok(result) => {
-                    let baseline_quality = if provided_profile.use_hardware_encoding {
-                        provided_profile.hw_global_quality
-                    } else {
-                        provided_profile.crf
-                    };
+                    let baseline_quality =
+                        provided_profile.active_quality(calibration_plan.encoder);
 
                     let _ = write_debug_log(&format!(
                         "[Auto-VAMF] Calibration complete: {} → {} (VMAF: {:.2})",
@@ -2124,18 +2107,15 @@ where
 
             let _ = write_debug_log("[Auto-VAMF] Calibration enabled, starting...");
 
+            let calibration_plan = plan_for(plan_override, &loaded_profile);
             let calibrated_profile = match crate::engine::vmaf::calibrate_quality(
                 job,
                 &loaded_profile,
-                hw_config,
+                &calibration_plan,
                 &mut callback,
             ) {
                 Ok(result) => {
-                    let baseline_quality = if loaded_profile.use_hardware_encoding {
-                        loaded_profile.hw_global_quality
-                    } else {
-                        loaded_profile.crf
-                    };
+                    let baseline_quality = loaded_profile.active_quality(calibration_plan.encoder);
 
                     let _ = write_debug_log(&format!(
                         "[Auto-VAMF] Calibration complete: {} → {} (VMAF: {:.2})",
@@ -2180,12 +2160,12 @@ where
         Some(p) => p.clone(),
         None => resolve_profile(job, None),
     };
-    let mut plan = EncodePlan::for_profile(&resolved_profile, hw_config.is_some());
+    let mut plan = plan_for(plan_override, &resolved_profile);
     if let Some(calibrated_quality) = job.calibrated_quality {
         plan = plan.with_quality_override(calibrated_quality);
     }
 
-    let cmds = build_encode_cmds_with_hw(job, &resolved_profile, &plan, hw_config);
+    let cmds = build_encode_cmds_synced(job, &resolved_profile, &plan);
 
     let cmd_to_string = |cmd: &Command| -> String {
         format!(
@@ -2320,8 +2300,7 @@ where
             let mut fallback_plan = EncodePlan::new(fallback_encoder);
             fallback_plan.quality_override = plan.quality_override;
             let fallback_cmd =
-                build_encode_cmds_with_hw(job, &resolved_profile, &fallback_plan, hw_config)
-                    .remove(0);
+                build_encode_cmds_synced(job, &resolved_profile, &fallback_plan).remove(0);
 
             let fallback_cmd_strings = vec![cmd_to_string(&fallback_cmd)];
             if !silent {
@@ -2477,13 +2456,13 @@ where
 pub fn encode_job_with_callback<F>(
     job: &mut VideoJob,
     silent: bool,
-    hw_config: Option<&HwEncodingConfig>,
+    plan_override: Option<&EncodePlan>,
     callback: F,
 ) -> Result<()>
 where
     F: FnMut(&VideoJob, &ProgressParser),
 {
-    encode_job_with_callback_and_profile(job, silent, hw_config, None, None, callback)
+    encode_job_with_callback_and_profile(job, silent, plan_override, None, None, callback)
 }
 
 #[cfg(test)]

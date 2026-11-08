@@ -3,8 +3,7 @@
 //! Produces structured results (pretty or JSON) so humans and agents can act on them.
 
 use crate::engine::core::{
-    EncodePlan, HwEncodingConfig, Profile, VideoJob, build_encode_cmds_with_hw, ffmpeg_version,
-    two_pass_log_prefix,
+    EncodePlan, Profile, VideoJob, build_encode_cmds_synced, ffmpeg_version, two_pass_log_prefix,
 };
 use crate::engine::hardware::{self, VideoEncoder};
 use anyhow::{Context, Result, anyhow};
@@ -338,14 +337,8 @@ fn run_profile(
         let _ = fs::create_dir_all(dir);
     }
 
-    let hw_cfg = profile
-        .use_hardware_encoding
-        .then_some(HwEncodingConfig::default());
-    let encoder = hardware::select_encoder(
-        &profile.codec,
-        profile.use_hardware_encoding,
-        Some(&profile.video_codec),
-    );
+    let plan = EncodePlan::for_profile(profile, false);
+    let encoder = plan.encoder;
 
     // Ensure outputs land in temp dir (one file per profile)
     job.output_path = temp_dir.join(format!(
@@ -354,12 +347,7 @@ fn run_profile(
         profile.container.as_str()
     ));
 
-    let mut cmds = build_encode_cmds_with_hw(
-        &job,
-        profile,
-        &EncodePlan::for_profile(profile, hw_cfg.is_some()),
-        hw_cfg.as_ref(),
-    );
+    let mut cmds = build_encode_cmds_synced(&job, profile, &plan);
     let command_text = cmds
         .iter()
         .map(stringify_command)
@@ -449,15 +437,8 @@ fn format_command_preview(profile: &Profile, max_frames: u32, validate_only: boo
     );
     job.overwrite = true;
 
-    let hw_cfg = profile
-        .use_hardware_encoding
-        .then_some(HwEncodingConfig::default());
-    let mut cmds = build_encode_cmds_with_hw(
-        &job,
-        profile,
-        &EncodePlan::for_profile(profile, hw_cfg.is_some()),
-        hw_cfg.as_ref(),
-    );
+    let mut cmds =
+        build_encode_cmds_synced(&job, profile, &EncodePlan::for_profile(profile, false));
     for cmd in cmds.iter_mut() {
         if !validate_only {
             cmd.arg("-frames:v").arg(max_frames.to_string());

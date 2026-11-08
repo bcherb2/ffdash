@@ -13,7 +13,7 @@ mod vp9_config;
 
 pub use av1_config::{Av1Config, Codec};
 pub use encode_plan::{EncodePlan, HostPlatform};
-pub(crate) use ffmpeg_cmd::build_encode_cmds_with_hw;
+pub(crate) use ffmpeg_cmd::build_encode_cmds_synced;
 pub use ffmpeg_cmd::{
     build_encode_cmds, build_ffmpeg_cmds, encode_job, encode_job_with_callback,
     encode_job_with_callback_and_profile, format_ffmpeg_cmd, two_pass_log_prefix,
@@ -463,10 +463,8 @@ mod tests {
 
     #[test]
     fn test_vaapi_command_no_invalid_filter() {
-        use super::{HwEncodingConfig, Profile};
+        use super::Profile;
         use std::path::PathBuf;
-
-        let hw_config = HwEncodingConfig::default();
 
         let mut profile = Profile::get("vp9-good");
         profile.audio_primary_codec = "libopus".to_string();
@@ -502,12 +500,11 @@ mod tests {
             calibrating_completed_steps: 0,
         };
 
-        let cmd = build_encode_cmds_with_hw(
+        let cmd = build_encode_cmds_synced(
             &job,
             &profile,
             &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi)
                 .with_host(HostPlatform::Linux),
-            Some(&hw_config),
         )
         .remove(0);
         let args: Vec<String> = cmd
@@ -562,10 +559,8 @@ mod tests {
 
     #[test]
     fn test_vaapi_command_no_invalid_vbr_flag() {
-        use super::{HwEncodingConfig, Profile};
+        use super::Profile;
         use std::path::PathBuf;
-
-        let hw_config = HwEncodingConfig::default();
 
         let mut profile = Profile::get("vp9-good");
         profile.crf = 31;
@@ -600,12 +595,11 @@ mod tests {
             calibrating_completed_steps: 0,
         };
 
-        let cmd = build_encode_cmds_with_hw(
+        let cmd = build_encode_cmds_synced(
             &job,
             &profile,
             &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi)
                 .with_host(HostPlatform::Linux),
-            Some(&hw_config),
         )
         .remove(0);
         let args: Vec<String> = cmd
@@ -643,11 +637,8 @@ mod tests {
 
     #[test]
     fn test_vaapi_command_vbr_mode() {
-        use super::{HwEncodingConfig, Profile};
+        use super::Profile;
         use std::path::PathBuf;
-
-        let mut hw_config = HwEncodingConfig::default();
-        hw_config.rc_mode = 3; // Explicitly set VBR mode
 
         let mut profile = Profile::get("vp9-good");
         profile.audio_primary_codec = "libopus".to_string();
@@ -685,12 +676,11 @@ mod tests {
             calibrating_completed_steps: 0,
         };
 
-        let cmd = build_encode_cmds_with_hw(
+        let cmd = build_encode_cmds_synced(
             &job,
             &profile,
             &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi)
                 .with_host(HostPlatform::Linux),
-            Some(&hw_config),
         )
         .remove(0);
         let args: Vec<String> = cmd

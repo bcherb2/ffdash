@@ -221,29 +221,21 @@ pub(super) fn spawn_next_job(state: &mut AppState) {
                 let job = enc_state.jobs[idx].clone();
 
                 // Build hardware encoding config if enabled AND available
-                let hw_config = if state.config.use_hardware_encoding
+                // Get profile from enc_state if available
+                let profile = state
+                    .enc_state
+                    .as_ref()
+                    .and_then(|es| es.profile_config.clone());
+
+                // Select the Encoder when hardware is requested AND available; otherwise
+                // the engine selects for the profile (software unless it says otherwise).
+                let plan = if state.config.use_hardware_encoding
                     && state.config.hw_encoding_available == Some(true)
                 {
-                    Some(crate::engine::HwEncodingConfig {
-                        rc_mode: state.config.vaapi_rc_mode.parse().unwrap_or(1), // Default to CQP
-                        global_quality: state.config.qsv_global_quality,
-                        b_frames: state.config.vaapi_b_frames.parse().unwrap_or(0),
-                        loop_filter_level: state
-                            .config
-                            .vaapi_loop_filter_level
-                            .parse()
-                            .unwrap_or(16),
-                        loop_filter_sharpness: state
-                            .config
-                            .vaapi_loop_filter_sharpness
-                            .parse()
-                            .unwrap_or(4),
-                        compression_level: state
-                            .config
-                            .vaapi_compression_level
-                            .parse()
-                            .unwrap_or(4),
-                    })
+                    let plan_profile = profile
+                        .clone()
+                        .unwrap_or_else(|| crate::engine::Profile::get(&job.profile));
+                    Some(crate::engine::EncodePlan::for_profile(&plan_profile, true))
                 } else {
                     // Fall back to software encoding if hardware unavailable
                     if state.config.use_hardware_encoding
@@ -255,15 +247,9 @@ pub(super) fn spawn_next_job(state: &mut AppState) {
                     None
                 };
 
-                // Get profile from enc_state if available
-                let profile = state
-                    .enc_state
-                    .as_ref()
-                    .and_then(|es| es.profile_config.clone());
-
                 // Spawn worker for this job
                 if pool
-                    .spawn_worker_with_profile(idx, job, hw_config, profile)
+                    .spawn_worker_with_profile(idx, job, plan, profile)
                     .is_ok()
                 {
                     // Job will be marked as Running when JobStarted message arrives

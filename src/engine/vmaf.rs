@@ -10,8 +10,7 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
 use crate::engine::core::{
-    Codec, EncodePlan, HwEncodingConfig, Profile, ProgressParser, build_encode_cmds_with_hw,
-    write_debug_log,
+    EncodePlan, Profile, ProgressParser, build_encode_cmds_synced, write_debug_log,
 };
 use crate::engine::{JobStatus, VideoJob, probe_duration};
 
@@ -129,7 +128,7 @@ pub fn build_vmaf_cmd(
     output_height: u32,
     n_subsample: u32,
     log_path: &Path,
-    hw_config: Option<&HwEncodingConfig>,
+    plan: &EncodePlan,
     use_hw_decode: bool,
 ) -> Command {
     let model = select_vmaf_model(output_height);
@@ -170,8 +169,8 @@ pub fn build_vmaf_cmd(
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-hide_banner", "-y"]);
 
-    // Try hardware decode if requested and hw_config is available
-    if use_hw_decode && hw_config.is_some() {
+    // Try hardware decode if requested and the plan uses hardware
+    if use_hw_decode && plan.uses_hardware() {
         // Detect VAAPI configuration
         if let Some(config) = crate::engine::hardware::detect_vaapi_config() {
             // Set environment variables for driver
@@ -243,14 +242,14 @@ pub fn run_vmaf_evaluation(
     output_height: u32,
     n_subsample: u32,
     temp_dir: &Path,
-    hw_config: Option<&HwEncodingConfig>,
+    plan: &EncodePlan,
 ) -> Result<f32> {
     // Generate unique log filename
     let log_filename = format!("vmaf_{}.json", uuid::Uuid::new_v4());
     let log_path = temp_dir.join(log_filename);
 
     // Try hardware decode first if available, then fallback to software
-    let use_hw_first = hw_config.is_some();
+    let use_hw_first = plan.uses_hardware();
 
     for attempt in 0..2 {
         let use_hw_decode = use_hw_first && attempt == 0;
@@ -265,7 +264,7 @@ pub fn run_vmaf_evaluation(
             output_height,
             n_subsample,
             &log_path,
-            hw_config,
+            plan,
             use_hw_decode,
         );
 
@@ -493,7 +492,7 @@ pub fn cleanup_job_temp_dir(path: &Path) -> Result<()> {
 /// # Arguments
 /// * `job` - The video job
 /// * `profile` - Encoding profile
-/// * `hw_config` - Optional hardware config
+/// * `plan` - Encode Plan (selected Encoder)
 /// * `window_start` - Start time in seconds
 /// * `window_duration` - Duration in seconds
 /// * `quality` - CRF (software) or global_quality (hardware) override
@@ -504,7 +503,7 @@ pub fn cleanup_job_temp_dir(path: &Path) -> Result<()> {
 pub fn build_window_encode_cmd(
     job: &VideoJob,
     profile: &Profile,
-    hw_config: Option<&HwEncodingConfig>,
+    plan: &EncodePlan,
     window_start: f64,
     window_duration: f64,
     quality: u32,
@@ -524,9 +523,8 @@ pub fn build_window_encode_cmd(
 
     // The test quality is applied as the Encode Plan's Quality Override, which sets the
     // active Encoder's own quality field.
-    let plan =
-        EncodePlan::for_profile(&test_profile, hw_config.is_some()).with_quality_override(quality);
-    let cmd = build_encode_cmds_with_hw(&window_job, &test_profile, &plan, hw_config)
+    let plan = plan.with_quality_override(quality);
+    let cmd = build_encode_cmds_synced(&window_job, &test_profile, &plan)
         .into_iter()
         .next()
         .expect("build_encode_cmds returns at least one command");
@@ -685,7 +683,7 @@ pub fn build_window_encode_cmd(
 /// # Arguments
 /// * `job` - The video job
 /// * `profile` - Encoding profile
-/// * `hw_config` - Optional hardware config
+/// * `plan` - Encode Plan (selected Encoder)
 /// * `window` - (start_time, duration) tuple
 /// * `quality` - Quality setting to use
 /// * `temp_dir` - Directory for output
@@ -695,7 +693,7 @@ pub fn build_window_encode_cmd(
 pub fn encode_window(
     job: &VideoJob,
     profile: &Profile,
-    hw_config: Option<&HwEncodingConfig>,
+    plan: &EncodePlan,
     window: (f64, f64),
     quality: u32,
     temp_dir: &Path,
@@ -712,15 +710,8 @@ pub fn encode_window(
     let output_path = temp_dir.join(output_filename);
 
     // Build and run encode command
-    let mut cmd = build_window_encode_cmd(
-        job,
-        profile,
-        hw_config,
-        start,
-        duration,
-        quality,
-        &output_path,
-    );
+    let mut cmd =
+        build_window_encode_cmd(job, profile, plan, start, duration, quality, &output_path);
 
     // Debug: log the actual command being executed
     let cmd_str = format!(
@@ -780,18 +771,12 @@ pub fn is_vmaf_compatible(profile: &Profile) -> bool {
 ///
 /// # Arguments
 /// * `profile` - The encoding profile
+/// * `plan` - Encode Plan whose active Encoder owns the quality field
 ///
 /// # Returns
 /// The baseline quality value (CRF or global_quality)
-fn get_baseline_quality(profile: &Profile) -> u32 {
-    if profile.use_hardware_encoding {
-        match &profile.codec {
-            Codec::Av1(av1) => av1.hw_cq,
-            Codec::Vp9(_) => profile.hw_global_quality,
-        }
-    } else {
-        profile.crf
-    }
+fn get_baseline_quality(profile: &Profile, plan: &EncodePlan) -> u32 {
+    profile.active_quality(plan.encoder)
 }
 
 /// Get quality floor for the encoder type
@@ -800,12 +785,12 @@ fn get_baseline_quality(profile: &Profile) -> u32 {
 /// Going lower than this produces diminishing returns.
 ///
 /// # Arguments
-/// * `profile` - The encoding profile
+/// * `plan` - The Encode Plan
 ///
 /// # Returns
 /// The quality floor value
-fn get_quality_floor(profile: &Profile) -> u32 {
-    if profile.use_hardware_encoding {
+fn get_quality_floor(plan: &EncodePlan) -> u32 {
+    if plan.uses_hardware() {
         HARDWARE_QUALITY_FLOOR
     } else {
         SOFTWARE_QUALITY_FLOOR
@@ -829,7 +814,7 @@ fn get_quality_floor(profile: &Profile) -> u32 {
 /// # Arguments
 /// * `job` - The video job to calibrate (mutable for real-time updates)
 /// * `profile` - Encoding profile with VMAF settings
-/// * `hw_config` - Optional hardware encoding config
+/// * `plan` - Encode Plan (selected Encoder)
 /// * `callback` - Progress callback for real-time UI updates
 ///
 /// # Returns
@@ -844,7 +829,7 @@ fn get_quality_floor(profile: &Profile) -> u32 {
 pub fn calibrate_quality<F>(
     job: &mut VideoJob,
     profile: &Profile,
-    hw_config: Option<&HwEncodingConfig>,
+    plan: &EncodePlan,
     callback: &mut F,
 ) -> Result<CalibrationResult>
 where
@@ -888,8 +873,8 @@ where
     let temp_dir = create_job_temp_dir(job)?;
 
     // Get calibration parameters
-    let mut quality = get_baseline_quality(profile);
-    let quality_floor = get_quality_floor(profile);
+    let mut quality = get_baseline_quality(profile, plan);
+    let quality_floor = get_quality_floor(plan);
     let target_vmaf = profile.vmaf_target;
     let step = profile.vmaf_step as u32;
     let max_attempts = profile.vmaf_max_attempts;
@@ -950,10 +935,10 @@ where
             ));
 
             // Encode window
-            let encoded_path = encode_window(job, profile, hw_config, window, quality, &temp_dir)
+            let encoded_path = encode_window(job, profile, plan, window, quality, &temp_dir)
                 .with_context(|| {
-                format!("Failed to encode window {} at quality {}", idx + 1, quality)
-            })?;
+                    format!("Failed to encode window {} at quality {}", idx + 1, quality)
+                })?;
 
             // Evaluate VMAF
             let vmaf_score = run_vmaf_evaluation(
@@ -965,7 +950,7 @@ where
                 output_height,
                 profile.vmaf_n_subsample,
                 &temp_dir,
-                hw_config,
+                plan,
             )
             .with_context(|| format!("Failed to evaluate VMAF for window {}", idx + 1))?;
 
@@ -1216,30 +1201,36 @@ mod tests {
 
     #[test]
     fn test_get_baseline_quality() {
+        use crate::engine::hardware::VideoEncoder;
         let mut profile = Profile::get("vp9-good");
-
-        // Software
-        profile.use_hardware_encoding = false;
         profile.crf = 30;
-        assert_eq!(get_baseline_quality(&profile), 30);
+        let sw = EncodePlan::new(VideoEncoder::LibvpxVp9);
+        assert_eq!(get_baseline_quality(&profile, &sw), 30);
 
-        // Hardware
-        profile.use_hardware_encoding = true;
-        profile.hw_global_quality = 70;
-        assert_eq!(get_baseline_quality(&profile), 70);
+        profile.codec.as_vp9_mut().unwrap().hw_global_quality = 70;
+        let hw = EncodePlan::new(VideoEncoder::Vp9Vaapi);
+        assert_eq!(get_baseline_quality(&profile, &hw), 70);
+
+        // AV1 hardware reads the active Encoder's own field, not legacy hw_cq
+        let mut av1 = Profile::get("av1-vaapi");
+        let cfg = av1.codec.as_av1_mut().unwrap();
+        cfg.vaapi_cq = 41;
+        cfg.hw_cq = 99;
+        let plan = EncodePlan::new(VideoEncoder::Av1Vaapi);
+        assert_eq!(get_baseline_quality(&av1, &plan), 41);
     }
 
     #[test]
     fn test_get_quality_floor() {
-        let mut profile = Profile::get("vp9-good");
-
-        // Software floor
-        profile.use_hardware_encoding = false;
-        assert_eq!(get_quality_floor(&profile), SOFTWARE_QUALITY_FLOOR);
-
-        // Hardware floor
-        profile.use_hardware_encoding = true;
-        assert_eq!(get_quality_floor(&profile), HARDWARE_QUALITY_FLOOR);
+        use crate::engine::hardware::VideoEncoder;
+        assert_eq!(
+            get_quality_floor(&EncodePlan::new(VideoEncoder::LibvpxVp9)),
+            SOFTWARE_QUALITY_FLOOR
+        );
+        assert_eq!(
+            get_quality_floor(&EncodePlan::new(VideoEncoder::Vp9Vaapi)),
+            HARDWARE_QUALITY_FLOOR
+        );
     }
 
     // === Temp Directory Tests ===
