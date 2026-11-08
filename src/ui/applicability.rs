@@ -210,8 +210,15 @@ mod tests {
 
     // ---- Cross-check against the real ffmpeg command builders -------------
 
-    use crate::engine::core::{Profile, VideoJob};
-    use crate::engine::{build_av1_software_cmd, build_software_cmd};
+    use crate::engine::core::{Codec, Profile, VideoJob};
+    use crate::engine::hardware::VideoEncoder;
+    use crate::engine::{EncodePlan, build_encode_cmds};
+
+    fn software_cmd(profile: &Profile, encoder: VideoEncoder) -> std::process::Command {
+        build_encode_cmds(&job_for(profile), profile, &EncodePlan::new(encoder))
+            .pop()
+            .unwrap()
+    }
     use std::path::PathBuf;
 
     /// Control -> ffmpeg flag it produces. Controls that share a flag across
@@ -265,6 +272,24 @@ mod tests {
         p.max_intra_rate = "300".to_string();
         p.tune_content = "film".to_string();
         p.colorspace = 1;
+        // The entry point syncs legacy fields from the codec config, so VP9 values must live there.
+        if let Codec::Vp9(v) = &mut p.codec {
+            v.row_mt = p.row_mt;
+            v.tile_columns = p.tile_columns;
+            v.tile_rows = p.tile_rows;
+            v.lag_in_frames = p.lag_in_frames;
+            v.auto_alt_ref = p.auto_alt_ref;
+            v.aq_mode = p.aq_mode;
+            v.arnr_max_frames = p.arnr_max_frames;
+            v.arnr_strength = p.arnr_strength;
+            v.arnr_type = p.arnr_type;
+            v.enable_tpl = p.enable_tpl;
+            v.sharpness = p.sharpness;
+            v.noise_sensitivity = p.noise_sensitivity;
+            v.static_thresh = p.static_thresh.clone();
+            v.max_intra_rate = p.max_intra_rate.clone();
+            v.tune_content = p.tune_content.clone();
+        }
         p
     }
 
@@ -297,14 +322,14 @@ mod tests {
     #[test]
     fn applies_matches_flags_the_vp9_software_builder_emits() {
         let profile = exercised(Profile::get("vp9-good"));
-        let args = emitted_flags(&build_software_cmd(&job_for(&profile), &profile));
+        let args = emitted_flags(&software_cmd(&profile, VideoEncoder::LibvpxVp9));
         assert_matches_builder(&args, CodecSelection::Vp9);
     }
 
     #[test]
     fn applies_matches_flags_the_av1_software_builder_emits() {
         let profile = exercised(Profile::get("av1-svt"));
-        let args = emitted_flags(&build_av1_software_cmd(&job_for(&profile), &profile));
+        let args = emitted_flags(&software_cmd(&profile, VideoEncoder::LibsvtAv1));
         assert_matches_builder(&args, CodecSelection::Av1);
     }
 

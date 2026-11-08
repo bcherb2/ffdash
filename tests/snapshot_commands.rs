@@ -1,7 +1,5 @@
-use ffdash::engine::core::{
-    Profile, VideoJob, build_av1_nvenc_cmd, build_av1_qsv_cmd, build_av1_software_cmd,
-    build_av1_vaapi_cmd, build_ffmpeg_cmds_with_profile, build_software_cmd,
-};
+use ffdash::engine::core::{EncodePlan, Profile, VideoJob, build_encode_cmds};
+use ffdash::engine::hardware::VideoEncoder;
 use insta::assert_snapshot;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -15,6 +13,11 @@ fn to_string(cmd: &std::process::Command) -> String {
             .collect::<Vec<_>>(),
     );
     parts.join(" ")
+}
+
+fn build(job: &VideoJob, profile: &Profile, encoder: VideoEncoder) -> String {
+    let cmds = build_encode_cmds(job, profile, &EncodePlan::new(encoder));
+    cmds.iter().map(to_string).collect::<Vec<_>>().join("\n")
 }
 
 fn mk_job(output_ext: &str) -> VideoJob {
@@ -32,14 +35,15 @@ fn mk_job(output_ext: &str) -> VideoJob {
 fn snapshot_vp9_commands() {
     let profile = Profile::get("vp9-good");
     let job = mk_job("webm");
-    let cmd = build_software_cmd(&job, &profile);
-    assert_snapshot!("vp9_good", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::LibvpxVp9);
+    assert_snapshot!("vp9_good", out);
 
-    let profile_best = Profile::get("vp9-best");
+    // Production profiles are synced from their codec config before command building.
+    let mut profile_best = Profile::get("vp9-best");
+    profile_best.sync_legacy_fields();
     let mut job_best = mk_job("webm");
     job_best.profile = "vp9-best".to_string();
-    let cmds = build_ffmpeg_cmds_with_profile(&job_best, None, Some(&profile_best));
-    let joined = cmds.iter().map(to_string).collect::<Vec<_>>().join("\n");
+    let joined = build(&job_best, &profile_best, VideoEncoder::LibvpxVp9);
     assert_snapshot!("vp9_best_two_pass", joined);
 }
 
@@ -47,24 +51,24 @@ fn snapshot_vp9_commands() {
 fn snapshot_av1_svt() {
     let profile = Profile::get("av1-svt");
     let job = mk_job("mkv");
-    let cmd = build_av1_software_cmd(&job, &profile);
-    assert_snapshot!("av1_svt", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::LibsvtAv1);
+    assert_snapshot!("av1_svt", out);
 }
 
 #[test]
 fn snapshot_av1_qsv() {
     let profile = Profile::get("av1-qsv");
     let job = mk_job("mkv");
-    let cmd = build_av1_qsv_cmd(&job, &profile);
-    assert_snapshot!("av1_qsv", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::Av1Qsv);
+    assert_snapshot!("av1_qsv", out);
 }
 
 #[test]
 fn snapshot_av1_nvenc() {
     let profile = Profile::get("av1-nvenc");
     let job = mk_job("mkv");
-    let cmd = build_av1_nvenc_cmd(&job, &profile);
-    assert_snapshot!("av1_nvenc", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::Av1Nvenc);
+    assert_snapshot!("av1_nvenc", out);
 }
 
 #[test]
@@ -76,8 +80,8 @@ fn snapshot_av1_nvenc_sdr() {
     profile.color_range = 0; // tv/limited
 
     let job = mk_job("mkv");
-    let cmd = build_av1_nvenc_cmd(&job, &profile);
-    assert_snapshot!("av1_nvenc_sdr", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::Av1Nvenc);
+    assert_snapshot!("av1_nvenc_sdr", out);
 }
 
 #[test]
@@ -90,16 +94,16 @@ fn snapshot_av1_nvenc_hdr10() {
     profile.pix_fmt = "yuv420p10le".to_string(); // 10-bit for HDR
 
     let job = mk_job("mkv");
-    let cmd = build_av1_nvenc_cmd(&job, &profile);
-    assert_snapshot!("av1_nvenc_hdr10", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::Av1Nvenc);
+    assert_snapshot!("av1_nvenc_hdr10", out);
 }
 
 #[test]
 fn snapshot_av1_vaapi() {
     let profile = Profile::get("av1-vaapi");
     let job = mk_job("mkv");
-    let cmd = build_av1_vaapi_cmd(&job, &profile);
-    assert_snapshot!("av1_vaapi", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::Av1Vaapi);
+    assert_snapshot!("av1_vaapi", out);
 }
 
 #[test]
@@ -111,8 +115,8 @@ fn snapshot_av1_qsv_sdr() {
     profile.color_range = 0; // tv/limited
 
     let job = mk_job("mkv");
-    let cmd = build_av1_qsv_cmd(&job, &profile);
-    assert_snapshot!("av1_qsv_sdr", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::Av1Qsv);
+    assert_snapshot!("av1_qsv_sdr", out);
 }
 
 #[test]
@@ -125,6 +129,24 @@ fn snapshot_av1_qsv_hdr10() {
     profile.pix_fmt = "yuv420p10le".to_string(); // 10-bit for HDR
 
     let job = mk_job("mkv");
-    let cmd = build_av1_qsv_cmd(&job, &profile);
-    assert_snapshot!("av1_qsv_hdr10", to_string(&cmd));
+    let out = build(&job, &profile, VideoEncoder::Av1Qsv);
+    assert_snapshot!("av1_qsv_hdr10", out);
+}
+
+#[test]
+fn software_vp9_fallback_for_hardware_profile_stays_single_pass() {
+    // A profile that requested hardware but was planned onto the software Encoder
+    // (hardware unavailable) builds one single-pass command, even with two-pass and a
+    // target bitrate set.
+    let mut profile = Profile::get("vp9-best");
+    profile.use_hardware_encoding = true;
+    profile.two_pass = true;
+    profile.video_target_bitrate = 2000;
+    let job = mk_job("webm");
+    let plan = EncodePlan::new(VideoEncoder::LibvpxVp9);
+    assert_eq!(build_encode_cmds(&job, &profile, &plan).len(), 1);
+
+    // Control: the same profile without the hardware request is two-pass.
+    profile.use_hardware_encoding = false;
+    assert_eq!(build_encode_cmds(&job, &profile, &plan).len(), 2);
 }

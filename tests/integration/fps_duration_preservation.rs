@@ -103,7 +103,13 @@ fn test_fps_limiting_preserves_duration() {
     let profile = Profile::from_config("test".to_string(), &config);
 
     // Build and run the actual FFmpeg command using our engine with profile override
-    let mut cmd = engine::build_ffmpeg_cmd_with_profile(&job, None, Some(&profile));
+    let mut cmd = engine::build_encode_cmds(
+        &job,
+        &profile,
+        &engine::EncodePlan::new(ffdash::engine::hardware::VideoEncoder::LibvpxVp9),
+    )
+    .pop()
+    .unwrap();
 
     let output_result = cmd.output().expect("Failed to run FFmpeg");
 
@@ -175,7 +181,13 @@ fn test_same_fps_not_affected() {
     config.crf = 30;
 
     let profile = Profile::from_config("test".to_string(), &config);
-    let mut cmd = engine::build_ffmpeg_cmd_with_profile(&job, None, Some(&profile));
+    let mut cmd = engine::build_encode_cmds(
+        &job,
+        &profile,
+        &engine::EncodePlan::new(ffdash::engine::hardware::VideoEncoder::LibvpxVp9),
+    )
+    .pop()
+    .unwrap();
 
     let output_result = cmd.output().expect("Failed to run FFmpeg");
     assert!(output_result.status.success(), "FFmpeg should succeed");
@@ -240,7 +252,13 @@ fn test_resolution_scaling_preserves_duration() {
     config.crf = 30;
 
     let profile = Profile::from_config("test".to_string(), &config);
-    let mut cmd = engine::build_ffmpeg_cmd_with_profile(&job, None, Some(&profile));
+    let mut cmd = engine::build_encode_cmds(
+        &job,
+        &profile,
+        &engine::EncodePlan::new(ffdash::engine::hardware::VideoEncoder::LibvpxVp9),
+    )
+    .pop()
+    .unwrap();
 
     let output_result = cmd.output().expect("Failed to run FFmpeg");
     assert!(output_result.status.success(), "FFmpeg should succeed");

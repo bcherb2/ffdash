@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::Path;
 
+use crate::engine::hardware::VideoEncoder;
 use crate::engine::validate::{HardwareAvailability, validate_profile};
 
 // Re-export codec-specific configs from their dedicated modules
@@ -791,6 +792,28 @@ impl Profile {
         fs::create_dir_all(&profiles_path)?;
 
         Ok(profiles_path)
+    }
+
+    /// Apply a Quality Override: set the *active Encoder's* own quality field.
+    ///
+    /// Software VP9 keeps its CRF at the profile root; every other Encoder has its
+    /// quality in its codec config.
+    pub fn apply_quality_override(&mut self, encoder: VideoEncoder, quality: u32) {
+        match (&mut self.codec, encoder) {
+            (Codec::Vp9(vp9), VideoEncoder::Vp9Qsv | VideoEncoder::Vp9Vaapi) => {
+                vp9.hw_global_quality = quality;
+                self.hw_global_quality = quality;
+            }
+            (Codec::Av1(av1), VideoEncoder::LibsvtAv1 | VideoEncoder::LibaomAv1) => {
+                av1.svt_crf = quality;
+                self.crf = quality;
+            }
+            (Codec::Av1(av1), VideoEncoder::Av1Qsv) => av1.qsv_cq = quality,
+            (Codec::Av1(av1), VideoEncoder::Av1Nvenc) => av1.nvenc_cq = quality,
+            (Codec::Av1(av1), VideoEncoder::Av1Vaapi) => av1.vaapi_cq = quality,
+            (Codec::Av1(av1), VideoEncoder::Av1Amf) => av1.hw_cq = quality,
+            _ => self.crf = quality,
+        }
     }
 
     /// Synchronize legacy fields from the codec-specific configuration.

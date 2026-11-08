@@ -434,8 +434,9 @@ fn handle_dry_run(directory: Option<std::path::PathBuf>, overwrite: bool) {
                 cfg.defaults.skip_vp9_av1,
             );
             for job in &jobs {
-                let cmd = engine::build_ffmpeg_cmd(job, None);
-                println!("{:?}", cmd);
+                for cmd in engine::build_ffmpeg_cmds(job) {
+                    println!("{:?}", cmd);
+                }
             }
         }
         Err(e) => {

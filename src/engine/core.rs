@@ -1,5 +1,6 @@
 mod av1_config;
 mod builtin_profiles;
+mod encode_plan;
 mod ffmpeg_cmd;
 mod ffmpeg_info;
 mod hw_config;
@@ -11,10 +12,10 @@ mod types;
 mod vp9_config;
 
 pub use av1_config::{Av1Config, Codec};
+pub use encode_plan::EncodePlan;
+pub(crate) use ffmpeg_cmd::build_encode_cmds_with_hw;
 pub use ffmpeg_cmd::{
-    build_av1_nvenc_cmd, build_av1_qsv_cmd, build_av1_software_cmd, build_av1_vaapi_cmd,
-    build_ffmpeg_cmd, build_ffmpeg_cmd_with_profile, build_ffmpeg_cmds_with_profile,
-    build_software_cmd, build_vaapi_cmd, encode_job, encode_job_with_callback,
+    build_encode_cmds, build_ffmpeg_cmds, encode_job, encode_job_with_callback,
     encode_job_with_callback_and_profile, format_ffmpeg_cmd, two_pass_log_prefix,
     validate_vaapi_config,
 };
@@ -501,7 +502,13 @@ mod tests {
             calibrating_completed_steps: 0,
         };
 
-        let cmd = build_vaapi_cmd(&job, &profile, &hw_config);
+        let cmd = build_encode_cmds_with_hw(
+            &job,
+            &profile,
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi),
+            Some(&hw_config),
+        )
+        .remove(0);
         let args: Vec<String> = cmd
             .get_args()
             .map(|s| s.to_string_lossy().to_string())
@@ -592,7 +599,13 @@ mod tests {
             calibrating_completed_steps: 0,
         };
 
-        let cmd = build_vaapi_cmd(&job, &profile, &hw_config);
+        let cmd = build_encode_cmds_with_hw(
+            &job,
+            &profile,
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi),
+            Some(&hw_config),
+        )
+        .remove(0);
         let args: Vec<String> = cmd
             .get_args()
             .map(|s| s.to_string_lossy().to_string())
@@ -670,7 +683,13 @@ mod tests {
             calibrating_completed_steps: 0,
         };
 
-        let cmd = build_vaapi_cmd(&job, &profile, &hw_config);
+        let cmd = build_encode_cmds_with_hw(
+            &job,
+            &profile,
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi),
+            Some(&hw_config),
+        )
+        .remove(0);
         let args: Vec<String> = cmd
             .get_args()
             .map(|s| s.to_string_lossy().to_string())
@@ -749,7 +768,12 @@ mod tests {
             calibrating_completed_steps: 0,
         };
 
-        let cmd = super::ffmpeg_cmd::build_av1_vaapi_cmd(&job, &profile);
+        let cmd = build_encode_cmds(
+            &job,
+            &profile,
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Av1Vaapi),
+        )
+        .remove(0);
         let args: Vec<String> = cmd
             .get_args()
             .map(|s| s.to_string_lossy().to_string())
@@ -837,7 +861,12 @@ mod tests {
             calibrating_completed_steps: 0,
         };
 
-        let cmd = super::ffmpeg_cmd::build_av1_vaapi_cmd(&job, &profile);
+        let cmd = build_encode_cmds(
+            &job,
+            &profile,
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Av1Vaapi),
+        )
+        .remove(0);
         let args: Vec<String> = cmd
             .get_args()
             .map(|s| s.to_string_lossy().to_string())
@@ -874,7 +903,11 @@ mod tests {
             "vp9-good".to_string(),
         );
 
-        let cmds = build_ffmpeg_cmds_with_profile(&job, None, Some(&profile));
+        let cmds = build_encode_cmds(
+            &job,
+            &profile,
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::LibvpxVp9),
+        );
         assert_eq!(cmds.len(), 2, "Expected pass 1 + pass 2 commands");
 
         let to_string = |cmd: &std::process::Command| {

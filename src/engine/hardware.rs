@@ -31,6 +31,23 @@ pub enum VideoEncoder {
     Av1Amf,    // AMD AMF AV1
 }
 
+/// Where an Encoder runs: on the CPU (Software) or through a Hardware API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    Software,
+    Vaapi,
+    Qsv,
+    Nvenc,
+    Amf,
+}
+
+impl Backend {
+    /// Whether this Backend runs on a GPU.
+    pub fn is_hardware(&self) -> bool {
+        !matches!(self, Self::Software)
+    }
+}
+
 /// Detected GPU vendor for hardware encoding
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GpuVendor {
@@ -57,9 +74,20 @@ impl VideoEncoder {
         }
     }
 
-    /// Check if this is a hardware encoder
+    /// The Backend this Encoder runs on.
+    pub fn backend(&self) -> Backend {
+        match self {
+            Self::LibvpxVp9 | Self::LibsvtAv1 | Self::LibaomAv1 => Backend::Software,
+            Self::Vp9Qsv | Self::Av1Qsv => Backend::Qsv,
+            Self::Vp9Vaapi | Self::Av1Vaapi => Backend::Vaapi,
+            Self::Av1Nvenc => Backend::Nvenc,
+            Self::Av1Amf => Backend::Amf,
+        }
+    }
+
+    /// Check if this is a hardware encoder (derived from its Backend)
     pub fn is_hardware(&self) -> bool {
-        !matches!(self, Self::LibvpxVp9 | Self::LibsvtAv1 | Self::LibaomAv1)
+        self.backend().is_hardware()
     }
 
     /// Get user-friendly display name

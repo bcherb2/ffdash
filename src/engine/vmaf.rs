@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
-use crate::engine::core::{Codec, HwEncodingConfig, Profile, ProgressParser, write_debug_log};
+use crate::engine::core::{
+    Codec, EncodePlan, HwEncodingConfig, Profile, ProgressParser, build_encode_cmds_with_hw,
+    write_debug_log,
+};
 use crate::engine::{JobStatus, VideoJob, probe_duration};
 
 /// Quality floor for software encoding (CRF)
@@ -515,38 +518,18 @@ pub fn build_window_encode_cmd(
     test_profile.scale_width = 0;
     test_profile.scale_height = 0;
 
-    match (hw_config.is_some(), &mut test_profile.codec) {
-        (true, Codec::Av1(av1)) => {
-            av1.hw_cq = quality;
-        }
-        (true, Codec::Vp9(_)) => {
-            test_profile.hw_global_quality = quality;
-        }
-        (false, _) => {
-            test_profile.crf = quality;
-        }
-    }
-
-    // Clone hw_config and override quality (hw_config.global_quality is what FFmpeg uses)
-    let test_hw_config = hw_config.map(|hw| {
-        let mut config = hw.clone();
-        config.global_quality = quality;
-        config
-    });
-
     // Create a temporary job for the window
     let mut window_job = job.clone();
     window_job.output_path = output_path.to_path_buf();
 
-    // Build the base command using codec-aware builders
-    // This will automatically select the correct encoder based on codec type:
-    // - VP9: vp9_vaapi (hw) or libvpx-vp9 (sw)
-    // - AV1: av1_vaapi (hw) or libsvtav1 (sw)
-    let cmd = crate::engine::build_ffmpeg_cmd_with_profile(
-        &window_job,
-        test_hw_config.as_ref(),
-        Some(&test_profile),
-    );
+    // The test quality is applied as the Encode Plan's Quality Override, which sets the
+    // active Encoder's own quality field.
+    let plan =
+        EncodePlan::for_profile(&test_profile, hw_config.is_some()).with_quality_override(quality);
+    let cmd = build_encode_cmds_with_hw(&window_job, &test_profile, &plan, hw_config)
+        .into_iter()
+        .next()
+        .expect("build_encode_cmds returns at least one command");
 
     // Get environment variables (preserve VAAPI driver settings)
     let env_vars: Vec<_> = cmd
