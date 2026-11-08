@@ -15,7 +15,7 @@ impl Profile {
             "hevc-x265" => Some(Self::hevc_x265()),
             "hevc-nvenc" => Some(Self::hevc_nvenc()),
             "hevc-qsv" => Some(Self::hevc_qsv()),
-            // hevc-vaapi: added by the VAAPI ticket.
+            "hevc-vaapi" => Some(Self::hevc_vaapi()),
             "hevc-amf" => Some(Self::hevc_amf()),
             "hevc-videotoolbox" => Some(Self::hevc_videotoolbox()),
             _ => None,
@@ -89,6 +89,16 @@ impl Profile {
             "hevc-videotoolbox",
             "hevcvt",
             "hevc_videotoolbox",
+            true,
+            HevcConfig::default(),
+        )
+    }
+
+    fn hevc_vaapi() -> Self {
+        Self::hevc_base(
+            "hevc-vaapi",
+            "hevcvaapi",
+            "hevc_vaapi",
             true,
             HevcConfig::default(),
         )

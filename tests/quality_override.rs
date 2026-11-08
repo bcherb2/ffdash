@@ -117,3 +117,14 @@ fn hevc_nvenc_override_replaces_configured_quality() {
     assert!(!args.iter().any(|a| a == "19" || a == "77"), "{args:?}");
     assert_eq!(profile.active_quality(VideoEncoder::HevcNvenc), 19);
 }
+
+#[test]
+fn hevc_vaapi_override_replaces_its_quality_flag_and_not_the_configured_value() {
+    let mut profile = Profile::get("hevc-vaapi");
+    profile.codec.as_hevc_mut().unwrap().vaapi_quality = 19;
+    profile.crf = 77;
+    let args = args_with_override(&profile, VideoEncoder::HevcVaapi, 33);
+    assert_eq!(value_of(&args, "-global_quality:v").as_deref(), Some("33"));
+    assert!(!args.iter().any(|a| a == "19" || a == "77"), "{args:?}");
+    assert_eq!(profile.active_quality(VideoEncoder::HevcVaapi), 19);
+}

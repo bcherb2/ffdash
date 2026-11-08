@@ -91,7 +91,9 @@ impl ConfigFocus {
             | Self::HevcQsvBFramesInput
             | Self::HevcAmfQpSlider
             | Self::HevcAmfPresetSlider
-            | Self::HevcVideotoolboxQSlider => CoreVideo,
+            | Self::HevcVideotoolboxQSlider
+            | Self::HevcVaapiQualitySlider
+            | Self::HevcVaapiBFramesInput => CoreVideo,
 
             Self::RowMtCheckbox
             | Self::TileColumnsSlider
@@ -197,6 +199,8 @@ impl ConfigFocus {
             Self::HevcAmfQpSlider => c.hevc_amf_qp_area,
             Self::HevcAmfPresetSlider => c.hevc_amf_preset_area,
             Self::HevcVideotoolboxQSlider => c.hevc_videotoolbox_q_area,
+            Self::HevcVaapiQualitySlider => c.hevc_vaapi_quality_slider_area,
+            Self::HevcVaapiBFramesInput => c.hevc_vaapi_b_frames_area,
             Self::RowMtCheckbox => c.row_mt_checkbox_area,
             Self::TileColumnsSlider => c.tile_columns_slider_area,
             Self::TileRowsSlider => c.tile_rows_slider_area,

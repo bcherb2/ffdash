@@ -556,6 +556,8 @@ pub struct ConfigState {
     pub hevc_amf_qp_area: Option<Rect>,
     pub hevc_amf_preset_area: Option<Rect>,
     pub hevc_videotoolbox_q_area: Option<Rect>,
+    pub hevc_vaapi_quality_slider_area: Option<Rect>,
+    pub hevc_vaapi_b_frames_area: Option<Rect>,
 
     // VP9 QSV areas
     pub vp9_qsv_preset_area: Option<Rect>,
@@ -907,6 +909,8 @@ impl Default for ConfigState {
             hevc_amf_qp_area: None,
             hevc_amf_preset_area: None,
             hevc_videotoolbox_q_area: None,
+            hevc_vaapi_quality_slider_area: None,
+            hevc_vaapi_b_frames_area: None,
 
             // VP9 QSV areas
             vp9_qsv_preset_area: None,

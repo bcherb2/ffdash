@@ -1149,7 +1149,49 @@ color_metadata_notes = "Uses vpp_qsv filter options for all 4 fields (see ENCODE
   description = "Rate control: constant quality only (CQP, selected by -q:v)"
   verification = { method = "ffmpeg-help", source = "hevc_qsv" }
 
-# --- hevc_vaapi (added by the VAAPI ticket) ------------------------------------
+# --- hevc_vaapi (VAAPI, Linux) -------------------------------------------------
+
+[[encoders]]
+id = "hevc_vaapi"
+codec = "hevc"
+type = "hardware"
+ffmpeg_name = "hevc_vaapi"
+hw_api = "vaapi"
+display_name = "HEVC (VAAPI / Intel & AMD)"
+description = "HEVC VAAPI hardware encoder (Linux); Main and Main10, constant quality only. No preset or lookahead control."
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ✅, color_trc ✅"
+
+  [[encoders.params]]
+  id = "vaapi-rc-mode"
+  scope = "private"
+  flag = "-rc_mode:v"
+  type = "enum"
+  values = ["CQP"]
+  default = "CQP"
+  description = "Rate control mode (ffdash always uses constant quality)"
+  verification = { method = "docs", source = "ffmpeg-vaapi-encoders" }
+
+  [[encoders.params]]
+  id = "vaapi-qp"
+  scope = "private"
+  flag = "-global_quality:v"
+  type = "int"
+  range = { min = 1, max = 51 }
+  default = 26
+  field_path = "vaapi_quality"
+  description = "Constant QP (1=best/largest, 51=worst/smallest)"
+  verification = { method = "docs", source = "ffmpeg-vaapi-encoders" }
+
+  [[encoders.params]]
+  id = "vaapi-bf"
+  scope = "private"
+  flag = "-bf:v"
+  type = "int"
+  range = { min = 0, max = 4 }
+  default = 2
+  field_path = "hw_b_frames"
+  description = "Maximum B-frames between non-B frames (driver support varies)"
+  verification = { method = "docs", source = "ffmpeg-vaapi-encoders" }
 
 # --- hevc_amf ------------------------------------------------------------------
 
@@ -1232,6 +1274,6 @@ x265-docs = "x265 command line options documentation"
 libx265 = "ffmpeg -h encoder=libx265"
 hevc_nvenc = "ffmpeg -h encoder=hevc_nvenc"
 hevc_qsv = "ffmpeg -h encoder=hevc_qsv"
-# hevc_vaapi = "ffmpeg -h encoder=hevc_vaapi"
+hevc_vaapi = "ffmpeg -h encoder=hevc_vaapi"
 hevc_amf = "ffmpeg -h encoder=hevc_amf"
 hevc_videotoolbox = "ffmpeg -h encoder=hevc_videotoolbox"

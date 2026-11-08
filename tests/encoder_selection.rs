@@ -161,3 +161,18 @@ fn hevc_nvenc_is_the_first_hardware_choice() {
     );
     assert_eq!(select_encoder(CodecKind::Hevc, false, None, 8, &a), Libx265);
 }
+
+#[test]
+fn hevc_vaapi_is_selected_when_available_and_falls_back_when_not() {
+    let a = avail(&[Libx265, HevcVaapi]);
+    assert_eq!(
+        select_encoder(CodecKind::Hevc, true, None, 8, &a),
+        HevcVaapi
+    );
+    assert_eq!(select_encoder(CodecKind::Hevc, false, None, 8, &a), Libx265);
+    let none = avail(&[Libx265]);
+    assert_eq!(
+        select_encoder(CodecKind::Hevc, true, None, 8, &none),
+        Libx265
+    );
+}

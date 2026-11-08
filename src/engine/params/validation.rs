@@ -354,7 +354,12 @@ fn extract_profile_field(profile: &Profile, field_name: &str) -> Option<Value> {
             Codec::Av1(_) | Codec::Hevc(_) => None,
         },
         "hw_rc_mode" => profile.codec.as_vp9().map(|v| Value::U32(v.hw_rc_mode)),
-        "hw_b_frames" => profile.codec.as_vp9().map(|v| Value::U32(v.hw_b_frames)),
+        "hw_b_frames" => match &profile.codec {
+            Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_b_frames)),
+            Codec::Hevc(hevc) => Some(Value::U32(hevc.hw_b_frames)),
+            Codec::Av1(_) => None,
+        },
+        "vaapi_quality" => profile.codec.as_hevc().map(|h| Value::U32(h.vaapi_quality)),
         "hw_compression_level" => profile
             .codec
             .as_vp9()
@@ -555,9 +560,14 @@ fn apply_profile_field(profile: &mut Profile, field_name: &str, value: &Value) {
                 vp9.hw_rc_mode = *v;
             }
         }
-        ("hw_b_frames", Value::U32(v)) => {
-            if let Codec::Vp9(vp9) = &mut profile.codec {
-                vp9.hw_b_frames = *v;
+        ("hw_b_frames", Value::U32(v)) => match &mut profile.codec {
+            Codec::Vp9(vp9) => vp9.hw_b_frames = *v,
+            Codec::Hevc(hevc) => hevc.hw_b_frames = *v,
+            Codec::Av1(_) => {}
+        },
+        ("vaapi_quality", Value::U32(v)) => {
+            if let Codec::Hevc(hevc) = &mut profile.codec {
+                hevc.vaapi_quality = *v;
             }
         }
         ("hw_compression_level", Value::U32(v)) => {

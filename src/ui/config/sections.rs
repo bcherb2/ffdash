@@ -746,6 +746,8 @@ impl ConfigScreen {
         state.hevc_amf_qp_area = None;
         state.hevc_amf_preset_area = None;
         state.hevc_videotoolbox_q_area = None;
+        state.hevc_vaapi_quality_slider_area = None;
+        state.hevc_vaapi_b_frames_area = None;
         match state.codec_selection {
             CodecSelection::Vp9 => {
                 // VP9-specific: Profile and Pix Fmt on one line
@@ -1417,6 +1419,52 @@ impl ConfigScreen {
                         q_area,
                     );
                     y += 3;
+                } else if crate::ui::applicability::applies(
+                    ConfigFocus::HevcVaapiQualitySlider,
+                    CodecSelection::Hevc,
+                    crate::ui::applicability::Backend::Hardware(state.gpu_vendor),
+                ) {
+                    // hevc_vaapi: constant QP 1-51 and B-frames (no preset or lookahead)
+                    let qp_area = Rect {
+                        x: inner.x,
+                        y,
+                        width: inner.width,
+                        height: 2,
+                    };
+                    state.hevc_vaapi_quality_slider_area = Some(qp_area);
+                    let qp_slider = Slider::new("QP (1-51, Lower=Better Quality)", 1, 51)
+                        .value(state.hevc.vaapi_quality.clamp(1, 51))
+                        .focused(state.focus == ConfigFocus::HevcVaapiQualitySlider);
+                    frame.render_widget(qp_slider, qp_area);
+                    y += 3;
+
+                    let bf_area = Rect {
+                        x: inner.x,
+                        y,
+                        width: inner.width,
+                        height: 1,
+                    };
+                    state.hevc_vaapi_b_frames_area = Some(bf_area);
+                    let bf_focus = state.focus == ConfigFocus::HevcVaapiBFramesInput;
+                    let bf_text = Self::adjustable_value_display(
+                        state.hevc.hw_b_frames.to_string(),
+                        bf_focus,
+                    );
+                    let bf_style = if bf_focus {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Green)
+                    };
+                    frame.render_widget(
+                        Paragraph::new(Line::from(vec![
+                            Span::raw("B-Frames (0-4): "),
+                            Span::styled(bf_text, bf_style),
+                        ])),
+                        bf_area,
+                    );
+                    y += 1;
                 }
 
                 // hevc_qsv: quality, preset, lookahead and b-frames, two per row.

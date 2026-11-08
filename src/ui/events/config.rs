@@ -1484,6 +1484,32 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                 state.config.is_modified = true;
             }
         }
+        ConfigFocus::HevcVaapiQualitySlider => {
+            let old_value = state.config.hevc.vaapi_quality;
+            state.config.hevc.vaapi_quality = match key.code {
+                KeyCode::Left => old_value.saturating_sub(1).max(1),
+                KeyCode::Right => (old_value + 1).min(51),
+                KeyCode::Home => 1,
+                KeyCode::End => 51,
+                _ => old_value,
+            };
+            if state.config.hevc.vaapi_quality != old_value {
+                state.config.is_modified = true;
+            }
+        }
+        ConfigFocus::HevcVaapiBFramesInput => {
+            let old_value = state.config.hevc.hw_b_frames;
+            state.config.hevc.hw_b_frames = match key.code {
+                KeyCode::Left => old_value.saturating_sub(1),
+                KeyCode::Right => (old_value + 1).min(4),
+                KeyCode::Home => 0,
+                KeyCode::End => 4,
+                _ => old_value,
+            };
+            if state.config.hevc.hw_b_frames != old_value {
+                state.config.is_modified = true;
+            }
+        }
         ConfigFocus::HevcX265PresetDropdown => {
             let old_selection = state.config.x265_preset_state.selected();
             match key.code {
@@ -3674,6 +3700,29 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::HevcX265PresetDropdown;
                 config.active_dropdown = Some(ConfigFocus::HevcX265PresetDropdown);
+                return;
+            }
+        }
+
+        if let Some(area) = config.hevc_vaapi_quality_slider_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::HevcVaapiQualitySlider;
+                if mouse.row == area.y + 1
+                    && mouse.column >= area.x
+                    && mouse.column < area.x + area.width
+                {
+                    let click_x = mouse.column.saturating_sub(area.x);
+                    let ratio = (click_x as f64) / (area.width as f64).max(1.0);
+                    config.hevc.vaapi_quality = (ratio * 50.0 + 1.0).clamp(1.0, 51.0) as u32;
+                    config.is_modified = true;
+                }
+                return;
+            }
+        }
+
+        if let Some(area) = config.hevc_vaapi_b_frames_area {
+            if is_in_rect(mouse.column, mouse.row, area) {
+                config.focus = ConfigFocus::HevcVaapiBFramesInput;
                 return;
             }
         }

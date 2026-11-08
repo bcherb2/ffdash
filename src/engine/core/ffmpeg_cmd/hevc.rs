@@ -22,7 +22,7 @@ mod nvenc;
 
 mod qsv;
 
-// mod vaapi; (hevc_vaapi ticket)
+mod vaapi;
 
 /// Build the command for an HEVC Encode Plan.
 pub(super) fn build_hevc_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePlan) -> Command {
@@ -37,7 +37,7 @@ pub(super) fn build_hevc_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePla
         // hevc_qsv
         VideoEncoder::HevcQsv => qsv::build(job, profile, cpu_decode),
         // hevc_vaapi
-        VideoEncoder::HevcVaapi => x265::build(job, profile),
+        VideoEncoder::HevcVaapi => vaapi::build(job, profile, cpu_decode),
         // hevc_amf
         VideoEncoder::HevcAmf => amf::build(job, profile, cpu_decode),
         // hevc_videotoolbox

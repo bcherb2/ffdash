@@ -88,6 +88,12 @@ pub fn applies(field: ConfigFocus, codec: CodecSelection, backend: Backend) -> b
             hevc && backend == Backend::Hardware(GpuVendor::Intel)
         }
 
+        // hevc_vaapi: quality (QP) and B-frames. VAAPI is the hardware path when the
+        // GPU vendor is not one with a dedicated Encoder (NVENC, QSV, AMF, VideoToolbox).
+        HevcVaapiQualitySlider | HevcVaapiBFramesInput => {
+            hevc && matches!(backend, Backend::Hardware(GpuVendor::Unknown))
+        }
+
         // AV1 hardware encoders
         Av1HwPresetSlider | Av1HwCqSlider | Av1HwLookaheadInput | Av1HwTileColsInput
         | Av1HwTileRowsInput => av1 && hardware,
@@ -126,6 +132,7 @@ mod tests {
     const INTEL: Backend = Backend::Hardware(GpuVendor::Intel);
     const NVIDIA: Backend = Backend::Hardware(GpuVendor::Nvidia);
     const AMD: Backend = Backend::Hardware(GpuVendor::Amd);
+    const UNKNOWN: Backend = Backend::Hardware(GpuVendor::Unknown);
 
     #[test]
     fn vp9_only_software_controls_are_inactive_for_av1() {
@@ -736,6 +743,40 @@ mod tests {
             applies(HevcVideotoolboxQSlider, CodecSelection::Hevc, apple),
             emitted(&vt, "-q:v")
         );
+    }
+
+    #[test]
+    fn hevc_vaapi_controls_apply_only_to_hevc_vaapi_hardware() {
+        for f in [HevcVaapiQualitySlider, HevcVaapiBFramesInput] {
+            assert!(applies(f, CodecSelection::Hevc, UNKNOWN), "{f:?}");
+            assert!(!applies(f, CodecSelection::Hevc, SW), "{f:?}");
+            assert!(!applies(f, CodecSelection::Hevc, NVIDIA), "{f:?}");
+            assert!(!applies(f, CodecSelection::Av1, UNKNOWN), "{f:?}");
+            assert!(!applies(f, CodecSelection::Vp9, UNKNOWN), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn hevc_vaapi_shows_only_the_settings_hevc_vaapi_supports() {
+        let mut hw = state_for(CodecSelection::Hevc, true);
+        hw.gpu_vendor = GpuVendor::Unknown;
+        let text = render_text(&mut hw);
+        assert!(text.contains("QP (1-51"), "VAAPI quality row missing");
+        assert!(text.contains("B-Frames"), "VAAPI b-frames row missing");
+        for f in [HevcVaapiQualitySlider, HevcVaapiBFramesInput] {
+            assert!(f.area(&hw).is_some(), "{f:?} should be clickable");
+            assert!(tab_order(&hw).contains(&f), "{f:?} should be in Tab order");
+        }
+        // x265 settings and the preset/lookahead hevc_vaapi lacks are not offered
+        for f in [HevcX265PresetDropdown, HevcX265TuneDropdown] {
+            assert!(f.area(&hw).is_none(), "{f:?}");
+        }
+        assert!(!text.contains("Lookahead"));
+
+        let mut sw = state_for(CodecSelection::Hevc, false);
+        let text = render_text(&mut sw);
+        assert!(!text.contains("B-Frames"));
+        assert!(HevcVaapiQualitySlider.area(&sw).is_none());
     }
 
     #[test]

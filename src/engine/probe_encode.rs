@@ -84,7 +84,10 @@ pub fn probe_args(
             push(&["-init_hw_device", &init, "-filter_hw_device", "qs"]);
         }
         // hevc_vaapi: -init_hw_device vaapi + -filter_hw_device.
-        HevcVaapi => return None,
+        HevcVaapi => {
+            let init = format!("vaapi=va:{device}");
+            push(&["-init_hw_device", &init, "-filter_hw_device", "va"]);
+        }
         // hevc_amf and hevc_videotoolbox: no device init needed.
         HevcAmf | HevcVideotoolbox => {}
     }
@@ -100,7 +103,7 @@ pub fn probe_args(
         Vp9Qsv | Av1Qsv | HevcQsv => {
             push(&["-vf", &format!("format={fmt},hwupload=extra_hw_frames=64")])
         }
-        Vp9Vaapi | Av1Vaapi => push(&["-vf", &format!("format={fmt},hwupload")]),
+        Vp9Vaapi | Av1Vaapi | HevcVaapi => push(&["-vf", &format!("format={fmt},hwupload")]),
         _ => push(&["-pix_fmt", fmt]),
     }
     push(&["-c:v", encoder.ffmpeg_name()]);
@@ -114,7 +117,7 @@ pub fn probe_args(
         Av1Amf => push(&["-rc", "cqp", "-qp_i", PROBE_QUALITY, "-qp_p", PROBE_QUALITY]),
         // CQP through -q:v, the same flag the hevc_qsv command uses.
         HevcQsv => push(&["-q:v", PROBE_QUALITY]),
-        // The HEVC hardware Encoders return early above until their tickets land.
+        HevcVaapi => push(&["-rc_mode:v", "CQP", "-global_quality:v", PROBE_QUALITY]),
         LibvpxVp9 | LibsvtAv1 | LibaomAv1 | Libx265 => unreachable!(),
         HevcNvenc => push(&["-rc", "vbr", "-cq", PROBE_QUALITY, "-b:v", "0"]),
         // AMF QP, constant quality.
@@ -122,7 +125,6 @@ pub fn probe_args(
         // VideoToolbox constant quality (`q:v`, 1-100, higher is better). Intel Macs
         // reject it, which is how they fall back to libx265. 30 is a legal value.
         HevcVideotoolbox => push(&["-q:v", PROBE_QUALITY]),
-        HevcVaapi => unreachable!(),
     }
     push(&["-f", "null", "-"]);
     Some(a)
@@ -229,6 +231,7 @@ mod tests {
         assert!(c.contains(&HevcQsv));
         assert!(c.contains(&HevcNvenc));
         assert!(c.contains(&HevcAmf) && c.contains(&HevcVideotoolbox));
+        assert!(c.contains(&HevcVaapi));
     }
 
     #[test]
@@ -274,6 +277,15 @@ mod tests {
         assert!(vt.contains("-c:v hevc_videotoolbox -q:v 30"), "{vt}");
         assert!(vt.contains("-pix_fmt p010le"), "{vt}");
         assert!(!vt.contains("-init_hw_device"));
+    }
+
+    #[test]
+    fn hevc_vaapi_probe_is_cqp_with_a_vaapi_device_and_main10_surfaces() {
+        let s8 = joined(HevcVaapi, 8);
+        assert!(s8.contains("-init_hw_device vaapi=va:/dev/dri/renderD129 -filter_hw_device va"));
+        assert!(s8.contains("format=nv12,hwupload"));
+        assert!(s8.contains("-c:v hevc_vaapi -rc_mode:v CQP -global_quality:v 30"));
+        assert!(joined(HevcVaapi, 10).contains("format=p010le,hwupload"));
     }
 
     #[test]

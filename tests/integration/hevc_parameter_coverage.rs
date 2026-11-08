@@ -43,10 +43,7 @@ const AMF_FIELDS: &[(&str, &str)] = &[
 const VIDEOTOOLBOX_FIELDS: &[(&str, &str)] = &[("videotoolbox_q", "-q:v")];
 
 /// Fields no Encoder reads yet, with the Encoder ticket that owns them.
-const PENDING_HARDWARE: &[(&str, &str)] = &[
-    // per-Encoder quality
-    ("vaapi_quality", "hevc_vaapi"),
-];
+const PENDING_HARDWARE: &[(&str, &str)] = &[];
 
 fn args(profile: &Profile) -> Vec<String> {
     let job = VideoJob::new(
@@ -90,6 +87,7 @@ fn every_hevc_field_is_owned_by_x265_or_a_pending_hardware_encoder() {
             || NVENC_FIELDS.iter().any(|(f, _)| f == field)
             || AMF_FIELDS.iter().any(|(f, _)| f == field)
             || VIDEOTOOLBOX_FIELDS.iter().any(|(f, _)| f == field)
+            || VAAPI_FIELDS.iter().any(|(f, _)| f == field)
             || PENDING_HARDWARE.iter().any(|(f, _)| f == field);
         assert!(
             owned,
@@ -103,6 +101,7 @@ fn every_hevc_field_is_owned_by_x265_or_a_pending_hardware_encoder() {
         .chain(NVENC_FIELDS)
         .chain(AMF_FIELDS)
         .chain(VIDEOTOOLBOX_FIELDS)
+        .chain(VAAPI_FIELDS)
         .chain(PENDING_HARDWARE)
     {
         assert!(json.get(*field).is_some(), "stale coverage entry {field}");
@@ -217,6 +216,40 @@ fn hdr10_signalling_reaches_x265_params() {
     // SDR output carries none of it
     let sdr = self::args(&Profile::get("hevc-x265"));
     assert!(!sdr.iter().any(|a| a == "-x265-params"));
+}
+
+/// Fields hevc_vaapi reads, and the flag each produces. (hw_preset and hw_lookahead are
+/// not supported by hevc_vaapi and stay unowned by it.)
+const VAAPI_FIELDS: &[(&str, &str)] = &[
+    ("vaapi_quality", "-global_quality:v"),
+    ("hw_b_frames", "-bf:v"),
+    ("hw_rc_mode", "-rc_mode:v"),
+];
+
+#[test]
+fn every_hevc_vaapi_field_reaches_its_flag_with_its_value() {
+    let mut p = Profile::get("hevc-vaapi");
+    let h = p.codec.as_hevc_mut().unwrap();
+    h.vaapi_quality = 23;
+    h.hw_b_frames = 3;
+    let job = VideoJob::new(
+        PathBuf::from("does-not-exist.mkv"),
+        PathBuf::from("/tmp/out.mkv"),
+        p.name.clone(),
+    );
+    let plan = EncodePlan::new(VideoEncoder::HevcVaapi).with_host(HostPlatform::Linux);
+    let args: Vec<String> = build_encode_cmds(&job, &p, &plan)
+        .pop()
+        .unwrap()
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+    assert_eq!(value_of(&args, "-global_quality:v").as_deref(), Some("23"));
+    assert_eq!(value_of(&args, "-bf:v").as_deref(), Some("3"));
+    assert_eq!(value_of(&args, "-rc_mode:v").as_deref(), Some("CQP"));
+    for (field, flag) in VAAPI_FIELDS {
+        assert!(args.iter().any(|a| a == flag), "{field}: {flag} missing");
+    }
 }
 
 #[cfg(feature = "dev-tools")]

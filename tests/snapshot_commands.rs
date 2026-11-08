@@ -207,6 +207,32 @@ fn snapshot_windows_hevc_nvenc() {
 }
 
 #[test]
+fn snapshot_hevc_vaapi_sdr() {
+    let profile = Profile::get("hevc-vaapi");
+    let job = mk_job("mkv");
+    let out = build(&job, &profile, VideoEncoder::HevcVaapi);
+    assert_snapshot!("hevc_vaapi_sdr", out);
+}
+
+#[test]
+fn snapshot_hevc_vaapi_main10() {
+    let mut profile = Profile::get("hevc-vaapi");
+    profile.pix_fmt = "yuv420p10le".to_string();
+    let job = mk_job("mkv");
+    let out = build(&job, &profile, VideoEncoder::HevcVaapi);
+    assert!(out.contains("format=p010,hwupload"), "{out}");
+    assert!(out.contains("-profile:v main10"), "{out}");
+    assert_snapshot!("hevc_vaapi_main10", out);
+}
+
+#[test]
+fn snapshot_hevc_vaapi_mp4_is_tagged_hvc1() {
+    let profile = Profile::get("hevc-vaapi");
+    let out = build(&mk_job("mp4"), &profile, VideoEncoder::HevcVaapi);
+    assert!(out.contains("-tag:v hvc1"), "{out}");
+}
+
+#[test]
 fn hevc_in_mkv_is_not_tagged() {
     let profile = Profile::get("hevc-x265");
     let job = mk_job("mkv");

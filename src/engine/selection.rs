@@ -28,8 +28,7 @@ impl CodecKind {
             Self::Av1 => &[Av1Nvenc, Av1Amf, Av1Qsv, Av1Vaapi],
             // Extension point: each HEVC hardware Encoder ticket adds itself here, in
             // priority order (HevcNvenc, HevcAmf, HevcQsv, HevcVaapi, HevcVideotoolbox).
-            // Empty until then, so HEVC always selects the Software Fallback.
-            Self::Hevc => &[HevcNvenc, HevcAmf, HevcQsv, HevcVideotoolbox],
+            Self::Hevc => &[HevcNvenc, HevcAmf, HevcQsv, HevcVaapi, HevcVideotoolbox],
         }
     }
 

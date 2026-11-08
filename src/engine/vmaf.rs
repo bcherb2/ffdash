@@ -813,6 +813,7 @@ pub fn quality_search(encoder: VideoEncoder) -> QualitySearch {
         HevcNvenc => lower(HARDWARE_QUALITY_FLOOR),
         // hevc_qsv CQP -q:v 1-51, lower is better: same floor as the other QSV Encoders.
         HevcQsv => lower(HARDWARE_QUALITY_FLOOR),
+        // hevc_vaapi QP 1-51, lower is better.
         HevcVaapi => lower(HARDWARE_QUALITY_FLOOR),
         HevcAmf => lower(HARDWARE_QUALITY_FLOOR),
         // VideoToolbox q:v is 1-100 and HIGHER is better: set the ceiling here.
@@ -1281,6 +1282,10 @@ mod tests {
         assert_eq!(qsv.best, HARDWARE_QUALITY_FLOOR);
         assert!(qsv.lower_is_better);
         assert_eq!(improve_quality(26, 2, qsv), 24);
+        // VAAPI QP 1-51: lower is better, stop at the hardware floor.
+        let vaapi = quality_search(HevcVaapi);
+        assert!(vaapi.lower_is_better);
+        assert_eq!(vaapi.best, HARDWARE_QUALITY_FLOOR);
 
         // hevc_nvenc -cq 0-51: lower is better, stops at the shared hardware floor.
         let nv = quality_search(HevcNvenc);

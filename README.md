@@ -325,6 +325,7 @@ ffmpeg -h encoder=av1_vaapi     # VA-API AV1
 ffmpeg -h encoder=libx265       # Software HEVC (x265)
 ffmpeg -h encoder=hevc_nvenc    # NVIDIA NVENC HEVC
 ffmpeg -h encoder=hevc_qsv      # Intel Quick Sync HEVC
+ffmpeg -h encoder=hevc_vaapi    # VA-API HEVC
 ```
 
 
@@ -335,6 +336,7 @@ ffmpeg -h encoder=hevc_qsv      # Intel Quick Sync HEVC
 - [x] HEVC software encoding (libx265, Main10/HDR10)
 - [x] NVIDIA NVENC hardware encoding (HEVC)
 - [x] Intel QSV hardware encoding (HEVC, Linux and Windows)
+- [x] HEVC VA-API hardware encoding (hevc_vaapi, Main10)
 - [x] Intel QSV hardware encoding (VP9, AV1)
 - [x] Intel/AMD VA-API hardware encoding (VP9, AV1)
 - [x] NVIDIA NVENC hardware encoding (AV1)

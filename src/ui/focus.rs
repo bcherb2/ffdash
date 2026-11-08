@@ -81,6 +81,8 @@ pub enum ConfigFocus {
     // HEVC software settings (libx265); CRF uses the shared CrfSlider
     HevcX265PresetDropdown,
     HevcX265TuneDropdown,
+    HevcVaapiQualitySlider,
+    HevcVaapiBFramesInput,
 
     // HEVC hardware settings (hevc_nvenc)
     HevcNvencPresetSlider,
@@ -215,7 +217,9 @@ impl ConfigFocus {
             Self::HevcQsvBFramesInput => Self::HevcAmfQpSlider,
             Self::HevcAmfQpSlider => Self::HevcAmfPresetSlider,
             Self::HevcAmfPresetSlider => Self::HevcVideotoolboxQSlider,
-            Self::HevcVideotoolboxQSlider => Self::RowMtCheckbox,
+            Self::HevcVideotoolboxQSlider => Self::HevcVaapiQualitySlider,
+            Self::HevcVaapiQualitySlider => Self::HevcVaapiBFramesInput,
+            Self::HevcVaapiBFramesInput => Self::RowMtCheckbox,
             Self::RowMtCheckbox => Self::TileColumnsSlider,
             Self::TileColumnsSlider => Self::TileRowsSlider,
             Self::TileRowsSlider => Self::ThreadsInput,
@@ -318,7 +322,9 @@ impl ConfigFocus {
             Self::HevcAmfQpSlider => Self::HevcQsvBFramesInput,
             Self::HevcAmfPresetSlider => Self::HevcAmfQpSlider,
             Self::HevcVideotoolboxQSlider => Self::HevcAmfPresetSlider,
-            Self::RowMtCheckbox => Self::HevcVideotoolboxQSlider,
+            Self::HevcVaapiQualitySlider => Self::HevcVideotoolboxQSlider,
+            Self::HevcVaapiBFramesInput => Self::HevcVaapiQualitySlider,
+            Self::RowMtCheckbox => Self::HevcVaapiBFramesInput,
             Self::TileColumnsSlider => Self::RowMtCheckbox,
             Self::TileRowsSlider => Self::TileColumnsSlider,
             Self::ThreadsInput => Self::TileRowsSlider,

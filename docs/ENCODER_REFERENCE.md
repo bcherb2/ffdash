@@ -66,6 +66,23 @@ Both are fed from CPU decode on every host (no `-hwaccel`, no device init) and a
 | Auto-VMAF        | QP searched downward to the hardware floor | `q:v` searched upward to 100       |
 | Probe Encode     | `-rc cqp -qp_i 30 -qp_p 30`            | `-q:v 30` (Intel Macs fail it and fall back to libx265) |
 
+### hevc_vaapi (VAAPI, Linux)
+
+| Parameter        | hevc_vaapi |
+|------------------|------------|
+| Quality knob     | QP 1-51 via `-global_quality:v` (default 26, lower = better), rate control always `-rc_mode:v CQP` |
+| Speed knob       | none (no preset) |
+| Lookahead        | none |
+| B-frames         | `-bf:v` 0-4 (default 2); driver support varies |
+| Bit depth        | 8/10: `format=nv12` + `-profile:v main`, or `format=p010` + `-profile:v main10` (10-bit explicit, or `auto` on a 10-bit source) |
+| Decode           | CPU decode, then `hwupload`; no `-hwaccel` |
+| Probe Encode     | `-init_hw_device vaapi=va:<render node>`, 5 frames, CQP at QP 30; Main10 probed separately |
+| MP4              | always `-tag:v hvc1` |
+| Auto-VMAF        | QP searched downward from the configured value to 5 |
+| Built-in profile | `hevc-vaapi` |
+
+The hevc_vaapi preset and lookahead settings (`hw_preset`, `hw_lookahead`) are not used; the config panel shows only Quality (QP) and B-Frames for it.
+
 ## VP9 Encoders
 
 | Parameter        | libvpx-vp9            | vp9_vaapi                       | vp9_qsv                         |
