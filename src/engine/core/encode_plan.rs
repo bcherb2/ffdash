@@ -12,6 +12,36 @@ use crate::engine::hardware::{self, VideoEncoder};
 pub struct EncodePlan {
     pub encoder: VideoEncoder,
     pub quality_override: Option<u32>,
+    /// The platform the command is built for (defaults to the running OS).
+    pub host: HostPlatform,
+}
+
+/// The operating system a command is built for. An explicit input to command building
+/// so the non-Linux command shape can be tested on any host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostPlatform {
+    Linux,
+    Windows,
+    MacOs,
+}
+
+impl HostPlatform {
+    /// The platform ffdash is running on.
+    pub fn current() -> Self {
+        if cfg!(target_os = "windows") {
+            Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::MacOs
+        } else {
+            Self::Linux
+        }
+    }
+
+    /// Linux keeps its VAAPI/hardware-decode paths; elsewhere input is decoded on the CPU
+    /// and handed to the Hardware Encoder.
+    pub fn decodes_on_cpu(self) -> bool {
+        self != Self::Linux
+    }
 }
 
 impl EncodePlan {
@@ -19,7 +49,14 @@ impl EncodePlan {
         Self {
             encoder,
             quality_override: None,
+            host: HostPlatform::current(),
         }
+    }
+
+    /// Build for a specific platform instead of the running OS.
+    pub fn with_host(mut self, host: HostPlatform) -> Self {
+        self.host = host;
+        self
     }
 
     pub fn with_quality_override(mut self, quality: u32) -> Self {

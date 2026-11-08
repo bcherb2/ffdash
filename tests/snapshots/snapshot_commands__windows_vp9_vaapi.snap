@@ -1,0 +1,5 @@
+---
+source: tests/snapshot_commands.rs
+expression: out
+---
+ffmpeg -init_hw_device vaapi=va:/dev/dri/renderD128 -filter_hw_device va -i /tmp/input.mp4 -progress - -nostats -vf format=nv12,hwupload -c:v vp9_vaapi -low_power 1 -rc_mode:v 1 -global_quality:v 70 -loop_filter_level:v 16 -loop_filter_sharpness:v 4 -compression_level:v 4 -g:v 240 -map 0:v:0? -map 0:a:0? -c:a:0 libopus -b:a:0 128k -vbr:a:0 on -map_metadata 0 -map_chapters 0 -y /tmp/output.webm

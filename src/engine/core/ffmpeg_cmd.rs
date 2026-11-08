@@ -315,7 +315,12 @@ pub fn validate_vaapi_config(profile: &Profile, hw: &HwEncodingConfig) -> Result
 }
 
 /// Build VAAPI hardware encoding command (for Intel Arc and other VAAPI-capable GPUs)
-fn build_vaapi_cmd(job: &VideoJob, profile: &Profile, hw: &HwEncodingConfig) -> Command {
+fn build_vaapi_cmd(
+    job: &VideoJob,
+    profile: &Profile,
+    hw: &HwEncodingConfig,
+    cpu_decode: bool,
+) -> Command {
     // Validate configuration (log warning if invalid)
     if let Err(msg) = validate_vaapi_config(profile, hw) {
         let _ = write_debug_log(&format!("[VAAPI] WARNING: {}\n", msg));
@@ -343,7 +348,10 @@ fn build_vaapi_cmd(job: &VideoJob, profile: &Profile, hw: &HwEncodingConfig) -> 
             .arg("vaapi=va:/dev/dri/renderD128");
     }
 
-    cmd.arg("-hwaccel").arg("vaapi");
+    // Off Linux the input is decoded on the CPU and uploaded below.
+    if !cpu_decode {
+        cmd.arg("-hwaccel").arg("vaapi");
+    }
     cmd.arg("-filter_hw_device").arg("va");
 
     // Probe input BEFORE building command to determine if filters are needed
@@ -367,11 +375,12 @@ fn build_vaapi_cmd(job: &VideoJob, profile: &Profile, hw: &HwEncodingConfig) -> 
 
     // Determine if hw decode is safe (WMV3 etc. not supported)
     // Default to allowing hw decode; only disable for known-bad codecs.
-    let hw_decode_allowed = match codec_name.as_deref() {
-        Some("h264") | Some("hevc") | Some("vp9") | Some("av1") | Some("mpeg2video") => true,
-        Some(_) => false,
-        None => true,
-    };
+    let hw_decode_allowed = !cpu_decode
+        && match codec_name.as_deref() {
+            Some("h264") | Some("hevc") | Some("vp9") | Some("av1") | Some("mpeg2video") => true,
+            Some(_) => false,
+            None => true,
+        };
 
     // Add hwaccel_output_format BEFORE input if no filters and hw decode allowed
     if !needs_filters && hw_decode_allowed {
@@ -523,7 +532,14 @@ fn build_vaapi_cmd(job: &VideoJob, profile: &Profile, hw: &HwEncodingConfig) -> 
     cmd
 }
 
-fn init_qsv_from_vaapi(cmd: &mut Command) {
+fn init_qsv_from_vaapi(cmd: &mut Command, cpu_decode: bool) {
+    // Off Linux there is no VAAPI render node: let FFmpeg create the QSV device itself.
+    if cpu_decode {
+        cmd.arg("-init_hw_device").arg("qsv=qs");
+        cmd.arg("-filter_hw_device").arg("qs");
+        return;
+    }
+
     // Force iHD for QSV if present to avoid picking the wrong vendor driver (e.g., nouveau)
     let i_hd_path = "/usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so";
     if std::path::Path::new(i_hd_path).exists() {
@@ -757,10 +773,11 @@ fn build_vp9_qsv_cmd(
     job: &VideoJob,
     profile: &Profile,
     hw_config: Option<&HwEncodingConfig>,
+    cpu_decode: bool,
 ) -> Command {
     let mut cmd = Command::new("ffmpeg");
 
-    init_qsv_from_vaapi(&mut cmd);
+    init_qsv_from_vaapi(&mut cmd, cpu_decode);
 
     // Input
     cmd.arg("-i").arg(&job.input_path);
@@ -814,6 +831,12 @@ fn build_vp9_qsv_cmd(
                 qsv_format = "nv12";
             }
         }
+    }
+
+    // CPU-decoded frames must be uploaded to QSV surfaces before vpp_qsv.
+    if cpu_decode {
+        filters.push(format!("format={}", qsv_format));
+        filters.push("hwupload=extra_hw_frames=64".to_string());
     }
 
     // VPP filter options (denoise/detail/color) - see ENCODER_REFERENCE.md#color-metadata
@@ -1279,7 +1302,7 @@ fn build_av1_software_cmd(job: &VideoJob, profile: &Profile) -> Command {
 // ============================================================================
 
 /// Build AV1 QSV (Intel Quick Sync) encoding command
-fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile) -> Command {
+fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Command {
     let mut cmd = Command::new("ffmpeg");
 
     // Heavier probing helps with large/multi-stream inputs
@@ -1287,10 +1310,13 @@ fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile) -> Command {
     cmd.arg("-probesize").arg("200M");
 
     // QSV hardware init (derive from VAAPI for best oneVPL/libvpl compatibility)
-    init_qsv_from_vaapi(&mut cmd);
-    cmd.arg("-hwaccel").arg("qsv");
-    cmd.arg("-hwaccel_output_format").arg("qsv");
-    cmd.arg("-filter_hw_device").arg("qs");
+    init_qsv_from_vaapi(&mut cmd, cpu_decode);
+    // Off Linux: CPU decode, the filter device comes from init_qsv_from_vaapi.
+    if !cpu_decode {
+        cmd.arg("-hwaccel").arg("qsv");
+        cmd.arg("-hwaccel_output_format").arg("qsv");
+        cmd.arg("-filter_hw_device").arg("qs");
+    }
 
     // Input
     cmd.arg("-i").arg(&job.input_path);
@@ -1334,6 +1360,12 @@ fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile) -> Command {
         "auto" => (None, None), // Passthrough: no format conversion
         _ => (Some("nv12"), Some("nv12")),
     };
+
+    // CPU-decoded frames must be uploaded to QSV surfaces before vpp_qsv.
+    if cpu_decode {
+        filters.push(format!("format={}", qsv_format.unwrap_or("nv12")));
+        filters.push("hwupload=extra_hw_frames=64".to_string());
+    }
 
     // VPP filter options (denoise/detail/color) - see ENCODER_REFERENCE.md#color-metadata
     let av1_cfg = if let crate::engine::core::Codec::Av1(av1) = &profile.codec {
@@ -1458,11 +1490,13 @@ fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile) -> Command {
 }
 
 /// Build AV1 NVENC (NVIDIA) encoding command
-fn build_av1_nvenc_cmd(job: &VideoJob, profile: &Profile) -> Command {
+fn build_av1_nvenc_cmd(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Command {
     let mut cmd = Command::new("ffmpeg");
 
-    // NVENC hardware init
-    cmd.arg("-hwaccel").arg("cuda");
+    // NVENC hardware init (Linux decodes on the GPU; elsewhere CPU frames go to NVENC)
+    if !cpu_decode {
+        cmd.arg("-hwaccel").arg("cuda");
+    }
 
     // Input
     cmd.arg("-i").arg(&job.input_path);
@@ -1703,20 +1737,23 @@ fn build_single_cmd(
     plan: &EncodePlan,
     hw_config: Option<&HwEncodingConfig>,
 ) -> Command {
+    let cpu_decode = plan.host.decodes_on_cpu();
     match &profile.codec {
         Codec::Vp9(_) => match plan.encoder {
-            hardware::VideoEncoder::Vp9Qsv => build_vp9_qsv_cmd(job, profile, hw_config),
+            hardware::VideoEncoder::Vp9Qsv => {
+                build_vp9_qsv_cmd(job, profile, hw_config, cpu_decode)
+            }
             hardware::VideoEncoder::Vp9Vaapi => {
                 let effective_hw = hw_config
                     .cloned()
                     .unwrap_or_else(|| hw_config_from_profile(profile));
-                build_vaapi_cmd(job, profile, &effective_hw)
+                build_vaapi_cmd(job, profile, &effective_hw, cpu_decode)
             }
             _ => build_software_cmd(job, profile),
         },
         Codec::Av1(_) => match plan.encoder {
-            hardware::VideoEncoder::Av1Qsv => build_av1_qsv_cmd(job, profile),
-            hardware::VideoEncoder::Av1Nvenc => build_av1_nvenc_cmd(job, profile),
+            hardware::VideoEncoder::Av1Qsv => build_av1_qsv_cmd(job, profile, cpu_decode),
+            hardware::VideoEncoder::Av1Nvenc => build_av1_nvenc_cmd(job, profile, cpu_decode),
             hardware::VideoEncoder::Av1Vaapi => build_av1_vaapi_cmd(job, profile),
             // Software encoders; AMF is not implemented yet and falls back to software.
             _ => build_av1_software_cmd(job, profile),

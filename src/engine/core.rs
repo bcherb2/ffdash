@@ -12,7 +12,7 @@ mod types;
 mod vp9_config;
 
 pub use av1_config::{Av1Config, Codec};
-pub use encode_plan::EncodePlan;
+pub use encode_plan::{EncodePlan, HostPlatform};
 pub(crate) use ffmpeg_cmd::build_encode_cmds_with_hw;
 pub use ffmpeg_cmd::{
     build_encode_cmds, build_ffmpeg_cmds, encode_job, encode_job_with_callback,
@@ -505,7 +505,8 @@ mod tests {
         let cmd = build_encode_cmds_with_hw(
             &job,
             &profile,
-            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi),
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi)
+                .with_host(HostPlatform::Linux),
             Some(&hw_config),
         )
         .remove(0);
@@ -602,7 +603,8 @@ mod tests {
         let cmd = build_encode_cmds_with_hw(
             &job,
             &profile,
-            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi),
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi)
+                .with_host(HostPlatform::Linux),
             Some(&hw_config),
         )
         .remove(0);
@@ -686,7 +688,8 @@ mod tests {
         let cmd = build_encode_cmds_with_hw(
             &job,
             &profile,
-            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi),
+            &EncodePlan::new(crate::engine::hardware::VideoEncoder::Vp9Vaapi)
+                .with_host(HostPlatform::Linux),
             Some(&hw_config),
         )
         .remove(0);

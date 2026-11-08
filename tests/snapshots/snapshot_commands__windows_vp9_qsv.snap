@@ -1,0 +1,5 @@
+---
+source: tests/snapshot_commands.rs
+expression: out
+---
+ffmpeg -init_hw_device qsv=qs -filter_hw_device qs -i /tmp/input.mp4 -progress - -nostats -vf format=nv12,hwupload=extra_hw_frames=64,vpp_qsv=format=nv12 -c:v vp9_qsv -low_power 1 -q:v 70 -preset medium -look_ahead 1 -look_ahead_depth 40 -g:v 240 -map 0:v:0? -map 0:a:0? -c:a:0 libopus -b:a:0 128k -vbr:a:0 on -map_metadata 0 -map_chapters 0 -y /tmp/output.webm

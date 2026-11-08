@@ -1,3 +1,4 @@
+use ffdash::engine::core::HostPlatform;
 use ffdash::engine::core::{EncodePlan, Profile, VideoJob, build_encode_cmds};
 use ffdash::engine::hardware::VideoEncoder;
 use insta::assert_snapshot;
@@ -16,7 +17,8 @@ fn to_string(cmd: &std::process::Command) -> String {
 }
 
 fn build(job: &VideoJob, profile: &Profile, encoder: VideoEncoder) -> String {
-    let cmds = build_encode_cmds(job, profile, &EncodePlan::new(encoder));
+    let plan = EncodePlan::new(encoder).with_host(HostPlatform::Linux);
+    let cmds = build_encode_cmds(job, profile, &plan);
     cmds.iter().map(to_string).collect::<Vec<_>>().join("\n")
 }
 
@@ -149,4 +151,121 @@ fn software_vp9_fallback_for_hardware_profile_stays_single_pass() {
     // Control: the same profile without the hardware request is two-pass.
     profile.use_hardware_encoding = false;
     assert_eq!(build_encode_cmds(&job, &profile, &plan).len(), 2);
+}
+
+// --- Non-Linux hosts: Hardware Encoders are fed from CPU decoding -------------------
+// The host platform is an explicit input, so these run on any machine.
+
+fn build_on(
+    host: HostPlatform,
+    job: &VideoJob,
+    profile: &Profile,
+    encoder: VideoEncoder,
+) -> String {
+    let plan = EncodePlan::new(encoder).with_host(host);
+    build_encode_cmds(job, profile, &plan)
+        .iter()
+        .map(to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+const HW_CASES: [(&str, VideoEncoder); 5] = [
+    ("vp9-good", VideoEncoder::Vp9Qsv),
+    ("vp9-good", VideoEncoder::Vp9Vaapi),
+    ("av1-qsv", VideoEncoder::Av1Qsv),
+    ("av1-nvenc", VideoEncoder::Av1Nvenc),
+    ("av1-vaapi", VideoEncoder::Av1Vaapi),
+];
+
+#[test]
+fn non_linux_hardware_commands_decode_on_cpu() {
+    for host in [HostPlatform::Windows, HostPlatform::MacOs] {
+        for (name, encoder) in HW_CASES {
+            let profile = Profile::get(name);
+            let out = build_on(host, &mk_job("mkv"), &profile, encoder);
+            assert!(!out.contains("-hwaccel"), "{host:?} {encoder:?}: {out}");
+            // VAAPI is a Linux-only Backend; its render node is not applicable elsewhere.
+            if !matches!(encoder, VideoEncoder::Vp9Vaapi | VideoEncoder::Av1Vaapi) {
+                assert!(!out.contains("/dev/dri"), "{host:?} {encoder:?}: {out}");
+            }
+        }
+    }
+}
+
+#[test]
+fn linux_host_keeps_hardware_decode_paths() {
+    for (name, encoder) in HW_CASES {
+        let profile = Profile::get(name);
+        let job = mk_job("mkv");
+        let explicit = build_on(HostPlatform::Linux, &job, &profile, encoder);
+        assert!(
+            explicit.contains("-init_hw_device") || explicit.contains("-hwaccel"),
+            "{encoder:?}: {explicit}"
+        );
+        {
+            assert_eq!(explicit, build(&job, &profile, encoder), "{encoder:?}");
+        }
+    }
+}
+
+#[test]
+fn snapshot_windows_av1_nvenc() {
+    let out = build_on(
+        HostPlatform::Windows,
+        &mk_job("mkv"),
+        &Profile::get("av1-nvenc"),
+        VideoEncoder::Av1Nvenc,
+    );
+    assert_snapshot!("windows_av1_nvenc", out);
+}
+
+#[test]
+fn snapshot_windows_av1_qsv() {
+    let out = build_on(
+        HostPlatform::Windows,
+        &mk_job("mkv"),
+        &Profile::get("av1-qsv"),
+        VideoEncoder::Av1Qsv,
+    );
+    assert_snapshot!("windows_av1_qsv", out);
+}
+
+#[test]
+fn snapshot_windows_vp9_qsv() {
+    let out = build_on(
+        HostPlatform::Windows,
+        &mk_job("webm"),
+        &Profile::get("vp9-good"),
+        VideoEncoder::Vp9Qsv,
+    );
+    assert_snapshot!("windows_vp9_qsv", out);
+}
+
+#[test]
+fn snapshot_macos_av1_nvenc_hdr10() {
+    let mut profile = Profile::get("av1-nvenc");
+    profile.colorspace = 9;
+    profile.color_primaries = 9;
+    profile.color_trc = 16;
+    profile.color_range = 0;
+    profile.pix_fmt = "yuv420p10le".to_string();
+    let out = build_on(
+        HostPlatform::MacOs,
+        &mk_job("mkv"),
+        &profile,
+        VideoEncoder::Av1Nvenc,
+    );
+    assert_snapshot!("macos_av1_nvenc_hdr10", out);
+}
+
+#[test]
+fn snapshot_windows_vp9_vaapi() {
+    let out = build_on(
+        HostPlatform::Windows,
+        &mk_job("webm"),
+        &Profile::get("vp9-good"),
+        VideoEncoder::Vp9Vaapi,
+    );
+    assert_snapshot!("windows_vp9_vaapi", out);
 }
