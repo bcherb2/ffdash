@@ -235,7 +235,11 @@ pub(super) fn spawn_next_job(state: &mut AppState) {
                     let plan_profile = profile
                         .clone()
                         .unwrap_or_else(|| crate::engine::Profile::get(&job.profile));
-                    Some(crate::engine::EncodePlan::for_profile(&plan_profile, true))
+                    Some(crate::engine::EncodePlan::for_profile(
+                        &plan_profile,
+                        true,
+                        crate::engine::required_bit_depth(&plan_profile, &job.input_path),
+                    ))
                 } else {
                     // Fall back to software encoding if hardware unavailable
                     if state.config.use_hardware_encoding

@@ -104,6 +104,7 @@ pub fn run_smoke_tests(opts: SmokeTestOptions) -> Result<SmokeSummary> {
                             &profile.codec,
                             profile.use_hardware_encoding,
                             Some(&profile.video_codec),
+                            8,
                         )),
                         expected_hardware: profile.use_hardware_encoding,
                         status: SmokeStatus::Skipped,
@@ -124,6 +125,30 @@ pub fn run_smoke_tests(opts: SmokeTestOptions) -> Result<SmokeSummary> {
                     anyhow!("Missing input path for smoke-test (validate_only=false)")
                 })?;
 
+                // Only run a profile whose Encoder passes its Probe Encode here.
+                let encoder = encoder_for(&profile, input);
+                if profile.use_hardware_encoding && !encoder.is_hardware() {
+                    results.push(ProfileSmokeResult {
+                        profile: profile.name.clone(),
+                        encoder: describe_encoder(&encoder),
+                        expected_hardware: true,
+                        status: SmokeStatus::Skipped,
+                        duration_ms: profile_load_start.elapsed().as_millis(),
+                        error: None,
+                        stderr_tail: None,
+                        note: Some(
+                            "no hardware Encoder passed its Probe Encode on this machine"
+                                .to_string(),
+                        ),
+                        command: String::new(),
+                        output_bitrate_kbps: None,
+                        output_size_bytes: None,
+                        video_codec: None,
+                        audio_codec: None,
+                    });
+                    continue;
+                }
+
                 match run_profile(&profile, input, &temp_dir, opts.max_frames) {
                     Ok(mut res) => {
                         res.duration_ms = res
@@ -134,11 +159,7 @@ pub fn run_smoke_tests(opts: SmokeTestOptions) -> Result<SmokeSummary> {
                     Err(e) => {
                         results.push(ProfileSmokeResult {
                             profile: profile.name.clone(),
-                            encoder: describe_encoder(&hardware::select_encoder(
-                                &profile.codec,
-                                profile.use_hardware_encoding,
-                                Some(&profile.video_codec),
-                            )),
+                            encoder: describe_encoder(&encoder),
                             expected_hardware: profile.use_hardware_encoding,
                             status: SmokeStatus::Failed,
                             duration_ms: profile_load_start.elapsed().as_millis(),
@@ -279,6 +300,16 @@ fn load_profile(name: &str) -> Result<Profile> {
     Err(anyhow!("Profile '{}' not found", name))
 }
 
+/// The Encoder this profile would use on `input` on this machine.
+fn encoder_for(profile: &Profile, input: &Path) -> VideoEncoder {
+    hardware::select_encoder(
+        &profile.codec,
+        profile.use_hardware_encoding,
+        Some(&profile.video_codec),
+        crate::engine::required_bit_depth(profile, input),
+    )
+}
+
 fn describe_encoder(enc: &VideoEncoder) -> String {
     enc.ffmpeg_name().to_string()
 }
@@ -337,7 +368,11 @@ fn run_profile(
         let _ = fs::create_dir_all(dir);
     }
 
-    let plan = EncodePlan::for_profile(profile, false);
+    let plan = EncodePlan::for_profile(
+        profile,
+        false,
+        crate::engine::required_bit_depth(profile, input),
+    );
     let encoder = plan.encoder;
 
     // Ensure outputs land in temp dir (one file per profile)
@@ -438,7 +473,7 @@ fn format_command_preview(profile: &Profile, max_frames: u32, validate_only: boo
     job.overwrite = true;
 
     let mut cmds =
-        build_encode_cmds_synced(&job, profile, &EncodePlan::for_profile(profile, false));
+        build_encode_cmds_synced(&job, profile, &EncodePlan::for_profile(profile, false, 8));
     for cmd in cmds.iter_mut() {
         if !validate_only {
             cmd.arg("-frames:v").arg(max_frames.to_string());

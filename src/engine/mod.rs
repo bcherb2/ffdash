@@ -3,6 +3,7 @@
 pub mod core;
 pub mod hardware;
 pub mod probe;
+pub mod probe_encode;
 pub mod selection;
 pub mod validate;
 pub mod vmaf;

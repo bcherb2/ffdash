@@ -1828,7 +1828,11 @@ fn build_cmds_inner(
 /// the Encoder for this machine. Nothing is executed.
 pub fn build_ffmpeg_cmds(job: &VideoJob) -> Vec<Command> {
     let profile = resolve_profile(job, None);
-    let plan = EncodePlan::for_profile(&profile, false);
+    let plan = EncodePlan::for_profile(
+        &profile,
+        false,
+        super::encode_plan::required_bit_depth(&profile, &job.input_path),
+    );
     build_encode_cmds(job, &profile, &plan)
 }
 
@@ -1959,10 +1963,11 @@ pub fn encode_job(job: &mut VideoJob) -> Result<()> {
 
 /// The Encode Plan for a profile: the caller's plan when given, else the Encoder
 /// selected for this machine.
-fn plan_for(plan_override: Option<&EncodePlan>, profile: &Profile) -> EncodePlan {
-    plan_override
-        .copied()
-        .unwrap_or_else(|| EncodePlan::for_profile(profile, false))
+fn plan_for(plan_override: Option<&EncodePlan>, job: &VideoJob, profile: &Profile) -> EncodePlan {
+    plan_override.copied().unwrap_or_else(|| {
+        let depth = super::encode_plan::required_bit_depth(profile, &job.input_path);
+        EncodePlan::for_profile(profile, false, depth)
+    })
 }
 
 /// Encode a single job with custom progress callback and optional profile override
@@ -2040,7 +2045,7 @@ where
             let _ = write_debug_log("[Auto-VAMF] Calibration enabled, starting...");
 
             // Run calibration
-            let calibration_plan = plan_for(plan_override, provided_profile);
+            let calibration_plan = plan_for(plan_override, job, provided_profile);
             let calibrated_profile = match crate::engine::vmaf::calibrate_quality(
                 job,
                 provided_profile,
@@ -2107,7 +2112,7 @@ where
 
             let _ = write_debug_log("[Auto-VAMF] Calibration enabled, starting...");
 
-            let calibration_plan = plan_for(plan_override, &loaded_profile);
+            let calibration_plan = plan_for(plan_override, job, &loaded_profile);
             let calibrated_profile = match crate::engine::vmaf::calibrate_quality(
                 job,
                 &loaded_profile,
@@ -2160,7 +2165,7 @@ where
         Some(p) => p.clone(),
         None => resolve_profile(job, None),
     };
-    let mut plan = plan_for(plan_override, &resolved_profile);
+    let mut plan = plan_for(plan_override, job, &resolved_profile);
     if let Some(calibrated_quality) = job.calibrated_quality {
         plan = plan.with_quality_override(calibrated_quality);
     }

@@ -4,6 +4,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::engine::core::Codec;
+use crate::engine::probe_encode;
 use crate::engine::selection::{self, CodecKind, EncoderAvailability};
 
 /// QSV preset options (veryfast to veryslow)
@@ -138,109 +139,50 @@ fn ffmpeg_encoders_output() -> &'static str {
     })
 }
 
-/// Cache for AV1 encoder availability checks
-static AV1_ENCODER_CACHE: OnceLock<Av1EncoderAvailability> = OnceLock::new();
-
-#[derive(Debug, Clone)]
-struct Av1EncoderAvailability {
-    qsv: bool,
-    nvenc: bool,
-    vaapi: bool,
-    amf: bool,
-    svt: bool,
-    aom: bool,
-}
-
-/// Check which AV1 encoders are available (cached)
-fn get_av1_encoder_availability() -> &'static Av1EncoderAvailability {
-    AV1_ENCODER_CACHE.get_or_init(|| {
-        let encoders_output = ffmpeg_encoders_output();
-
-        Av1EncoderAvailability {
-            qsv: encoders_output.contains("av1_qsv"),
-            nvenc: encoders_output.contains("av1_nvenc") && has_nvidia_gpu(),
-            vaapi: encoders_output.contains("av1_vaapi"),
-            amf: encoders_output.contains("av1_amf") && has_amd_gpu(),
-            svt: encoders_output.contains("libsvtav1"),
-            aom: encoders_output.contains("libaom-av1"),
-        }
-    })
+/// Whether `encoder` passed its Probe Encode on this machine (cached for the session).
+fn probed(encoder: VideoEncoder) -> bool {
+    detect_encoder_availability().is_available(encoder)
 }
 
 pub fn check_vp9_qsv_available() -> bool {
-    ffmpeg_encoders_output().contains("vp9_qsv")
+    probed(VideoEncoder::Vp9Qsv)
 }
 
 pub fn check_vp9_vaapi_available() -> bool {
-    ffmpeg_encoders_output().contains("vp9_vaapi")
+    probed(VideoEncoder::Vp9Vaapi)
 }
 
-/// Check if av1_qsv encoder is available
 pub fn check_av1_qsv_available() -> bool {
-    get_av1_encoder_availability().qsv
+    probed(VideoEncoder::Av1Qsv)
 }
 
-/// Check if av1_nvenc encoder is available
 pub fn check_av1_nvenc_available() -> bool {
-    get_av1_encoder_availability().nvenc
+    probed(VideoEncoder::Av1Nvenc)
 }
 
-/// Check if av1_vaapi encoder is available
 pub fn check_av1_vaapi_available() -> bool {
-    get_av1_encoder_availability().vaapi
+    probed(VideoEncoder::Av1Vaapi)
 }
 
-/// Check if av1_amf encoder is available
 pub fn check_av1_amf_available() -> bool {
-    get_av1_encoder_availability().amf
+    probed(VideoEncoder::Av1Amf)
 }
 
-/// Check if libsvtav1 encoder is available
 pub fn check_libsvtav1_available() -> bool {
-    get_av1_encoder_availability().svt
+    probed(VideoEncoder::LibsvtAv1)
 }
 
-/// Check if libaom-av1 encoder is available
 pub fn check_libaom_av1_available() -> bool {
-    get_av1_encoder_availability().aom
+    probe_encode::lists_encoder(ffmpeg_encoders_output(), "libaom-av1")
 }
 
-/// Encoder Availability for this host, built from the current detection.
+/// Encoder Availability for this host, decided by Probe Encodes (ADR 0001).
 ///
-/// Cached for the session. Probe Encodes will replace this source; the selection
-/// itself ([`selection::select_encoder`]) only ever sees the resulting value.
-/// Every detected Encoder is recorded as Main10-capable, as before.
+/// Computed once per session on first use; probing never runs twice. Selection
+/// ([`selection::select_encoder`]) only ever sees the resulting value.
 pub fn detect_encoder_availability() -> &'static EncoderAvailability {
     static CACHE: OnceLock<EncoderAvailability> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        // QSV encoders may exist in FFmpeg builds even when no Intel GPU runtime is
-        // present. On Linux we require both a render node AND an Intel GPU.
-        let qsv_runtime_ok =
-            !cfg!(target_os = "linux") || (detect_render_device().is_some() && has_intel_gpu());
-        let av1 = get_av1_encoder_availability();
-        let mut availability = EncoderAvailability::default()
-            .with(VideoEncoder::LibvpxVp9, true)
-            .with(VideoEncoder::LibsvtAv1, true);
-        if qsv_runtime_ok && check_vp9_qsv_available() {
-            availability = availability.with(VideoEncoder::Vp9Qsv, true);
-        }
-        if check_ffmpeg_vaapi() {
-            availability = availability.with(VideoEncoder::Vp9Vaapi, true);
-        }
-        if av1.nvenc {
-            availability = availability.with(VideoEncoder::Av1Nvenc, true);
-        }
-        if av1.amf {
-            availability = availability.with(VideoEncoder::Av1Amf, true);
-        }
-        if qsv_runtime_ok && av1.qsv {
-            availability = availability.with(VideoEncoder::Av1Qsv, true);
-        }
-        if av1.vaapi {
-            availability = availability.with(VideoEncoder::Av1Vaapi, true);
-        }
-        availability
-    })
+    CACHE.get_or_init(|| probe_encode::probe_availability(ffmpeg_encoders_output()))
 }
 
 /// Select the Encoder for `codec` on this host (see [`selection::select_encoder`]).
@@ -248,6 +190,7 @@ pub fn select_encoder(
     codec: &Codec,
     use_hardware: bool,
     preferred_encoder: Option<&str>,
+    bit_depth: u8,
 ) -> VideoEncoder {
     let kind = match codec {
         Codec::Vp9(_) => CodecKind::Vp9,
@@ -257,39 +200,9 @@ pub fn select_encoder(
         kind,
         use_hardware,
         preferred_encoder.and_then(VideoEncoder::from_ffmpeg_name),
-        8,
+        bit_depth,
         detect_encoder_availability(),
     )
-}
-
-/// Get a list of all available AV1 encoders (for UI display)
-pub fn list_available_av1_encoders() -> Vec<VideoEncoder> {
-    let avail = get_av1_encoder_availability();
-    let mut encoders = Vec::new();
-
-    // Software encoders first
-    if avail.svt {
-        encoders.push(VideoEncoder::LibsvtAv1);
-    }
-    if avail.aom {
-        encoders.push(VideoEncoder::LibaomAv1);
-    }
-
-    // Hardware encoders
-    if avail.qsv {
-        encoders.push(VideoEncoder::Av1Qsv);
-    }
-    if avail.nvenc {
-        encoders.push(VideoEncoder::Av1Nvenc);
-    }
-    if avail.vaapi {
-        encoders.push(VideoEncoder::Av1Vaapi);
-    }
-    if avail.amf {
-        encoders.push(VideoEncoder::Av1Amf);
-    }
-
-    encoders
 }
 
 // ============================================================================
@@ -333,7 +246,7 @@ pub fn run_preflight() -> HwPreflightResult {
     let gpu_detected = gpu_model.is_some() || render_device.is_some();
     let driver_path = detect_vaapi_driver_path();
     let vaapi_ok = platform_ok && check_vaapi_vp9();
-    let encoder_ok = platform_ok && check_ffmpeg_vaapi();
+    let encoder_ok = platform_ok && check_vp9_vaapi_available();
     let qsv_ok =
         platform_ok && gpu_detected && (check_vp9_qsv_available() || check_av1_qsv_available());
 
@@ -533,42 +446,6 @@ fn detect_gpu_info() -> Option<String> {
         }
     }
     None
-}
-
-/// Detect if Intel GPU is present (for QSV support)
-fn has_intel_gpu() -> bool {
-    let output = Command::new("lspci").output();
-    if let Ok(output) = output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let lower = line.to_lowercase();
-            if (lower.contains("vga") || lower.contains("display") || lower.contains("3d"))
-                && lower.contains("intel")
-            {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Detect if AMD GPU is present (for AMF support)
-fn has_amd_gpu() -> bool {
-    let output = Command::new("lspci").output();
-    if let Ok(output) = output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let lower = line.to_lowercase();
-            if (lower.contains("vga") || lower.contains("display") || lower.contains("3d"))
-                && (lower.contains("amd")
-                    || lower.contains("radeon")
-                    || lower.contains("advanced micro devices"))
-            {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 /// Map detected GPU vendor to preferred driver
@@ -886,23 +763,6 @@ fn check_vaapi_vp9() -> bool {
             // Look for VP9 profile with encode slice support
             s.contains("VAProfileVP9") && s.contains("EntrypointEnc")
         })
-        .unwrap_or(false)
-}
-
-/// Check if FFmpeg has vp9_vaapi encoder (VAAPI is more reliable than QSV with libvpl)
-fn check_ffmpeg_vaapi() -> bool {
-    let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-encoders"]);
-
-    // Set BOTH env vars if we can detect driver
-    if let Some(config) = detect_vaapi_config() {
-        cmd.env("LIBVA_DRIVERS_PATH", &config.driver.path);
-        cmd.env("LIBVA_DRIVER_NAME", &config.driver.name);
-    }
-
-    cmd.output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).contains("vp9_vaapi"))
         .unwrap_or(false)
 }
 

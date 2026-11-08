@@ -15,6 +15,9 @@ pub enum CodecKind {
 }
 
 impl CodecKind {
+    /// Every Codec ffdash can encode.
+    pub const ALL: [CodecKind; 2] = [Self::Vp9, Self::Av1];
+
     /// Hardware Encoders of this Codec in default priority order:
     /// NVENC, AMF, QSV, VAAPI (VideoToolbox last once it exists).
     pub fn hardware_priority(self) -> &'static [VideoEncoder] {

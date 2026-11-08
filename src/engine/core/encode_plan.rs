@@ -65,8 +65,9 @@ impl EncodePlan {
     }
 
     /// Select the Encoder for `profile` on this machine.
-    /// `hardware_requested` is the caller's explicit request on top of the profile setting.
-    pub fn for_profile(profile: &Profile, hardware_requested: bool) -> Self {
+    /// `hardware_requested` is the caller's explicit request on top of the profile setting;
+    /// `bit_depth` is what the job needs (see [`required_bit_depth`]).
+    pub fn for_profile(profile: &Profile, hardware_requested: bool, bit_depth: u8) -> Self {
         let mut synced = profile.clone();
         synced.sync_legacy_fields();
         let use_hardware = hardware_requested || synced.use_hardware_encoding;
@@ -74,11 +75,59 @@ impl EncodePlan {
             &synced.codec,
             use_hardware,
             Some(&synced.video_codec),
+            bit_depth,
         ))
     }
 
     /// Whether this plan encodes on a GPU.
     pub fn uses_hardware(&self) -> bool {
         self.encoder.backend().is_hardware()
+    }
+}
+
+/// Bit depth an encode must be able to produce: 10 if the profile asks for a
+/// 10-bit pixel format, or (with `auto_bit_depth`) if the source is 10-bit or more.
+pub fn bit_depth_needed(pix_fmt: &str, source_depth: Option<u32>, auto_bit_depth: bool) -> u8 {
+    let profile_ten = pix_fmt.contains("10");
+    let source_ten = auto_bit_depth && source_depth.unwrap_or(8) >= 10;
+    if profile_ten || source_ten { 10 } else { 8 }
+}
+
+/// The bit depth a job on `input` needs from its Encoder, probing the source
+/// when `auto_bit_depth` is on (the default).
+pub fn required_bit_depth(profile: &Profile, input: &std::path::Path) -> u8 {
+    let auto = crate::config::Config::load()
+        .map(|c| c.defaults.auto_bit_depth)
+        .unwrap_or(true);
+    let source = if auto && !profile.pix_fmt.contains("10") {
+        crate::engine::probe::probe_input_info(input)
+            .ok()
+            .and_then(|i| i.bit_depth)
+    } else {
+        None
+    };
+    bit_depth_needed(&profile.pix_fmt, source, auto)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bit_depth_needed;
+
+    #[test]
+    fn ten_bit_profile_needs_ten_bits() {
+        assert_eq!(bit_depth_needed("yuv420p10le", None, false), 10);
+        assert_eq!(bit_depth_needed("yuv420p10le", Some(8), true), 10);
+    }
+
+    #[test]
+    fn ten_bit_source_needs_ten_bits_only_with_auto_bit_depth() {
+        assert_eq!(bit_depth_needed("yuv420p", Some(10), true), 10);
+        assert_eq!(bit_depth_needed("yuv420p", Some(10), false), 8);
+    }
+
+    #[test]
+    fn eight_bit_or_unknown_source_needs_eight_bits() {
+        assert_eq!(bit_depth_needed("yuv420p", Some(8), true), 8);
+        assert_eq!(bit_depth_needed("yuv420p", None, true), 8);
     }
 }
