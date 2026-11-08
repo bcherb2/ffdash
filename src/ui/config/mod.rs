@@ -100,6 +100,10 @@ impl ConfigScreen {
         Self::render_parallelism(frame, lower_cols[0], state);
         Self::render_gop_keyframes(frame, lower_cols[1], state);
         Self::render_tuning_filters(frame, lower_cols[2], state);
+        // A codec/backend change may have greyed out the focused control
+        if state.name_input_dialog.is_none() && state.active_dropdown.is_none() {
+            crate::ui::tab_order::settle_focus(state);
+        }
         Footer::config().render(main_chunks[2], frame.buffer_mut());
 
         // Render popup dropdown if active

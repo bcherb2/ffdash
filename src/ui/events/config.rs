@@ -200,6 +200,7 @@ pub(super) fn handle_config_key(
         // Switch back to dashboard
         KeyCode::Esc => {
             use crate::ui::state::InputMode;
+            commit_ranged_fields(state);
             state.current_screen = Screen::Dashboard;
             state.config.input_mode = InputMode::Normal;
 
@@ -242,27 +243,13 @@ pub(super) fn handle_config_key(
         // Focus navigation
         KeyCode::Tab => {
             validate_numeric_field_on_blur(state);
-            let start_focus = state.config.focus;
-            loop {
-                state.config.focus = state.config.focus.next();
-                // Skip controls that aren't currently rendered
-                if is_focus_visible(&state.config) || state.config.focus == start_focus {
-                    break;
-                }
-            }
+            state.config.focus = crate::ui::tab_order::step_focus(&state.config, true);
             reset_cursor_position_for_focus(state);
             update_input_mode_for_focus(state);
         }
         KeyCode::BackTab => {
             validate_numeric_field_on_blur(state);
-            let start_focus = state.config.focus;
-            loop {
-                state.config.focus = state.config.focus.previous();
-                // Skip controls that aren't currently rendered
-                if is_focus_visible(&state.config) || state.config.focus == start_focus {
-                    break;
-                }
-            }
+            state.config.focus = crate::ui::tab_order::step_focus(&state.config, false);
             reset_cursor_position_for_focus(state);
             update_input_mode_for_focus(state);
         }
@@ -271,73 +258,15 @@ pub(super) fn handle_config_key(
     }
 }
 
-// Check if a focus target is currently visible (has its area set)
-fn is_focus_visible(config: &crate::ui::state::ConfigState) -> bool {
-    use crate::ui::focus::ConfigFocus;
-    match config.focus {
-        // Slider controls - check if area is set
-        ConfigFocus::CrfSlider => config.crf_slider_area.is_some(),
-        ConfigFocus::QsvGlobalQualitySlider => config.qsv_quality_slider_area.is_some(),
-        ConfigFocus::Vp9QsvPresetSlider => config.vp9_qsv_preset_area.is_some(),
-        ConfigFocus::VaapiCompressionLevelSlider => {
-            config.vaapi_compression_level_slider_area.is_some()
-        }
-        ConfigFocus::CpuUsedSlider => config.cpu_used_slider_area.is_some(),
-        ConfigFocus::CpuUsedPass1Slider => config.cpu_used_pass1_slider_area.is_some(),
-        ConfigFocus::CpuUsedPass2Slider => config.cpu_used_pass2_slider_area.is_some(),
-        ConfigFocus::TileColumnsSlider => config.tile_columns_slider_area.is_some(),
-        ConfigFocus::TileRowsSlider => config.tile_rows_slider_area.is_some(),
-        ConfigFocus::LagInFramesSlider => config.lag_in_frames_slider_area.is_some(),
-        ConfigFocus::ArnrMaxFramesSlider => config.arnr_max_frames_slider_area.is_some(),
-        ConfigFocus::ArnrStrengthSlider => config.arnr_strength_slider_area.is_some(),
-        ConfigFocus::SharpnessSlider => config.sharpness_slider_area.is_some(),
-        ConfigFocus::NoiseSensitivitySlider => config.noise_sensitivity_slider_area.is_some(),
-        ConfigFocus::AudioPrimaryCodec => config.audio_primary_codec_area.is_some(),
-        ConfigFocus::AudioPrimaryBitrate => config.audio_primary_bitrate_area.is_some(),
-        ConfigFocus::AudioPrimaryDownmix => config.audio_primary_downmix_area.is_some(),
-        ConfigFocus::AudioAc3Checkbox => config.audio_ac3_checkbox_area.is_some(),
-        ConfigFocus::AudioAc3Bitrate => config.audio_ac3_bitrate_area.is_some(),
-        ConfigFocus::AudioStereoCheckbox => config.audio_stereo_checkbox_area.is_some(),
-        ConfigFocus::AudioStereoCodec => config.audio_stereo_codec_area.is_some(),
-        ConfigFocus::AudioStereoBitrate => config.audio_stereo_bitrate_area.is_some(),
-
-        // Input controls - check if area is set
-        ConfigFocus::VideoTargetBitrateInput => config.video_target_bitrate_area.is_some(),
-        ConfigFocus::VideoMinBitrateInput => config.video_min_bitrate_area.is_some(),
-        ConfigFocus::VideoMaxBitrateInput => config.video_max_bitrate_area.is_some(),
-        ConfigFocus::VideoBufsizeInput => config.video_bufsize_area.is_some(),
-        ConfigFocus::UndershootPctInput => config.undershoot_pct_area.is_some(),
-        ConfigFocus::OvershootPctInput => config.overshoot_pct_area.is_some(),
-        ConfigFocus::VaapiBFramesInput => config.vaapi_b_frames_area.is_some(),
-        ConfigFocus::VaapiLoopFilterLevelInput => config.vaapi_loop_filter_level_area.is_some(),
-        ConfigFocus::VaapiLoopFilterSharpnessInput => {
-            config.vaapi_loop_filter_sharpness_area.is_some()
-        }
-        ConfigFocus::HwDenoiseInput => config.hw_denoise_area.is_some(),
-        ConfigFocus::HwDetailInput => config.hw_detail_area.is_some(),
-        ConfigFocus::Vp9QsvLookaheadCheckbox => config.vp9_qsv_lookahead_checkbox_area.is_some(),
-        ConfigFocus::Vp9QsvLookaheadDepthInput => config.vp9_qsv_lookahead_depth_area.is_some(),
-        ConfigFocus::ThreadsInput => config.threads_area.is_some(),
-        ConfigFocus::MaxWorkersInput => config.max_workers_area.is_some(),
-        ConfigFocus::GopLengthInput => config.gop_length_area.is_some(),
-        ConfigFocus::KeyintMinInput => config.keyint_min_area.is_some(),
-        ConfigFocus::StaticThreshInput => config.static_thresh_area.is_some(),
-        ConfigFocus::MaxIntraRateInput => config.max_intra_rate_area.is_some(),
-        ConfigFocus::AutoVmafTargetInput => config.auto_vmaf_target_area.is_some(),
-        ConfigFocus::AutoVmafStepInput => config.auto_vmaf_step_area.is_some(),
-        ConfigFocus::AutoVmafMaxAttemptsInput => config.auto_vmaf_max_attempts_area.is_some(),
-        ConfigFocus::Av1HwLookaheadInput => config.av1_hw_lookahead_area.is_some(),
-        ConfigFocus::Av1HwTileColsInput => config.av1_hw_tile_cols_area.is_some(),
-        ConfigFocus::Av1HwTileRowsInput => config.av1_hw_tile_rows_area.is_some(),
-        ConfigFocus::AdditionalArgsInput => config.additional_args_area.is_some(),
-
-        // All other controls (checkboxes, dropdowns, buttons) are always visible when in their section
-        _ => true,
-    }
-}
-
 // Reset cursor position to end of text when entering a text input field
 fn reset_cursor_position_for_focus(state: &mut AppState) {
+    state.config.replace_on_type = matches!(
+        state.config.focus,
+        ConfigFocus::ThreadsInput
+            | ConfigFocus::MaxWorkersInput
+            | ConfigFocus::UndershootPctInput
+            | ConfigFocus::OvershootPctInput
+    );
     state.config.cursor_pos = match state.config.focus {
         ConfigFocus::OutputDirectory => state.config.output_dir.chars().count(),
         ConfigFocus::FilenamePattern => state.config.filename_pattern.chars().count(),
@@ -379,11 +308,7 @@ fn reset_cursor_position_for_focus(state: &mut AppState) {
             }
         }
         ConfigFocus::ThreadsInput => {
-            if state.config.threads == 0 {
-                "Auto".chars().count()
-            } else {
-                state.config.threads.to_string().chars().count()
-            }
+            state.config.threads.to_string().chars().count()
         }
         ConfigFocus::MaxWorkersInput => format!("{}", state.config.max_workers).chars().count(),
         ConfigFocus::GopLengthInput => state.config.gop_length.chars().count(),
@@ -414,9 +339,50 @@ fn update_input_mode_for_focus(state: &mut AppState) {
 }
 
 // Validate numeric text fields when focus leaves - reset to default if empty/invalid
+/// Bring range-limited numeric fields (typed freely while editing) back into
+/// their valid range. Called whenever editing ends and before saving.
+pub(super) fn commit_ranged_fields(state: &mut AppState) {
+    let c = &mut state.config;
+    let mut changed = false;
+
+    let v = c.max_workers.clamp(1, 16);
+    changed |= v != c.max_workers;
+    c.max_workers = v;
+
+    let v = c.undershoot_pct.clamp(-1, 100);
+    changed |= v != c.undershoot_pct;
+    c.undershoot_pct = v;
+
+    let v = c.overshoot_pct.clamp(-1, 1000);
+    changed |= v != c.overshoot_pct;
+    c.overshoot_pct = v;
+
+    let v = match c.max_intra_rate.parse::<u32>() {
+        Ok(n) => n.min(100).to_string(),
+        Err(_) => "0".to_string(),
+    };
+    if v != c.max_intra_rate {
+        // Normalising e.g. "05" -> "5" is not a user-visible correction
+        changed |= c
+            .max_intra_rate
+            .parse::<u32>()
+            .map(|n| n > 100)
+            .unwrap_or(true);
+        c.max_intra_rate = v;
+    }
+
+    if changed {
+        c.is_modified = true;
+    }
+}
+
 fn validate_numeric_field_on_blur(state: &mut AppState) {
     use crate::ui::focus::ConfigFocus;
     match state.config.focus {
+        ConfigFocus::MaxWorkersInput
+        | ConfigFocus::UndershootPctInput
+        | ConfigFocus::OvershootPctInput
+        | ConfigFocus::MaxIntraRateInput => commit_ranged_fields(state),
         ConfigFocus::GopLengthInput => {
             if state.config.gop_length.is_empty() || state.config.gop_length.parse::<u32>().is_err()
             {
@@ -434,17 +400,6 @@ fn validate_numeric_field_on_blur(state: &mut AppState) {
                 || state.config.static_thresh.parse::<u32>().is_err()
             {
                 state.config.static_thresh = "0".to_string();
-            }
-        }
-        ConfigFocus::MaxIntraRateInput => {
-            let valid = state
-                .config
-                .max_intra_rate
-                .parse::<u32>()
-                .map(|n| n <= 100)
-                .unwrap_or(false);
-            if state.config.max_intra_rate.is_empty() || !valid {
-                state.config.max_intra_rate = "0".to_string();
             }
         }
         _ => {}
@@ -1917,19 +1872,25 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             match key.code {
                 KeyCode::Char(c) if c.is_ascii_digit() => {
                     let digit = c.to_digit(10).unwrap() as i32;
-                    let new_val = state
-                        .config
-                        .undershoot_pct
-                        .saturating_mul(10)
-                        .saturating_add(digit);
-                    if new_val <= 100 {
+                    // Fresh focus or "auto" (-1) starts a new number
+                    let base = if state.config.replace_on_type {
+                        0
+                    } else {
+                        state.config.undershoot_pct.max(0)
+                    };
+                    state.config.replace_on_type = false;
+                    let new_val = base.saturating_mul(10).saturating_add(digit);
+                    // Out-of-range is tolerated while editing; clamped when editing ends
+                    if new_val <= 999 {
                         state.config.undershoot_pct = new_val;
                     }
                 }
                 KeyCode::Char('-') if state.config.undershoot_pct >= 0 => {
+                    state.config.replace_on_type = false;
                     state.config.undershoot_pct = -1; // Set to auto
                 }
                 KeyCode::Backspace => {
+                    state.config.replace_on_type = false;
                     if state.config.undershoot_pct == -1 {
                         state.config.undershoot_pct = 0;
                     } else {
@@ -1947,19 +1908,25 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             match key.code {
                 KeyCode::Char(c) if c.is_ascii_digit() => {
                     let digit = c.to_digit(10).unwrap() as i32;
-                    let new_val = state
-                        .config
-                        .overshoot_pct
-                        .saturating_mul(10)
-                        .saturating_add(digit);
-                    if new_val <= 1000 {
+                    // Fresh focus or "auto" (-1) starts a new number
+                    let base = if state.config.replace_on_type {
+                        0
+                    } else {
+                        state.config.overshoot_pct.max(0)
+                    };
+                    state.config.replace_on_type = false;
+                    let new_val = base.saturating_mul(10).saturating_add(digit);
+                    // Out-of-range is tolerated while editing; clamped when editing ends
+                    if new_val <= 9999 {
                         state.config.overshoot_pct = new_val;
                     }
                 }
                 KeyCode::Char('-') if state.config.overshoot_pct >= 0 => {
+                    state.config.replace_on_type = false;
                     state.config.overshoot_pct = -1; // Set to auto
                 }
                 KeyCode::Backspace => {
+                    state.config.replace_on_type = false;
                     if state.config.overshoot_pct == -1 {
                         state.config.overshoot_pct = 0;
                     } else {
@@ -1977,13 +1944,16 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             match key.code {
                 KeyCode::Char(c) if c.is_ascii_digit() => {
                     let digit = c.to_digit(10).unwrap();
-                    state.config.threads = state
-                        .config
-                        .threads
-                        .saturating_mul(10)
-                        .saturating_add(digit);
+                    let base = if state.config.replace_on_type {
+                        0
+                    } else {
+                        state.config.threads
+                    };
+                    state.config.replace_on_type = false;
+                    state.config.threads = base.saturating_mul(10).saturating_add(digit);
                 }
                 KeyCode::Backspace => {
+                    state.config.replace_on_type = false;
                     state.config.threads /= 10;
                 }
                 _ => {}
@@ -1997,22 +1967,22 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             match key.code {
                 KeyCode::Char(c) if c.is_ascii_digit() => {
                     let digit = c.to_digit(10).unwrap();
-                    let new_val = state
-                        .config
-                        .max_workers
-                        .saturating_mul(10)
-                        .saturating_add(digit);
-                    // Reasonable limit: 1-16 workers
-                    if (1..=16).contains(&new_val) {
+                    let base = if state.config.replace_on_type {
+                        0
+                    } else {
+                        state.config.max_workers
+                    };
+                    state.config.replace_on_type = false;
+                    let new_val = base.saturating_mul(10).saturating_add(digit);
+                    // Out-of-range values are allowed while editing (so the field can be
+                    // cleared and retyped); they are clamped to 1-16 when editing ends.
+                    if new_val <= 99 {
                         state.config.max_workers = new_val;
                     }
                 }
                 KeyCode::Backspace => {
+                    state.config.replace_on_type = false;
                     state.config.max_workers /= 10;
-                    // Ensure minimum of 1
-                    if state.config.max_workers < 1 {
-                        state.config.max_workers = 1;
-                    }
                 }
                 _ => {}
             }
@@ -2198,7 +2168,8 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
                     new_string.push(c);
                     new_string.extend(chars.iter().skip(pos));
                     if let Ok(num) = new_string.parse::<u32>() {
-                        if num <= 100 {
+                        // Out-of-range tolerated while editing; clamped to 100 on blur
+                        if num <= 9999 {
                             state.config.max_intra_rate = new_string;
                             state.config.cursor_pos += 1;
                         }
@@ -2592,6 +2563,19 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
     use crate::ui::focus::ConfigFocus;
     use ratatui::layout::Rect;
 
+    // Clicking outside the focused field ends its editing: bring values into range
+    if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+        let inside = state.config.focus.area(&state.config).is_some_and(|r| {
+            mouse.column >= r.x
+                && mouse.column < r.x + r.width
+                && mouse.row >= r.y
+                && mouse.row < r.y + r.height
+        });
+        if !inside {
+            commit_ranged_fields(state);
+        }
+    }
+
     let config = &mut state.config;
 
     // Only handle left clicks for now
@@ -2897,6 +2881,7 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
         if let Some(area) = config.max_workers_area {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::MaxWorkersInput;
+                config.replace_on_type = true;
                 return;
             }
         }
@@ -3213,6 +3198,7 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
         if let Some(area) = config.undershoot_pct_area {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::UndershootPctInput;
+                config.replace_on_type = true;
                 return;
             }
         }
@@ -3220,6 +3206,7 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
         if let Some(area) = config.overshoot_pct_area {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::OvershootPctInput;
+                config.replace_on_type = true;
                 return;
             }
         }
@@ -3227,6 +3214,7 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
         if let Some(area) = config.threads_area {
             if is_in_rect(mouse.column, mouse.row, area) {
                 config.focus = ConfigFocus::ThreadsInput;
+                config.replace_on_type = true;
                 return;
             }
         }
@@ -3677,6 +3665,112 @@ mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::layout::Rect;
+
+    fn press(state: &mut AppState, code: KeyCode) {
+        handle_focused_widget_key(KeyEvent::new(code, KeyModifiers::NONE), state);
+    }
+
+    fn focus_via_tab(state: &mut AppState, focus: ConfigFocus) {
+        state.config.focus = focus;
+        reset_cursor_position_for_focus(state);
+    }
+
+    #[test]
+    fn max_workers_typing_replaces_value_on_focus() {
+        let mut state = AppState::default();
+        state.config.max_workers = 1;
+        focus_via_tab(&mut state, ConfigFocus::MaxWorkersInput);
+        press(&mut state, KeyCode::Char('4'));
+        assert_eq!(state.config.max_workers, 4);
+        // Subsequent digits append; out-of-range is tolerated mid-edit, clamped on blur
+        press(&mut state, KeyCode::Char('1'));
+        assert_eq!(state.config.max_workers, 41);
+        validate_numeric_field_on_blur(&mut state);
+        assert_eq!(state.config.max_workers, 16);
+    }
+
+    #[test]
+    fn max_workers_can_be_cleared_and_retyped_then_clamped_on_blur() {
+        let mut state = AppState::default();
+        state.config.max_workers = 1;
+        focus_via_tab(&mut state, ConfigFocus::MaxWorkersInput);
+        press(&mut state, KeyCode::Char('0'));
+        assert_eq!(state.config.max_workers, 0); // transient, not clamped mid-edit
+        press(&mut state, KeyCode::Char('6'));
+        assert_eq!(state.config.max_workers, 6);
+        press(&mut state, KeyCode::Char('0'));
+        assert_eq!(state.config.max_workers, 60); // transient out-of-range
+        validate_numeric_field_on_blur(&mut state);
+        assert_eq!(state.config.max_workers, 16);
+        state.config.max_workers = 0;
+        commit_ranged_fields(&mut state);
+        assert_eq!(state.config.max_workers, 1);
+    }
+
+    #[test]
+    fn vbr_percent_fields_type_freely_and_clamp_on_blur() {
+        let mut state = AppState::default();
+        assert_eq!(state.config.undershoot_pct, -1);
+        focus_via_tab(&mut state, ConfigFocus::UndershootPctInput);
+        for ch in ['2', '5', '0'] {
+            press(&mut state, KeyCode::Char(ch));
+        }
+        assert_eq!(state.config.undershoot_pct, 250);
+        validate_numeric_field_on_blur(&mut state);
+        assert_eq!(state.config.undershoot_pct, 100);
+
+        focus_via_tab(&mut state, ConfigFocus::OvershootPctInput);
+        for ch in ['5', '0', '0', '0'] {
+            press(&mut state, KeyCode::Char(ch));
+        }
+        assert_eq!(state.config.overshoot_pct, 5000);
+        validate_numeric_field_on_blur(&mut state);
+        assert_eq!(state.config.overshoot_pct, 1000);
+    }
+
+    #[test]
+    fn max_intra_rate_types_freely_and_clamps_on_blur() {
+        let mut state = AppState::default();
+        focus_via_tab(&mut state, ConfigFocus::MaxIntraRateInput);
+        for ch in ['1', '5', '0'] {
+            press(&mut state, KeyCode::Char(ch));
+        }
+        assert_eq!(state.config.max_intra_rate.parse::<u32>().unwrap(), 150);
+        validate_numeric_field_on_blur(&mut state);
+        assert_eq!(state.config.max_intra_rate, "100");
+    }
+
+    #[test]
+    fn max_workers_can_type_two_digit_value() {
+        let mut state = AppState::default();
+        state.config.max_workers = 4;
+        focus_via_tab(&mut state, ConfigFocus::MaxWorkersInput);
+        press(&mut state, KeyCode::Char('1'));
+        press(&mut state, KeyCode::Char('2'));
+        assert_eq!(state.config.max_workers, 12);
+    }
+
+    #[test]
+    fn threads_typing_replaces_value_on_focus() {
+        let mut state = AppState::default();
+        state.config.threads = 8;
+        focus_via_tab(&mut state, ConfigFocus::ThreadsInput);
+        press(&mut state, KeyCode::Char('4'));
+        assert_eq!(state.config.threads, 4);
+        press(&mut state, KeyCode::Char('2'));
+        assert_eq!(state.config.threads, 42);
+    }
+
+    #[test]
+    fn threads_editable_from_auto() {
+        let mut state = AppState::default();
+        assert_eq!(state.config.threads, 0);
+        focus_via_tab(&mut state, ConfigFocus::ThreadsInput);
+        press(&mut state, KeyCode::Char('6'));
+        assert_eq!(state.config.threads, 6);
+        press(&mut state, KeyCode::Backspace);
+        assert_eq!(state.config.threads, 0);
+    }
 
     #[test]
     fn colorspace_preset_key_updates_all_values() {

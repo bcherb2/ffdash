@@ -339,7 +339,7 @@ pub(super) fn start_encoding_from_loaded_jobs(state: &mut AppState) -> Result<()
         .map_err(|e| format!("Failed to save .enc_state: {}", e))?;
 
     // Initialize worker pool
-    let max_workers = state.config.max_workers as usize;
+    let max_workers = (state.config.max_workers as usize).clamp(1, 16);
     let pool = Rc::new(WorkerPool::new(max_workers));
 
     // Store state

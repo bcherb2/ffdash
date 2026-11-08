@@ -1,5 +1,6 @@
 // Terminal UI using Ratatui
 
+pub mod applicability;
 pub mod components;
 pub mod config;
 pub mod constants;
@@ -11,6 +12,7 @@ pub mod options;
 pub mod quit_modal;
 pub mod state;
 pub mod stats;
+pub mod tab_order;
 pub mod widgets;
 
 pub use config::ConfigScreen;
