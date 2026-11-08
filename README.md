@@ -365,12 +365,7 @@ ffmpeg -h encoder=av1_vaapi     # VA-API AV1
 
 ## Contributing
 
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Run `cargo test` before submitting
-4. Open a pull request
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. In short: use [Conventional Commits](https://www.conventionalcommits.org/), keep history linear (rebase, no merge commits), and run `cargo test` before opening a pull request.
 
 ## License
 
