@@ -1,7 +1,7 @@
 #![allow(dead_code)] // Spare tools for the next regression meteor shower
 
 use ffdash::engine::hardware::VideoEncoder;
-use ffdash::engine::{Codec, EncodePlan, HwEncodingConfig, Profile, VideoJob, build_encode_cmds};
+use ffdash::engine::{Codec, EncodePlan, Profile, VideoJob, build_encode_cmds};
 use ffdash::ui::state::{ConfigState, RateControlMode};
 use std::path::PathBuf;
 use std::process::Command;
@@ -329,9 +329,33 @@ pub fn build_software_cmd_for_test(profile: &Profile) -> String {
     cmd_to_string(&build_one(&job, profile, VideoEncoder::LibvpxVp9))
 }
 
+/// VP9 VAAPI settings (the VP9 codec config's `hw_*` fields) for building test commands
+#[derive(Debug, Clone)]
+pub struct Vp9VaapiSettings {
+    pub rc_mode: u32,
+    pub global_quality: u32,
+    pub b_frames: u32,
+    pub loop_filter_level: u32,
+    pub loop_filter_sharpness: u32,
+    pub compression_level: u32,
+}
+
+impl Default for Vp9VaapiSettings {
+    fn default() -> Self {
+        Self {
+            rc_mode: 4,
+            global_quality: 70,
+            b_frames: 0,
+            loop_filter_level: 16,
+            loop_filter_sharpness: 4,
+            compression_level: 4,
+        }
+    }
+}
+
 /// Build a VAAPI hardware command using the ACTUAL engine code
 /// This ensures tests verify the real implementation, not duplicated logic
-pub fn build_vaapi_cmd_for_test(profile: &Profile, hw_config: &HwEncodingConfig) -> String {
+pub fn build_vaapi_cmd_for_test(profile: &Profile, hw_config: &Vp9VaapiSettings) -> String {
     let job = VideoJob::new(
         PathBuf::from("test_input.mp4"),
         PathBuf::from("test_output.webm"),
@@ -342,12 +366,6 @@ pub fn build_vaapi_cmd_for_test(profile: &Profile, hw_config: &HwEncodingConfig)
     // explicitly so the test does not depend on runtime encoder auto-selection.
     let mut profile = profile.clone();
     profile.use_hardware_encoding = true;
-    profile.hw_rc_mode = hw_config.rc_mode;
-    profile.hw_global_quality = hw_config.global_quality;
-    profile.hw_b_frames = hw_config.b_frames;
-    profile.hw_loop_filter_level = hw_config.loop_filter_level;
-    profile.hw_loop_filter_sharpness = hw_config.loop_filter_sharpness;
-    profile.hw_compression_level = hw_config.compression_level;
     if let Codec::Vp9(vp9) = &mut profile.codec {
         vp9.hw_rc_mode = hw_config.rc_mode;
         vp9.hw_global_quality = hw_config.global_quality;
@@ -359,14 +377,14 @@ pub fn build_vaapi_cmd_for_test(profile: &Profile, hw_config: &HwEncodingConfig)
     cmd_to_string(&build_one(&job, &profile, VideoEncoder::Vp9Vaapi))
 }
 
-/// Create a default HwEncodingConfig for testing
-pub fn default_hw_config() -> HwEncodingConfig {
-    HwEncodingConfig::default()
+/// Create a default Vp9VaapiSettings for testing
+pub fn default_hw_config() -> Vp9VaapiSettings {
+    Vp9VaapiSettings::default()
 }
 
-/// Create a custom HwEncodingConfig for testing
-pub fn custom_hw_config(quality: u32, b_frames: u32) -> HwEncodingConfig {
-    HwEncodingConfig {
+/// Create a custom Vp9VaapiSettings for testing
+pub fn custom_hw_config(quality: u32, b_frames: u32) -> Vp9VaapiSettings {
+    Vp9VaapiSettings {
         rc_mode: 4, // ICQ (Intelligent Constant Quality) - default
         global_quality: quality,
         b_frames,

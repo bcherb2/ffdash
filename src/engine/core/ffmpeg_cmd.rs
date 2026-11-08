@@ -1,7 +1,7 @@
 use super::encode_plan::EncodePlan;
 use super::ffmpeg_info::{paths_are_same_file, probe_duration};
 use super::log::write_debug_log;
-use super::profile::{Codec, HwEncodingConfig, Profile};
+use super::profile::{Codec, Profile};
 use super::types::{JobStatus, ProgressParser, VideoJob};
 use crate::engine::worker::PidRegistry;
 use crate::engine::{hardware, probe};
@@ -250,25 +250,6 @@ fn should_use_two_pass_software_vp9(profile: &Profile, plan: &EncodePlan) -> boo
         && profile.video_target_bitrate > 0
 }
 
-fn hw_config_from_profile(profile: &Profile) -> HwEncodingConfig {
-    // Read quality from codec config (post-sync, hw_global_quality is synced from codec)
-    // But prefer reading from codec directly for clarity
-    let global_quality = match &profile.codec {
-        super::profile::Codec::Vp9(vp9) if profile.use_hardware_encoding => vp9.hw_global_quality,
-        super::profile::Codec::Av1(av1) if profile.use_hardware_encoding => av1.hw_cq,
-        _ => profile.hw_global_quality, // Fallback to synced value
-    };
-
-    HwEncodingConfig {
-        rc_mode: profile.hw_rc_mode,
-        global_quality,
-        b_frames: profile.hw_b_frames,
-        loop_filter_level: profile.hw_loop_filter_level,
-        loop_filter_sharpness: profile.hw_loop_filter_sharpness,
-        compression_level: profile.hw_compression_level,
-    }
-}
-
 fn resolve_profile(job: &VideoJob, profile_override: Option<&Profile>) -> Profile {
     match profile_override {
         Some(p) => p.clone(),
@@ -314,13 +295,15 @@ fn build_vaapi_cmd(
     job: &VideoJob,
     profile: &Profile,
     plan: &EncodePlan,
-    hw: &HwEncodingConfig,
     cpu_decode: bool,
 ) -> Command {
     // Validate configuration (log warning if invalid)
     if let Err(msg) = validate_vaapi_config(profile, plan) {
         let _ = write_debug_log(&format!("[VAAPI] WARNING: {}\n", msg));
     }
+
+    // VP9 VAAPI settings live in the VP9 codec config
+    let hw = profile.codec.as_vp9().cloned().unwrap_or_default();
 
     let mut cmd = Command::new("ffmpeg");
 
@@ -466,42 +449,42 @@ fn build_vaapi_cmd(
     // Cautionary tale: the last intern flipped this to VBR on Arc, z4 read 7, and we spent a week restoring footage
     cmd.arg("-rc_mode:v").arg("1"); // CQP
     cmd.arg("-global_quality:v")
-        .arg(hw.global_quality.to_string());
+        .arg(hw.hw_global_quality.to_string());
 
     let _ = write_debug_log(&format!(
         "[VAAPI] CQP mode: quality {} (1-255 range, lower=better)\n",
-        hw.global_quality
+        hw.hw_global_quality
     ));
 
     // B-frames (with required bitstream filters if > 0)
-    if hw.b_frames > 0 {
-        cmd.arg("-bf:v").arg(hw.b_frames.to_string());
+    if hw.hw_b_frames > 0 {
+        cmd.arg("-bf:v").arg(hw.hw_b_frames.to_string());
         // Required bitstream filters for B-frames in VP9
         cmd.arg("-bsf:v").arg("vp9_raw_reorder,vp9_superframe");
         let _ = write_debug_log(&format!(
             "[VAAPI] B-frames: {} (with bitstream filters)\n",
-            hw.b_frames
+            hw.hw_b_frames
         ));
     }
 
     // Loop filter settings
     cmd.arg("-loop_filter_level:v")
-        .arg(hw.loop_filter_level.to_string());
+        .arg(hw.hw_loop_filter_level.to_string());
     cmd.arg("-loop_filter_sharpness:v")
-        .arg(hw.loop_filter_sharpness.to_string());
+        .arg(hw.hw_loop_filter_sharpness.to_string());
 
     let _ = write_debug_log(&format!(
         "[VAAPI] Loop filter: level={}, sharpness={}\n",
-        hw.loop_filter_level, hw.loop_filter_sharpness
+        hw.hw_loop_filter_level, hw.hw_loop_filter_sharpness
     ));
 
     // Compression level (0-7, speed vs compression tradeoff)
     cmd.arg("-compression_level:v")
-        .arg(hw.compression_level.to_string());
+        .arg(hw.hw_compression_level.to_string());
 
     let _ = write_debug_log(&format!(
         "[VAAPI] Compression level: {} (0=slowest/best quality, 7=fastest/worst quality)\n",
-        hw.compression_level
+        hw.hw_compression_level
     ));
 
     // GOP (cap at 240 to avoid blocking issues with Intel Arc)
@@ -871,7 +854,7 @@ fn build_vp9_qsv_cmd(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Com
         .codec
         .as_vp9()
         .map(|vp9| vp9.hw_global_quality)
-        .unwrap_or(profile.hw_global_quality); // Final fallback to synced value
+        .unwrap_or_else(|| super::vp9_config::Vp9Config::default().hw_global_quality);
     // Use -q:v to force CQP mode. The combination "-global_quality -b:v 0" causes FFmpeg
     // to select ICQ mode, which is broken on Intel Arc (error -17: device failed).
     // This is the same issue as AV1 QSV (documented in docs/AV1_QSV_NOTES.md).
@@ -1428,7 +1411,7 @@ fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Com
 
         // B-frames (match profile; explicit disable sets strategy 0)
         cmd.arg("-b_strategy").arg("0");
-        cmd.arg("-bf").arg(profile.hw_b_frames.to_string());
+        cmd.arg("-bf").arg("0");
 
         // Optional lookahead/tile controls
         if cfg.hw_lookahead > 0 {
@@ -1725,13 +1708,7 @@ fn build_single_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePlan) -> Com
     match &profile.codec {
         Codec::Vp9(_) => match plan.encoder {
             hardware::VideoEncoder::Vp9Qsv => build_vp9_qsv_cmd(job, profile, cpu_decode),
-            hardware::VideoEncoder::Vp9Vaapi => build_vaapi_cmd(
-                job,
-                profile,
-                plan,
-                &hw_config_from_profile(profile),
-                cpu_decode,
-            ),
+            hardware::VideoEncoder::Vp9Vaapi => build_vaapi_cmd(job, profile, plan, cpu_decode),
             _ => build_software_cmd(job, profile),
         },
         Codec::Av1(_) => match plan.encoder {

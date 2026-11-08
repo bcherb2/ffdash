@@ -319,22 +319,17 @@ fn extract_profile_field(profile: &Profile, field_name: &str) -> Option<Value> {
             Codec::Vp9(vp9) => Some(Value::I32(vp9.aq_mode)),
             _ => Some(Value::I32(profile.aq_mode)),
         },
-        "hw_global_quality" => {
-            // Read from codec config (source of truth for hardware encoding)
-            match &profile.codec {
-                Codec::Vp9(vp9) if profile.use_hardware_encoding => {
-                    Some(Value::U32(vp9.hw_global_quality))
-                }
-                Codec::Av1(av1) if profile.use_hardware_encoding => Some(Value::U32(av1.hw_cq)),
-                _ => Some(Value::U32(profile.hw_global_quality)),
-            }
-        }
-        "hw_rc_mode" => Some(Value::U32(profile.hw_rc_mode)),
-        "hw_b_frames" => Some(Value::U32(profile.hw_b_frames)),
-        "hw_compression_level" => match &profile.codec {
-            Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_compression_level)),
-            _ => Some(Value::U32(profile.hw_compression_level)),
+        "hw_global_quality" => match &profile.codec {
+            Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_global_quality)),
+            Codec::Av1(av1) if profile.use_hardware_encoding => Some(Value::U32(av1.hw_cq)),
+            Codec::Av1(_) => None,
         },
+        "hw_rc_mode" => profile.codec.as_vp9().map(|v| Value::U32(v.hw_rc_mode)),
+        "hw_b_frames" => profile.codec.as_vp9().map(|v| Value::U32(v.hw_b_frames)),
+        "hw_compression_level" => profile
+            .codec
+            .as_vp9()
+            .map(|v| Value::U32(v.hw_compression_level)),
         "hw_denoise" => match &profile.codec {
             Codec::Vp9(vp9) => Some(Value::U32(vp9.hw_denoise)),
             Codec::Av1(av1) => Some(Value::U32(av1.hw_denoise)),
@@ -363,18 +358,14 @@ fn extract_profile_field(profile: &Profile, field_name: &str) -> Option<Value> {
             Codec::Av1(av1) => Some(Value::U32(av1.tune)),
             _ => None,
         },
-        "hw_loop_filter_level" => match &profile.codec {
-            Codec::Vp9(vp9) if profile.use_hardware_encoding => {
-                Some(Value::U32(vp9.hw_loop_filter_level))
-            }
-            _ => Some(Value::U32(profile.hw_loop_filter_level)),
-        },
-        "hw_loop_filter_sharpness" => match &profile.codec {
-            Codec::Vp9(vp9) if profile.use_hardware_encoding => {
-                Some(Value::U32(vp9.hw_loop_filter_sharpness))
-            }
-            _ => Some(Value::U32(profile.hw_loop_filter_sharpness)),
-        },
+        "hw_loop_filter_level" => profile
+            .codec
+            .as_vp9()
+            .map(|v| Value::U32(v.hw_loop_filter_level)),
+        "hw_loop_filter_sharpness" => profile
+            .codec
+            .as_vp9()
+            .map(|v| Value::U32(v.hw_loop_filter_sharpness)),
         "qsv_look_ahead" => match &profile.codec {
             Codec::Vp9(vp9) => Some(Value::Bool(vp9.qsv_look_ahead)),
             _ => None,
@@ -468,19 +459,22 @@ fn apply_profile_field(profile: &mut Profile, field_name: &str, value: &Value) {
                 vp9.aq_mode = *v;
             }
         }
-        ("hw_global_quality", Value::U32(v)) => {
-            profile.hw_global_quality = *v;
-            // Update codec-specific quality field (source of truth)
-            match &mut profile.codec {
-                Codec::Vp9(vp9) if profile.use_hardware_encoding => vp9.hw_global_quality = *v,
-                Codec::Av1(av1) if profile.use_hardware_encoding => av1.hw_cq = *v,
-                _ => {}
+        ("hw_global_quality", Value::U32(v)) => match &mut profile.codec {
+            Codec::Vp9(vp9) => vp9.hw_global_quality = *v,
+            Codec::Av1(av1) if profile.use_hardware_encoding => av1.hw_cq = *v,
+            Codec::Av1(_) => {}
+        },
+        ("hw_rc_mode", Value::U32(v)) => {
+            if let Codec::Vp9(vp9) = &mut profile.codec {
+                vp9.hw_rc_mode = *v;
             }
         }
-        ("hw_rc_mode", Value::U32(v)) => profile.hw_rc_mode = *v,
-        ("hw_b_frames", Value::U32(v)) => profile.hw_b_frames = *v,
+        ("hw_b_frames", Value::U32(v)) => {
+            if let Codec::Vp9(vp9) = &mut profile.codec {
+                vp9.hw_b_frames = *v;
+            }
+        }
         ("hw_compression_level", Value::U32(v)) => {
-            profile.hw_compression_level = *v;
             if let Codec::Vp9(vp9) = &mut profile.codec {
                 vp9.hw_compression_level = *v;
             }
@@ -522,13 +516,11 @@ fn apply_profile_field(profile: &mut Profile, field_name: &str, value: &Value) {
             }
         }
         ("hw_loop_filter_level", Value::U32(v)) => {
-            profile.hw_loop_filter_level = *v;
             if let Codec::Vp9(vp9) = &mut profile.codec {
                 vp9.hw_loop_filter_level = *v;
             }
         }
         ("hw_loop_filter_sharpness", Value::U32(v)) => {
-            profile.hw_loop_filter_sharpness = *v;
             if let Codec::Vp9(vp9) = &mut profile.codec {
                 vp9.hw_loop_filter_sharpness = *v;
             }

@@ -5,11 +5,11 @@
 ///
 /// These tests catch bugs where a parameter is implemented in one encoder but
 /// forgotten in the other.
-use ffdash::engine::{HwEncodingConfig, Profile};
+use ffdash::engine::Profile;
 use proptest::prelude::*;
 
 use crate::common::helpers::{
-    build_software_cmd_for_test, build_vaapi_cmd_for_test, default_hw_config,
+    Vp9VaapiSettings, build_software_cmd_for_test, build_vaapi_cmd_for_test, default_hw_config,
 };
 use crate::common::parameter_mapping::ParameterSupport;
 use crate::common::parameter_registry::get_parameter_mappings;
@@ -135,7 +135,7 @@ proptest! {
         loop_filter_sharpness in 2u32..=8,
     ) {
         let profile = Profile::get("vp9-good");
-        let hw_config = HwEncodingConfig {
+        let hw_config = Vp9VaapiSettings {
             rc_mode: 4,  // ICQ
             global_quality: quality,
             b_frames,

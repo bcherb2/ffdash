@@ -6,11 +6,11 @@
 ///
 /// The parallelism bug (row_mt, tile_columns, tile_rows, frame_parallel missing
 /// from VAAPI) would have been caught by test_vaapi_command_covers_shared_parameters().
-use ffdash::engine::{HwEncodingConfig, Profile};
+use ffdash::engine::Profile;
 
 use crate::common::assertions::assert_cmd_contains;
 use crate::common::helpers::{
-    build_software_cmd_for_test, build_vaapi_cmd_for_test, default_hw_config,
+    Vp9VaapiSettings, build_software_cmd_for_test, build_vaapi_cmd_for_test, default_hw_config,
 };
 use crate::common::parameter_mapping::ParameterSupport;
 use crate::common::parameter_registry::{get_parameter_mappings, get_parameter_statistics};
@@ -155,7 +155,7 @@ fn test_vaapi_command_covers_shared_parameters() {
 #[test]
 fn test_vaapi_only_parameters_in_vaapi_command() {
     let profile = Profile::get("vp9-good");
-    let hw_config = HwEncodingConfig {
+    let hw_config = Vp9VaapiSettings {
         rc_mode: 4, // ICQ
         global_quality: 70,
         b_frames: 1, // Enable B-frames to test

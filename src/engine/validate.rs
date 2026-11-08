@@ -122,7 +122,11 @@ pub fn validate_profile(
     }
 
     // VAAPI global quality bounds
-    if encoder.ends_with("_vaapi") && profile.hw_global_quality > 255 {
+    let vaapi_quality = match &profile.codec {
+        crate::engine::Codec::Vp9(vp9) => vp9.hw_global_quality,
+        crate::engine::Codec::Av1(av1) => av1.vaapi_cq,
+    };
+    if encoder.ends_with("_vaapi") && vaapi_quality > 255 {
         errors.push(err(
             "hw_global_quality",
             "VAAPI global_quality must be 1-255",

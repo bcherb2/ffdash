@@ -65,6 +65,10 @@ Arguments are parsed using shell-style quoting, so quoted strings with spaces ar
 
 The `additional_args` field is saved with profiles, so you can create specialized profiles with pre-configured extra arguments.
 
+### Upgrade note: VP9 VAAPI hardware settings reset
+
+Saved profiles still load, but the old top-level `hw_*` fields (`hw_rc_mode`, `hw_global_quality`, `hw_b_frames`, `hw_loop_filter_level`, `hw_loop_filter_sharpness`, `hw_compression_level`) are now ignored. The VP9 VAAPI settings live in the VP9 codec config, so on profiles saved before this change they reset to their defaults. Re-apply any custom values in the config panel and save the profile again.
+
 ## Auto-VMAF Settings
 
 Auto-VMAF calibrates encoder quality to achieve a target perceptual quality score (VMAF).

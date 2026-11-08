@@ -103,7 +103,7 @@ impl ParameterMapping {
             "noise_sensitivity" => profile.noise_sensitivity > 0,
             "static_thresh" => profile.static_thresh.parse::<u32>().unwrap_or(0) > 0,
             "max_intra_rate" => profile.max_intra_rate.parse::<u32>().unwrap_or(0) > 0,
-            "hw_b_frames" => profile.hw_b_frames > 0,
+            "hw_b_frames" => profile.codec.as_vp9().is_some_and(|v| v.hw_b_frames > 0),
             _ => false,
         }
     }

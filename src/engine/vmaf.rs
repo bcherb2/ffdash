@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
 use crate::engine::core::{
-    EncodePlan, Profile, ProgressParser, build_encode_cmds_synced, write_debug_log,
+    Codec, EncodePlan, Profile, ProgressParser, build_encode_cmds_synced, write_debug_log,
 };
 use crate::engine::{JobStatus, VideoJob, probe_duration};
 
@@ -758,7 +758,11 @@ pub fn is_vmaf_compatible(profile: &Profile) -> bool {
     if profile.use_hardware_encoding {
         // Hardware: only CQP mode (mode 1)
         // Note: ICQ/VBR/CBR removed due to Intel Arc driver bugs
-        profile.hw_rc_mode == 1
+        match &profile.codec {
+            Codec::Vp9(vp9) => vp9.hw_rc_mode == 1,
+            // AV1 hardware Encoders are always CQP
+            Codec::Av1(_) => true,
+        }
     } else {
         // Software: CQ or CQCap mode (quality-driven, max_bitrate is optional ceiling)
         profile.video_target_bitrate == 0
@@ -1183,19 +1187,19 @@ mod tests {
         profile.use_hardware_encoding = true;
 
         // CQP mode (rc_mode = 1) - compatible (only supported mode)
-        profile.hw_rc_mode = 1;
+        profile.codec.as_vp9_mut().unwrap().hw_rc_mode = 1;
         assert!(is_vmaf_compatible(&profile));
 
         // CBR mode (rc_mode = 2) - not compatible
-        profile.hw_rc_mode = 2;
+        profile.codec.as_vp9_mut().unwrap().hw_rc_mode = 2;
         assert!(!is_vmaf_compatible(&profile));
 
         // VBR mode (rc_mode = 3) - not compatible
-        profile.hw_rc_mode = 3;
+        profile.codec.as_vp9_mut().unwrap().hw_rc_mode = 3;
         assert!(!is_vmaf_compatible(&profile));
 
         // ICQ mode (rc_mode = 4) - not compatible (removed due to driver bugs)
-        profile.hw_rc_mode = 4;
+        profile.codec.as_vp9_mut().unwrap().hw_rc_mode = 4;
         assert!(!is_vmaf_compatible(&profile));
     }
 
