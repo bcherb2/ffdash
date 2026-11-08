@@ -957,6 +957,76 @@ color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_p
   verification = { method = "ffmpeg-help", source = "av1_amf" }
 
 # =============================================================================
+# HEVC ENCODERS
+# One [[encoders]] block per Encoder, each in its own marked section below.
+# Parameter ids are shared across encoders by name, so every HEVC-only parameter
+# uses an encoder-prefixed id (x265-*, nvenc-*, qsv-*, ...). Only reuse an existing
+# id (crf, preset, ...) when the meaning and type match; per-encoder ranges are
+# generated automatically as range overrides.
+# =============================================================================
+
+# --- libx265 (Software Fallback) ---------------------------------------------
+
+[[encoders]]
+id = "libx265"
+codec = "hevc"
+type = "software"
+ffmpeg_name = "libx265"
+display_name = "HEVC (x265)"
+description = "HEVC software encoder (Software Fallback for HEVC); Main and Main10"
+color_metadata_notes = "Standard flags: colorspace ✅, color_range ✅, color_primaries ✅, color_trc ✅ (written to the VUI); HDR10 mastering display / content light level are carried from the source frames"
+
+  [[encoders.params]]
+  id = "crf"
+  scope = "private"
+  flag = "-crf"
+  type = "int"
+  range = { min = 0, max = 51 }
+  default = 28
+  description = "Constant quality (0=lossless, lower=better)"
+  verification = { method = "ffmpeg-help", date = "2026-11-08" }
+
+  [[encoders.params]]
+  id = "x265-preset"
+  scope = "private"
+  flag = "-preset"
+  type = "enum"
+  values = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
+  default = "medium"
+  field_path = "x265_preset"
+  description = "Speed/efficiency preset (slower = smaller files at the same quality)"
+  verification = { method = "ffmpeg-help", date = "2026-11-08" }
+
+  [[encoders.params]]
+  id = "x265-tune"
+  scope = "private"
+  flag = "-tune"
+  type = "enum"
+  values = ["none", "psnr", "ssim", "grain", "zerolatency", "fastdecode", "animation"]
+  default = "none"
+  field_path = "x265_tune"
+  description = "Content tuning (none omits -tune)"
+  verification = { method = "ffmpeg-help", date = "2026-11-08" }
+
+  [[encoders.params]]
+  id = "x265-params"
+  scope = "private"
+  flag = "-x265-params"
+  type = "string"
+  description = "x265 parameters (key=value:key=value); ffdash sets hdr10, hdr10-opt and repeat-headers for PQ (HDR10) output"
+  verification = { method = "docs", source = "x265-docs" }
+
+# --- hevc_nvenc (added by the NVENC ticket) ------------------------------------
+
+# --- hevc_qsv (added by the QSV ticket) ----------------------------------------
+
+# --- hevc_vaapi (added by the VAAPI ticket) ------------------------------------
+
+# --- hevc_amf (added by the AMF ticket) ----------------------------------------
+
+# --- hevc_videotoolbox (added by the VideoToolbox ticket) ----------------------
+
+# =============================================================================
 # Verification Source Map
 # =============================================================================
 [sources]
@@ -967,3 +1037,10 @@ av1_qsv = "ffmpeg -h encoder=av1_qsv"
 av1_nvenc = "ffmpeg -h encoder=av1_nvenc"
 av1_amf = "ffmpeg -h encoder=av1_amf"
 svt-av1-guide = "SVT-AV1 encoder guide"
+x265-docs = "x265 command line options documentation"
+libx265 = "ffmpeg -h encoder=libx265"
+# hevc_nvenc = "ffmpeg -h encoder=hevc_nvenc"
+# hevc_qsv = "ffmpeg -h encoder=hevc_qsv"
+# hevc_vaapi = "ffmpeg -h encoder=hevc_vaapi"
+# hevc_amf = "ffmpeg -h encoder=hevc_amf"
+# hevc_videotoolbox = "ffmpeg -h encoder=hevc_videotoolbox"

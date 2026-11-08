@@ -281,7 +281,12 @@ fn generate_params_code() {
             code.push_str(&format!("        id: \"{}\",\n", id));
             code.push_str(&format!(
                 "        codec: Codec::{},\n",
-                if codec == "vp9" { "Vp9" } else { "Av1" }
+                match codec {
+                    "vp9" => "Vp9",
+                    "av1" => "Av1",
+                    "hevc" => "Hevc",
+                    _ => panic!("Unknown codec: {}", codec),
+                }
             ));
             code.push_str(&format!(
                 "        encoder_type: EncoderType::{},\n",
@@ -299,6 +304,7 @@ fn generate_params_code() {
                     "qsv" => "Qsv",
                     "nvenc" => "Nvenc",
                     "amf" => "Amf",
+                    "videotoolbox" => "Videotoolbox",
                     _ => panic!("Unknown hardware API: {}", api),
                 };
                 code.push_str(&format!(

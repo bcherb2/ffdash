@@ -4,11 +4,12 @@
 /// generated from encoder-params.toml at build time.
 use std::fmt;
 
-/// The codec family (VP9 or AV1)
+/// The codec family (VP9, AV1 or HEVC)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Codec {
     Vp9,
     Av1,
+    Hevc,
 }
 
 /// The type of encoder (software vs hardware)
@@ -25,6 +26,7 @@ pub enum HardwareApi {
     Qsv,
     Nvenc,
     Amf,
+    Videotoolbox,
 }
 
 /// Rust type that a parameter uses
