@@ -540,7 +540,7 @@ mod tests {
         );
 
         // Test 4: Should force CQP mode (rc_mode = 1) for reliability
-        // hw_config.global_quality = 70 (default) passed directly to FFmpeg in CQP mode
+        // settings.global_quality = 70 (default) passed directly to FFmpeg in CQP mode
         assert!(
             full_cmd.contains("-rc_mode:v 1"),
             "VAAPI command should force CQP (rc_mode 1) as default mode"

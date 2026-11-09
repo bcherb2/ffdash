@@ -17,7 +17,7 @@ use crate::engine::probe;
 
 pub(super) fn build(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Command {
     let mut cmd = Command::new("ffmpeg");
-    let hevc = profile.codec.as_hevc().cloned().unwrap_or_default();
+    let hevc = profile.codec.hevc_or_default();
 
     // Heavier probing helps with large/multi-stream inputs
     cmd.arg("-analyzeduration").arg("200M");

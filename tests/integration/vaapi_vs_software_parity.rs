@@ -9,7 +9,7 @@ use ffdash::engine::Profile;
 use proptest::prelude::*;
 
 use crate::common::helpers::{
-    Vp9VaapiSettings, build_software_cmd_for_test, build_vaapi_cmd_for_test, default_hw_config,
+    Vp9VaapiSettings, build_software_cmd_for_test, build_vaapi_cmd_for_test, default_vaapi_settings,
 };
 use crate::common::parameter_mapping::ParameterSupport;
 use crate::common::parameter_registry::get_parameter_mappings;
@@ -29,7 +29,7 @@ proptest! {
         profile.frame_parallel = frame_parallel;
 
         let sw_cmd = build_software_cmd_for_test(&profile);
-        let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_hw_config());
+        let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_vaapi_settings());
 
         // Parallelism should be in software command when enabled
         if row_mt {
@@ -64,7 +64,7 @@ proptest! {
         profile.video_target_bitrate = 2000;  // VBR mode for VAAPI to allow libopus
 
         let sw_cmd = build_software_cmd_for_test(&profile);
-        let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_hw_config());
+        let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_vaapi_settings());
 
         // Audio codec and bitrate should be in both
         prop_assert!(sw_cmd.contains("-c:a"), "audio codec flag missing from software command");
@@ -82,7 +82,7 @@ proptest! {
         profile.gop_length = gop_length.to_string();
 
         let sw_cmd = build_software_cmd_for_test(&profile);
-        let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_hw_config());
+        let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_vaapi_settings());
 
         // GOP length should be in both
         prop_assert!(sw_cmd.contains("-g"), "GOP flag missing from software command");
@@ -106,7 +106,7 @@ proptest! {
         profile.video_bufsize = bufsize;
 
         let sw_cmd = build_software_cmd_for_test(&profile);
-        let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_hw_config());
+        let hw_cmd = build_vaapi_cmd_for_test(&profile, &default_vaapi_settings());
 
         // Target bitrate should be in software only (VAAPI forced to CQP)
         if target_bitrate > 0 {
@@ -135,7 +135,7 @@ proptest! {
         loop_filter_sharpness in 2u32..=8,
     ) {
         let profile = Profile::get("vp9-good");
-        let hw_config = Vp9VaapiSettings {
+        let settings = Vp9VaapiSettings {
             rc_mode: 4,  // ICQ
             global_quality: quality,
             b_frames,
@@ -144,7 +144,7 @@ proptest! {
             compression_level: 4,
         };
 
-        let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &hw_config);
+        let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &settings);
         let sw_cmd = build_software_cmd_for_test(&profile);
 
         // VAAPI-specific parameters should only be in VAAPI command
@@ -182,7 +182,7 @@ proptest! {
         profile.threads = threads;
 
         let sw_cmd = build_software_cmd_for_test(&profile);
-        let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &default_hw_config());
+        let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &default_vaapi_settings());
 
         // These parameters should only be in software command
         prop_assert!(sw_cmd.contains("-crf"),
@@ -224,11 +224,11 @@ fn test_comprehensive_parameter_parity() {
     profile.video_bufsize = 4000;
 
     // Use VBR mode for VAAPI (rc_mode=3) so bitrate params are included
-    let mut hw_config = default_hw_config();
-    hw_config.rc_mode = 3; // VBR mode
+    let mut settings = default_vaapi_settings();
+    settings.rc_mode = 3; // VBR mode
 
     let sw_cmd = build_software_cmd_for_test(&profile);
-    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &hw_config);
+    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &settings);
 
     println!("Software command:\n{}\n", sw_cmd);
     println!("VAAPI command:\n{}\n", vaapi_cmd);
@@ -290,7 +290,7 @@ fn test_parallelism_is_not_shared_between_encoders() {
     profile.frame_parallel = true;
 
     let sw_cmd = build_software_cmd_for_test(&profile);
-    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &default_hw_config());
+    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &default_vaapi_settings());
 
     // Software command MUST have parallelism settings
     assert!(sw_cmd.contains("-row-mt"), "Software should have row-mt");

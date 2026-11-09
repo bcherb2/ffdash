@@ -5,6 +5,7 @@ use std::process::Command;
 use super::super::container_from_output;
 use super::super::{apply_audio_settings, apply_color_metadata, apply_job_additional_args};
 use super::apply_hevc_container_tag;
+use crate::engine::core::is_ten_bit_pix_fmt;
 use crate::engine::core::profile::Profile;
 use crate::engine::core::types::VideoJob;
 use crate::engine::probe;
@@ -21,7 +22,7 @@ fn nvenc_preset(hw_preset: &str) -> String {
 
 pub(super) fn build(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Command {
     let mut cmd = Command::new("ffmpeg");
-    let hevc = profile.codec.as_hevc().cloned().unwrap_or_default();
+    let hevc = profile.codec.hevc_or_default();
 
     // Linux decodes on the GPU; elsewhere CPU frames go to NVENC.
     if !cpu_decode {
@@ -78,7 +79,7 @@ pub(super) fn build(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Comm
 
     // Pixel format: 10-bit gives Main10; "auto" keeps the source's depth.
     if profile.pix_fmt != "auto" {
-        if profile.pix_fmt.contains("10") {
+        if is_ten_bit_pix_fmt(&profile.pix_fmt) {
             cmd.arg("-pix_fmt").arg("p010le");
             cmd.arg("-profile:v").arg("main10");
         } else {

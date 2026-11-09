@@ -1,7 +1,8 @@
 //! HEVC command building: one module per Encoder, one dispatch arm per Encoder.
 //!
 //! Adding a hardware Encoder: create `hevc/<encoder>.rs` exposing
-//! `build(job, profile, cpu_decode) -> Command`, declare it below, and replace that
+//! `build(job, profile) -> Command` (plus a `cpu_decode: bool` if the host changes
+//! its decode path), declare it below, and replace that
 //! Encoder's arm in [`build_hevc_cmd`]. Nothing else in this file changes.
 //! Shared helpers ([`apply_hevc_container_tag`]) live here.
 
@@ -14,7 +15,7 @@ use super::container_from_output;
 use crate::engine::hardware::VideoEncoder;
 
 mod amf;
-mod cpu_fed;
+mod cpu_decoded_hardware;
 mod videotoolbox;
 mod x265;
 
@@ -37,11 +38,11 @@ pub(super) fn build_hevc_cmd(job: &VideoJob, profile: &Profile, plan: &EncodePla
         // hevc_qsv
         VideoEncoder::HevcQsv => qsv::build(job, profile, cpu_decode),
         // hevc_vaapi
-        VideoEncoder::HevcVaapi => vaapi::build(job, profile, cpu_decode),
+        VideoEncoder::HevcVaapi => vaapi::build(job, profile),
         // hevc_amf
-        VideoEncoder::HevcAmf => amf::build(job, profile, cpu_decode),
+        VideoEncoder::HevcAmf => amf::build(job, profile),
         // hevc_videotoolbox
-        VideoEncoder::HevcVideotoolbox => videotoolbox::build(job, profile, cpu_decode),
+        VideoEncoder::HevcVideotoolbox => videotoolbox::build(job, profile),
 
         // Not HEVC Encoders: the Software Fallback.
         _ => x265::build(job, profile),

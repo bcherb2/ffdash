@@ -5,8 +5,11 @@
 use std::process::Command;
 
 use super::super::container_from_output;
-use super::super::{apply_audio_settings, apply_color_metadata, apply_job_additional_args};
+use super::super::{
+    apply_audio_settings, apply_color_metadata, apply_job_additional_args, fps_scale_filters,
+};
 use super::apply_hevc_container_tag;
+use crate::engine::core::is_ten_bit_pix_fmt;
 use crate::engine::core::profile::Profile;
 use crate::engine::core::types::VideoJob;
 use crate::engine::probe;
@@ -15,7 +18,7 @@ use crate::engine::probe;
 fn hardware_pix_fmt(pix_fmt: &str) -> Option<&'static str> {
     if pix_fmt == "auto" {
         None
-    } else if pix_fmt.contains("10") {
+    } else if is_ten_bit_pix_fmt(pix_fmt) {
         Some("p010le")
     } else {
         Some("nv12")
@@ -53,25 +56,7 @@ pub(super) fn build(
     // Video filters (fps, scale)
     let mut filters = Vec::new();
     if let Ok(input_info) = probe::probe_input_info(&job.input_path) {
-        if profile.fps > 0 && input_info.fps > profile.fps as f64 {
-            filters.push(format!("fps={}", profile.fps));
-        }
-        let needs_scale = (profile.scale_width > 0
-            && input_info.width > profile.scale_width as u32)
-            || (profile.scale_height > 0 && input_info.height > profile.scale_height as u32);
-        if needs_scale {
-            let w = if profile.scale_width > 0 {
-                format!("min(iw\\,{})", profile.scale_width)
-            } else {
-                "-2".to_string()
-            };
-            let h = if profile.scale_height > 0 {
-                format!("min(ih\\,{})", profile.scale_height)
-            } else {
-                "-2".to_string()
-            };
-            filters.push(format!("scale={}:{}", w, h));
-        }
+        filters.extend(fps_scale_filters(profile, &input_info));
     }
     if !filters.is_empty() {
         cmd.arg("-vf").arg(filters.join(","));

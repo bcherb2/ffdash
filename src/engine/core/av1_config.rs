@@ -181,6 +181,13 @@ impl Codec {
         }
     }
 
+    /// The HEVC config, or the defaults when this is not HEVC. Borrowed, never cloned.
+    pub fn hevc_or_default(&self) -> &HevcConfig {
+        static DEFAULT: std::sync::OnceLock<HevcConfig> = std::sync::OnceLock::new();
+        self.as_hevc()
+            .unwrap_or_else(|| DEFAULT.get_or_init(HevcConfig::default))
+    }
+
     /// Get mutable HEVC config if this is HEVC
     pub fn as_hevc_mut(&mut self) -> Option<&mut HevcConfig> {
         match self {

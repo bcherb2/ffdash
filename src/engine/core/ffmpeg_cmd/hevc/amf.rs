@@ -2,7 +2,7 @@
 
 use std::process::Command;
 
-use super::cpu_fed;
+use super::cpu_decoded_hardware;
 use crate::engine::core::profile::Profile;
 use crate::engine::core::types::VideoJob;
 
@@ -15,11 +15,9 @@ fn amf_quality(hw_preset: &str) -> &'static str {
     }
 }
 
-/// `_cpu_decode` is accepted for symmetry with the other Encoders: AMF is fed from CPU
-/// decode on every host, so it does not change the command.
-pub(super) fn build(job: &VideoJob, profile: &Profile, _cpu_decode: bool) -> Command {
-    let hevc = profile.codec.as_hevc().cloned().unwrap_or_default();
-    cpu_fed::build(job, profile, "hevc_amf", |cmd| {
+pub(super) fn build(job: &VideoJob, profile: &Profile) -> Command {
+    let hevc = profile.codec.hevc_or_default();
+    cpu_decoded_hardware::build(job, profile, "hevc_amf", |cmd| {
         cmd.arg("-rc").arg("cqp");
         cmd.arg("-qp_i").arg(hevc.amf_qp.min(51).to_string());
         cmd.arg("-qp_p").arg(hevc.amf_qp.min(51).to_string());

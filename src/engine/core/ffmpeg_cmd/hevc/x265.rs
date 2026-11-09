@@ -3,8 +3,11 @@
 use std::process::Command;
 
 use super::super::container_from_output;
-use super::super::{apply_audio_settings, apply_color_metadata, apply_job_additional_args};
+use super::super::{
+    apply_audio_settings, apply_color_metadata, apply_job_additional_args, fps_scale_filters,
+};
 use super::apply_hevc_container_tag;
+use crate::engine::core::is_ten_bit_pix_fmt;
 use crate::engine::core::profile::Profile;
 use crate::engine::core::types::VideoJob;
 use crate::engine::probe;
@@ -17,7 +20,7 @@ fn x265_params(profile: &Profile) -> Option<String> {
     if profile.color_trc == 16 {
         // PQ transfer: HDR10 signalling.
         params.push("hdr10=1");
-        if profile.pix_fmt.contains("10") {
+        if is_ten_bit_pix_fmt(&profile.pix_fmt) {
             params.push("hdr10-opt=1");
         }
         params.push("repeat-headers=1");
@@ -31,7 +34,7 @@ fn x265_params(profile: &Profile) -> Option<String> {
 
 pub(super) fn build(job: &VideoJob, profile: &Profile) -> Command {
     let mut cmd = Command::new("ffmpeg");
-    let hevc = profile.codec.as_hevc().cloned().unwrap_or_default();
+    let hevc = profile.codec.hevc_or_default();
 
     cmd.arg("-i").arg(&job.input_path);
     cmd.arg("-progress").arg("-").arg("-nostats");
@@ -63,26 +66,7 @@ pub(super) fn build(job: &VideoJob, profile: &Profile) -> Command {
     // Video filters (fps, scale, HDR->SDR tonemap)
     let mut filters = Vec::new();
     if let Ok(input_info) = probe::probe_input_info(&job.input_path) {
-        if profile.fps > 0 && input_info.fps > profile.fps as f64 {
-            filters.push(format!("fps={}", profile.fps));
-        }
-
-        let needs_scale = (profile.scale_width > 0
-            && input_info.width > profile.scale_width as u32)
-            || (profile.scale_height > 0 && input_info.height > profile.scale_height as u32);
-        if needs_scale {
-            let w = if profile.scale_width > 0 {
-                format!("min(iw\\,{})", profile.scale_width)
-            } else {
-                "-2".to_string()
-            };
-            let h = if profile.scale_height > 0 {
-                format!("min(ih\\,{})", profile.scale_height)
-            } else {
-                "-2".to_string()
-            };
-            filters.push(format!("scale={}:{}", w, h));
-        }
+        filters.extend(fps_scale_filters(profile, &input_info));
 
         if profile.colorspace == 1 && profile.color_trc == 1 && input_info.is_hdr {
             filters.push("zscale=t=linear:npl=100".to_string());

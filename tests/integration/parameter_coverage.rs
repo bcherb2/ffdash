@@ -10,7 +10,7 @@ use ffdash::engine::Profile;
 
 use crate::common::assertions::assert_cmd_contains;
 use crate::common::helpers::{
-    Vp9VaapiSettings, build_software_cmd_for_test, build_vaapi_cmd_for_test, default_hw_config,
+    Vp9VaapiSettings, build_software_cmd_for_test, build_vaapi_cmd_for_test, default_vaapi_settings,
 };
 use crate::common::parameter_mapping::ParameterSupport;
 use crate::common::parameter_registry::{get_parameter_mappings, get_parameter_statistics};
@@ -105,7 +105,7 @@ fn test_vaapi_command_covers_shared_parameters() {
     let mappings = get_parameter_mappings();
     let mut profile = Profile::get("vp9-good");
 
-    let hw_config = default_hw_config();
+    let settings = default_vaapi_settings();
 
     // Set test values that trigger parameter inclusion
     profile.row_mt = true;
@@ -113,7 +113,7 @@ fn test_vaapi_command_covers_shared_parameters() {
     profile.tile_rows = 1;
     profile.frame_parallel = true;
 
-    let cmd = build_vaapi_cmd_for_test(&profile, &hw_config);
+    let cmd = build_vaapi_cmd_for_test(&profile, &settings);
 
     println!("VAAPI command:\n{}\n", cmd);
 
@@ -155,7 +155,7 @@ fn test_vaapi_command_covers_shared_parameters() {
 #[test]
 fn test_vaapi_only_parameters_in_vaapi_command() {
     let profile = Profile::get("vp9-good");
-    let hw_config = Vp9VaapiSettings {
+    let settings = Vp9VaapiSettings {
         rc_mode: 4, // ICQ
         global_quality: 70,
         b_frames: 1, // Enable B-frames to test
@@ -164,7 +164,7 @@ fn test_vaapi_only_parameters_in_vaapi_command() {
         compression_level: 4,
     };
 
-    let cmd = build_vaapi_cmd_for_test(&profile, &hw_config);
+    let cmd = build_vaapi_cmd_for_test(&profile, &settings);
 
     println!("VAAPI command (with B-frames):\n{}\n", cmd);
 
@@ -179,14 +179,14 @@ fn test_vaapi_only_parameters_in_vaapi_command() {
 fn test_software_only_parameters_not_in_vaapi() {
     let mappings = get_parameter_mappings();
     let mut profile = Profile::get("vp9-good");
-    let hw_config = default_hw_config();
+    let settings = default_vaapi_settings();
 
     // Enable software-only parameters
     profile.arnr_max_frames = 7;
     profile.enable_tpl = true;
     profile.tune_content = "screen".to_string();
 
-    let cmd = build_vaapi_cmd_for_test(&profile, &hw_config);
+    let cmd = build_vaapi_cmd_for_test(&profile, &settings);
 
     // Software-only parameters should NOT appear in VAAPI command
     for mapping in mappings.iter() {
@@ -223,8 +223,8 @@ fn test_parallelism_is_software_only() {
     assert_cmd_contains(&sw_cmd, "-frame-parallel");
 
     // VAAPI command MUST NOT have parallelism parameters
-    let hw_config = default_hw_config();
-    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &hw_config);
+    let settings = default_vaapi_settings();
+    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &settings);
     println!("VAAPI parallelism test:\n{}\n", vaapi_cmd);
     assert!(!vaapi_cmd.contains("-row-mt"));
     assert!(!vaapi_cmd.contains("-tile_columns"));
@@ -262,8 +262,8 @@ fn test_audio_settings_in_both_commands() {
 
     // Test VAAPI command (VBR mode to allow libopus)
     profile.video_target_bitrate = 2000; // Enable VBR mode
-    let hw_config = default_hw_config();
-    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &hw_config);
+    let settings = default_vaapi_settings();
+    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &settings);
     assert_cmd_contains(&vaapi_cmd, "-c:a");
     assert_cmd_contains(&vaapi_cmd, "-b:a");
 }
@@ -279,8 +279,8 @@ fn test_gop_settings_in_both_commands() {
     assert_cmd_contains(&sw_cmd, "120");
 
     // Test VAAPI command
-    let hw_config = default_hw_config();
-    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &hw_config);
+    let settings = default_vaapi_settings();
+    let vaapi_cmd = build_vaapi_cmd_for_test(&profile, &settings);
     assert_cmd_contains(&vaapi_cmd, "-g");
     // VAAPI caps GOP at 240, so 120 should pass through
     assert_cmd_contains(&vaapi_cmd, "120");

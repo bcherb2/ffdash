@@ -28,9 +28,9 @@ fn is_main10(job: &VideoJob, profile: &Profile) -> bool {
     }
 }
 
-pub(super) fn build(job: &VideoJob, profile: &Profile, _cpu_decode: bool) -> Command {
+pub(super) fn build(job: &VideoJob, profile: &Profile) -> Command {
     let mut cmd = Command::new("ffmpeg");
-    let hevc = profile.codec.as_hevc().cloned().unwrap_or_default();
+    let hevc = profile.codec.hevc_or_default();
     let container = container_from_output(job, profile);
 
     // CPU-side filters: fps, scale, HDR->SDR tonemap (all before the upload).

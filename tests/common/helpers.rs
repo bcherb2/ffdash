@@ -355,7 +355,7 @@ impl Default for Vp9VaapiSettings {
 
 /// Build a VAAPI hardware command using the ACTUAL engine code
 /// This ensures tests verify the real implementation, not duplicated logic
-pub fn build_vaapi_cmd_for_test(profile: &Profile, hw_config: &Vp9VaapiSettings) -> String {
+pub fn build_vaapi_cmd_for_test(profile: &Profile, settings: &Vp9VaapiSettings) -> String {
     let job = VideoJob::new(
         PathBuf::from("test_input.mp4"),
         PathBuf::from("test_output.webm"),
@@ -367,23 +367,23 @@ pub fn build_vaapi_cmd_for_test(profile: &Profile, hw_config: &Vp9VaapiSettings)
     let mut profile = profile.clone();
     profile.use_hardware_encoding = true;
     if let Codec::Vp9(vp9) = &mut profile.codec {
-        vp9.hw_rc_mode = hw_config.rc_mode;
-        vp9.hw_global_quality = hw_config.global_quality;
-        vp9.hw_b_frames = hw_config.b_frames;
-        vp9.hw_loop_filter_level = hw_config.loop_filter_level;
-        vp9.hw_loop_filter_sharpness = hw_config.loop_filter_sharpness;
-        vp9.hw_compression_level = hw_config.compression_level;
+        vp9.hw_rc_mode = settings.rc_mode;
+        vp9.hw_global_quality = settings.global_quality;
+        vp9.hw_b_frames = settings.b_frames;
+        vp9.hw_loop_filter_level = settings.loop_filter_level;
+        vp9.hw_loop_filter_sharpness = settings.loop_filter_sharpness;
+        vp9.hw_compression_level = settings.compression_level;
     }
     cmd_to_string(&build_one(&job, &profile, VideoEncoder::Vp9Vaapi))
 }
 
 /// Create a default Vp9VaapiSettings for testing
-pub fn default_hw_config() -> Vp9VaapiSettings {
+pub fn default_vaapi_settings() -> Vp9VaapiSettings {
     Vp9VaapiSettings::default()
 }
 
 /// Create a custom Vp9VaapiSettings for testing
-pub fn custom_hw_config(quality: u32, b_frames: u32) -> Vp9VaapiSettings {
+pub fn custom_vaapi_settings(quality: u32, b_frames: u32) -> Vp9VaapiSettings {
     Vp9VaapiSettings {
         rc_mode: 4, // ICQ (Intelligent Constant Quality) - default
         global_quality: quality,

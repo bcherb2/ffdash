@@ -192,6 +192,31 @@ fn null_output_target() -> &'static str {
 /// Handles the common mistake of using `-map 0` which grabs ALL streams including
 /// cover art/attached pictures. When detected, we add exclusions to prevent
 /// re-mapping video/audio streams (already mapped) and encoding attached pictures.
+/// The `fps` and `scale` filters a profile asks for, given the probed input: only when
+/// the input is above the requested frame rate or size.
+fn fps_scale_filters(profile: &Profile, input_info: &probe::InputInfo) -> Vec<String> {
+    let mut filters = Vec::new();
+    if profile.fps > 0 && input_info.fps > profile.fps as f64 {
+        filters.push(format!("fps={}", profile.fps));
+    }
+    let needs_scale = (profile.scale_width > 0 && input_info.width > profile.scale_width as u32)
+        || (profile.scale_height > 0 && input_info.height > profile.scale_height as u32);
+    if needs_scale {
+        let w = if profile.scale_width > 0 {
+            format!("min(iw\\,{})", profile.scale_width)
+        } else {
+            "-2".to_string()
+        };
+        let h = if profile.scale_height > 0 {
+            format!("min(ih\\,{})", profile.scale_height)
+        } else {
+            "-2".to_string()
+        };
+        filters.push(format!("scale={}:{}", w, h));
+    }
+    filters
+}
+
 /// Apply the profile's `additional_args` for this job. MP4 outputs get their stream
 /// mappings rewritten (no attachments; text subtitles as `mov_text`, others dropped).
 fn apply_job_additional_args(cmd: &mut Command, job: &VideoJob, profile: &Profile) {
@@ -1235,29 +1260,7 @@ fn build_av1_software_cmd(job: &VideoJob, profile: &Profile) -> Command {
     let mut filters = Vec::new();
 
     if let Ok(input_info) = probe::probe_input_info(&job.input_path) {
-        // FPS filter
-        if profile.fps > 0 && input_info.fps > profile.fps as f64 {
-            filters.push(format!("fps={}", profile.fps));
-        }
-
-        // Scale filter
-        let needs_scale = (profile.scale_width > 0
-            && input_info.width > profile.scale_width as u32)
-            || (profile.scale_height > 0 && input_info.height > profile.scale_height as u32);
-
-        if needs_scale {
-            let w = if profile.scale_width > 0 {
-                format!("min(iw\\,{})", profile.scale_width)
-            } else {
-                "-2".to_string()
-            };
-            let h = if profile.scale_height > 0 {
-                format!("min(ih\\,{})", profile.scale_height)
-            } else {
-                "-2".to_string()
-            };
-            filters.push(format!("scale={}:{}", w, h));
-        }
+        filters.extend(fps_scale_filters(profile, &input_info));
 
         // HDR→SDR tonemapping: Apply when SDR preset is selected on HDR source
         if profile.colorspace == 1 && profile.color_trc == 1 && input_info.is_hdr {
