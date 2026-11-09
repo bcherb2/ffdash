@@ -148,7 +148,6 @@ pub fn run_ui_with_options(
         app_state.config.hw_availability_message = result.error_message.clone();
 
         if result.available {
-            app_state.config.gpu_vendor = result.gpu_vendor;
             app_state.dashboard.gpu_model = result.gpu_model;
             app_state.dashboard.gpu_vendor = result.gpu_vendor;
             app_state.dashboard.gpu_available =

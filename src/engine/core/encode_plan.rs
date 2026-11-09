@@ -85,10 +85,16 @@ impl EncodePlan {
     }
 }
 
+/// Whether `pix_fmt` is a 10-bit pixel format (Main10 for HEVC). The one place that
+/// decides this from a pixel format name.
+pub fn is_ten_bit_pix_fmt(pix_fmt: &str) -> bool {
+    pix_fmt.contains("10")
+}
+
 /// Bit depth an encode must be able to produce: 10 if the profile asks for a
 /// 10-bit pixel format, or (with `auto_bit_depth`) if the source is 10-bit or more.
 pub fn bit_depth_needed(pix_fmt: &str, source_depth: Option<u32>, auto_bit_depth: bool) -> u8 {
-    let profile_ten = pix_fmt.contains("10");
+    let profile_ten = is_ten_bit_pix_fmt(pix_fmt);
     let source_ten = auto_bit_depth && source_depth.unwrap_or(8) >= 10;
     if profile_ten || source_ten { 10 } else { 8 }
 }
@@ -99,7 +105,7 @@ pub fn required_bit_depth(profile: &Profile, input: &std::path::Path) -> u8 {
     let auto = crate::config::Config::load()
         .map(|c| c.defaults.auto_bit_depth)
         .unwrap_or(true);
-    let source = if auto && !profile.pix_fmt.contains("10") {
+    let source = if auto && !is_ten_bit_pix_fmt(&profile.pix_fmt) {
         crate::engine::probe::probe_input_info(input)
             .ok()
             .and_then(|i| i.bit_depth)

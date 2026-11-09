@@ -1739,11 +1739,7 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
         ConfigFocus::Av1HwCqSlider => {
             // Per-encoder quality: NVENC uses 0-63, QSV/VAAPI use 1-255
             // Read/write the encoder-specific field based on GPU vendor
-            let (min_cq, max_cq, current_val) = match state.config.gpu_vendor {
-                crate::engine::hardware::GpuVendor::Nvidia => (0, 63, state.config.av1_nvenc_cq),
-                crate::engine::hardware::GpuVendor::Intel => (1, 255, state.config.av1_qsv_cq),
-                _ => (1, 255, state.config.av1_vaapi_cq), // AMD and others use VAAPI
-            };
+            let (min_cq, max_cq, current_val) = state.config.av1_hw_cq();
 
             let old_value = current_val;
             let new_value = match key.code {
@@ -1767,11 +1763,7 @@ fn handle_focused_widget_key(key: KeyEvent, state: &mut AppState) {
             };
 
             // Write back to the correct per-encoder field
-            match state.config.gpu_vendor {
-                crate::engine::hardware::GpuVendor::Nvidia => state.config.av1_nvenc_cq = new_value,
-                crate::engine::hardware::GpuVendor::Intel => state.config.av1_qsv_cq = new_value,
-                _ => state.config.av1_vaapi_cq = new_value,
-            };
+            state.config.set_av1_hw_cq(new_value);
 
             if new_value != old_value {
                 state.config.is_modified = true;
@@ -2697,7 +2689,6 @@ fn handle_hw_encoding_toggle(state: &mut AppState) {
         state.config.hw_availability_message = None;
 
         state.config.use_hardware_encoding = true;
-        state.config.gpu_vendor = result.gpu_vendor;
         state.dashboard.gpu_model = result.gpu_model;
         state.dashboard.gpu_vendor = result.gpu_vendor;
         state.dashboard.gpu_available =
@@ -3869,24 +3860,14 @@ pub(super) fn handle_config_mouse(mouse: MouseEvent, state: &mut AppState) {
                     && mouse.column < area.x + area.width
                 {
                     // Per-encoder quality: NVENC uses 0-63, QSV/VAAPI use 1-255
-                    let (min_cq, max_cq) = match config.gpu_vendor {
-                        crate::engine::hardware::GpuVendor::Nvidia => (0, 63),
-                        crate::engine::hardware::GpuVendor::Intel => (1, 255),
-                        _ => (1, 255), // AMD and others use VAAPI
-                    };
+                    let (min_cq, max_cq, _) = config.av1_hw_cq();
                     let click_x = mouse.column.saturating_sub(area.x);
                     let ratio = (click_x as f64) / (area.width as f64).max(1.0);
                     let range = (max_cq - min_cq) as f64;
                     let new_value =
                         (ratio * range + min_cq as f64).clamp(min_cq as f64, max_cq as f64) as u32;
                     // Write to the correct per-encoder field
-                    match config.gpu_vendor {
-                        crate::engine::hardware::GpuVendor::Nvidia => {
-                            config.av1_nvenc_cq = new_value
-                        }
-                        crate::engine::hardware::GpuVendor::Intel => config.av1_qsv_cq = new_value,
-                        _ => config.av1_vaapi_cq = new_value,
-                    };
+                    config.set_av1_hw_cq(new_value);
                     config.is_modified = true;
                 }
                 return;

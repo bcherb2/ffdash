@@ -13,7 +13,9 @@ mod types;
 mod vp9_config;
 
 pub use av1_config::{Av1Config, Codec};
-pub use encode_plan::{EncodePlan, HostPlatform, required_bit_depth};
+pub use encode_plan::{
+    EncodePlan, HostPlatform, bit_depth_needed, is_ten_bit_pix_fmt, required_bit_depth,
+};
 pub(crate) use ffmpeg_cmd::build_encode_cmds_synced;
 pub use ffmpeg_cmd::{
     build_encode_cmds, build_ffmpeg_cmds, encode_job, encode_job_with_callback,

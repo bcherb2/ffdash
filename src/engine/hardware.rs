@@ -130,6 +130,26 @@ impl VideoEncoder {
         }
     }
 
+    /// The Codec this Encoder writes.
+    pub fn codec(&self) -> super::selection::CodecKind {
+        use super::selection::CodecKind;
+        match self {
+            Self::LibvpxVp9 | Self::Vp9Qsv | Self::Vp9Vaapi => CodecKind::Vp9,
+            Self::LibsvtAv1
+            | Self::LibaomAv1
+            | Self::Av1Qsv
+            | Self::Av1Nvenc
+            | Self::Av1Vaapi
+            | Self::Av1Amf => CodecKind::Av1,
+            Self::Libx265
+            | Self::HevcNvenc
+            | Self::HevcQsv
+            | Self::HevcVaapi
+            | Self::HevcAmf
+            | Self::HevcVideotoolbox => CodecKind::Hevc,
+        }
+    }
+
     /// Check if this is a hardware encoder (derived from its Backend)
     pub fn is_hardware(&self) -> bool {
         self.backend().is_hardware()

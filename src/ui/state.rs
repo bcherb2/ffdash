@@ -418,7 +418,6 @@ pub struct ConfigState {
     pub encoder_availability: crate::engine::selection::EncoderAvailability,
     pub hw_encoding_available: Option<bool>, // None=unchecked, Some=result
     pub hw_availability_message: Option<String>,
-    pub gpu_vendor: crate::engine::hardware::GpuVendor, // Detected GPU vendor
     pub vaapi_rc_mode: String, // 1=CQP only (ICQ/VBR/CBR removed due to Arc driver bugs)
     pub qsv_global_quality: u32, // 1-255 (lower=better quality/larger files, higher=worse quality/smaller files), default 70
     pub vaapi_compression_level: String, // 0-7 (0=fastest, 7=slowest/best), default "4"
@@ -775,7 +774,6 @@ impl Default for ConfigState {
             encoder_availability: Default::default(),
             hw_encoding_available: None,
             hw_availability_message: None,
-            gpu_vendor: crate::engine::hardware::GpuVendor::Unknown,
             qsv_global_quality: 70,
             vaapi_rc_mode: "1".to_string(), // CQP mode (only supported mode)
             vaapi_compression_level: "4".to_string(),
@@ -955,6 +953,52 @@ impl ConfigState {
     /// See [`hardware_control_available`].
     pub fn hardware_control_available(&self) -> bool {
         hardware_control_available(self.codec_selection, &self.encoder_availability)
+    }
+
+    /// The Encoder `select_encoder` would pick for the current Codec, hardware toggle and
+    /// pixel format from Encoder Availability. Everything the config panel shows or
+    /// labels per Encoder derives from this, never from the GPU vendor.
+    pub fn selected_encoder(&self) -> crate::engine::hardware::VideoEncoder {
+        self.encoder_for(self.use_hardware_encoding)
+    }
+
+    /// Allowed range and current value of the AV1 hardware CQ of the selected Encoder
+    /// (NVENC 0-63, QSV/VAAPI 1-255); each Encoder keeps its own value.
+    pub fn av1_hw_cq(&self) -> (u32, u32, u32) {
+        use crate::engine::hardware::VideoEncoder;
+        match self.selected_encoder() {
+            VideoEncoder::Av1Nvenc => (0, 63, self.av1_nvenc_cq),
+            VideoEncoder::Av1Qsv => (1, 255, self.av1_qsv_cq),
+            _ => (1, 255, self.av1_vaapi_cq),
+        }
+    }
+
+    /// Store `value` as the AV1 hardware CQ of the selected Encoder.
+    pub fn set_av1_hw_cq(&mut self, value: u32) {
+        use crate::engine::hardware::VideoEncoder;
+        match self.selected_encoder() {
+            VideoEncoder::Av1Nvenc => self.av1_nvenc_cq = value,
+            VideoEncoder::Av1Qsv => self.av1_qsv_cq = value,
+            _ => self.av1_vaapi_cq = value,
+        }
+    }
+
+    /// The Encoder hardware encoding would select, whatever the toggle says. Used to
+    /// label the toggle itself.
+    pub fn hardware_encoder(&self) -> crate::engine::hardware::VideoEncoder {
+        self.encoder_for(true)
+    }
+
+    fn encoder_for(&self, use_hardware: bool) -> crate::engine::hardware::VideoEncoder {
+        let pix_fmt =
+            crate::ui::options::pix_fmt_from_idx(self.pix_fmt_state.selected().unwrap_or(0));
+        crate::engine::selection::select_encoder(
+            self.codec_selection.kind(),
+            use_hardware,
+            None,
+            crate::engine::core::bit_depth_needed(pix_fmt, None, false),
+            &self.encoder_availability,
+        )
     }
 
     /// Move the selected Container to MKV if the selected Codec cannot use it

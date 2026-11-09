@@ -1,20 +1,12 @@
 use super::*;
-use crate::ui::applicability::{Backend, applies};
+use crate::engine::hardware::{Backend, VideoEncoder};
+use crate::ui::applicability::applies;
 use crate::ui::constants;
 use crate::ui::state::CodecSelection;
 
-/// The encoder backend currently selected in the UI.
-fn current_backend(state: &ConfigState) -> Backend {
-    if state.use_hardware_encoding {
-        Backend::Hardware(state.gpu_vendor)
-    } else {
-        Backend::Software
-    }
-}
-
-/// Whether `field` has any effect for the selected codec and backend.
+/// Whether `field` has any effect for the selected Encoder.
 fn is_active(state: &ConfigState, field: ConfigFocus) -> bool {
-    applies(field, state.codec_selection, current_backend(state))
+    applies(field, state.selected_encoder())
 }
 
 /// Draw a control that doesn't apply: dimmed and read-only. The caller must
@@ -637,12 +629,14 @@ impl ConfigScreen {
         // Hardware Encoding toggle (first item - top of Core Video section)
         let hw_available = state.hardware_control_available();
         let hw_label = if hw_available {
-            use crate::engine::hardware::GpuVendor;
-            match state.gpu_vendor {
-                GpuVendor::Nvidia => "Use Hardware Encoding (NVIDIA NVENC)",
-                GpuVendor::Intel => "Use Hardware Encoding (Intel Quick Sync)",
-                GpuVendor::Amd => "Use Hardware Encoding (AMD AMF)",
-                _ => "Use Hardware Encoding",
+            // Named after the Encoder hardware encoding would select, not the GPU vendor.
+            match state.hardware_encoder().backend() {
+                Backend::Nvenc => "Use Hardware Encoding (NVIDIA NVENC)",
+                Backend::Qsv => "Use Hardware Encoding (Intel Quick Sync)",
+                Backend::Amf => "Use Hardware Encoding (AMD AMF)",
+                Backend::Vaapi => "Use Hardware Encoding (VAAPI)",
+                Backend::Videotoolbox => "Use Hardware Encoding (Apple VideoToolbox)",
+                Backend::Software => "Use Hardware Encoding",
             }
         } else {
             "Use Hardware Encoding (no hardware encoder for this codec)"
@@ -944,20 +938,10 @@ impl ConfigScreen {
                     };
                     state.av1_hw_cq_slider_area = Some(cq_area);
 
-                    // Use per-encoder quality field based on GPU vendor
+                    // Use the selected Encoder's own quality field
                     // NVENC uses 0-63, QSV/VAAPI use 1-255
-                    let (min_cq, max_cq, cq_value) = match state.gpu_vendor {
-                        crate::engine::hardware::GpuVendor::Nvidia => {
-                            (0, 63, state.av1_nvenc_cq.clamp(0, 63))
-                        }
-                        crate::engine::hardware::GpuVendor::Intel => {
-                            (1, 255, state.av1_qsv_cq.clamp(1, 255))
-                        }
-                        _ => {
-                            // AMD and other GPUs use VAAPI
-                            (1, 255, state.av1_vaapi_cq.clamp(1, 255))
-                        }
-                    };
+                    let (min_cq, max_cq, cq_value) = state.av1_hw_cq();
+                    let cq_value = cq_value.clamp(min_cq, max_cq);
 
                     let cq_slider =
                         Slider::new("CQ (Lower=Better Quality, Higher=Smaller)", min_cq, max_cq)
@@ -1242,7 +1226,8 @@ impl ConfigScreen {
 
                 // Extension point: each HEVC hardware Encoder renders its own settings
                 // block here (libx265's CRF is the shared CRF slider).
-                if !state.use_hardware_encoding {
+                let hevc_encoder = state.selected_encoder();
+                if hevc_encoder == VideoEncoder::Libx265 {
                     let preset_tune_chunks = Layout::default()
                         .direction(Direction::Horizontal)
                         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -1291,7 +1276,7 @@ impl ConfigScreen {
                         preset_tune_chunks[1],
                     );
                     y += 1;
-                } else if state.gpu_vendor == crate::engine::hardware::GpuVendor::Nvidia {
+                } else if hevc_encoder == VideoEncoder::HevcNvenc {
                     // hevc_nvenc: preset (shared 1-7 scale), CQ, lookahead and B-frames
                     let preset_area = Rect {
                         x: inner.x,
@@ -1372,7 +1357,7 @@ impl ConfigScreen {
                         );
                     }
                     y += 1;
-                } else if state.gpu_vendor == crate::engine::hardware::GpuVendor::Amd {
+                } else if hevc_encoder == VideoEncoder::HevcAmf {
                     // hevc_amf: constant QP (0-51, lower is better) and the shared preset
                     let qp_area = Rect {
                         x: inner.x,
@@ -1403,7 +1388,7 @@ impl ConfigScreen {
                         preset_area,
                     );
                     y += 3;
-                } else if state.gpu_vendor == crate::engine::hardware::GpuVendor::Apple {
+                } else if hevc_encoder == VideoEncoder::HevcVideotoolbox {
                     // hevc_videotoolbox: `q:v` 1-100, HIGHER is better
                     let q_area = Rect {
                         x: inner.x,
@@ -1419,11 +1404,7 @@ impl ConfigScreen {
                         q_area,
                     );
                     y += 3;
-                } else if crate::ui::applicability::applies(
-                    ConfigFocus::HevcVaapiQualitySlider,
-                    CodecSelection::Hevc,
-                    crate::ui::applicability::Backend::Hardware(state.gpu_vendor),
-                ) {
+                } else if hevc_encoder == VideoEncoder::HevcVaapi {
                     // hevc_vaapi: constant QP 1-51 and B-frames (no preset or lookahead)
                     let qp_area = Rect {
                         x: inner.x,
@@ -1468,8 +1449,7 @@ impl ConfigScreen {
                 }
 
                 // hevc_qsv: quality, preset, lookahead and b-frames, two per row.
-                if state.use_hardware_encoding && is_active(state, ConfigFocus::HevcQsvQualityInput)
-                {
+                if is_active(state, ConfigFocus::HevcQsvQualityInput) {
                     let rows = [
                         [
                             (
@@ -3326,9 +3306,7 @@ impl ConfigScreen {
 
         // Hardware Encoding Filter Parameters (Intel/AMD only, not NVIDIA)
         // VPP denoise/detail filters for QSV and VAAPI
-        if state.use_hardware_encoding
-            && !matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Nvidia)
-        {
+        if is_active(state, ConfigFocus::HwDenoiseInput) {
             y += 1; // Spacer before hardware filter section
 
             let vpp_chunks = Layout::default()
@@ -3354,12 +3332,11 @@ impl ConfigScreen {
             } else {
                 Style::default().fg(Color::Green)
             };
-            let denoise_label =
-                if matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Intel) {
-                    "HW Denoise (0-100): "
-                } else {
-                    "HW Denoise (0-64): "
-                };
+            let denoise_label = if state.selected_encoder().backend() == Backend::Qsv {
+                "HW Denoise (0-100): "
+            } else {
+                "HW Denoise (0-64): "
+            };
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::raw(denoise_label),
@@ -3381,12 +3358,11 @@ impl ConfigScreen {
             } else {
                 Style::default().fg(Color::Green)
             };
-            let detail_label =
-                if matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Intel) {
-                    "HW Detail (0-100): "
-                } else {
-                    "HW Detail (0-64): "
-                };
+            let detail_label = if state.selected_encoder().backend() == Backend::Qsv {
+                "HW Detail (0-100): "
+            } else {
+                "HW Detail (0-64): "
+            };
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::raw(detail_label),
@@ -3401,10 +3377,7 @@ impl ConfigScreen {
         }
 
         // VP9 QSV-specific Parameters (Intel only) - EXCLUDING the preset slider which is in Core Video
-        if state.use_hardware_encoding
-            && matches!(state.codec_selection, CodecSelection::Vp9)
-            && matches!(state.gpu_vendor, crate::engine::hardware::GpuVendor::Intel)
-        {
+        if is_active(state, ConfigFocus::Vp9QsvLookaheadCheckbox) {
             y += 1; // Spacer
 
             // QSV preset slider is in Core Video panel, not here
