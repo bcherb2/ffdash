@@ -56,3 +56,15 @@ _Avoid_: Format, extension
 **Main10**:
 10-bit HEVC output, required for HDR10.
 _Avoid_: 10-bit mode, HDR mode
+
+**Dolby Vision**:
+An HDR format, independent of Codec, made of a base layer plus dynamic metadata.
+_Avoid_: DV, DoVi (aliases only), RPU (in user-facing text)
+
+**Dolby Vision Profile**:
+The variant of Dolby Vision a stream uses (e.g. 5, 7, 8.1, 8.4, 10), which decides whether its base layer is usable without the dynamic metadata.
+_Avoid_: DV mode, DV type
+
+**Dolby Vision Conversion**:
+Rewriting a source's Dolby Vision to another Dolby Vision Profile before encoding, e.g. 7 to 8.1.
+_Avoid_: DV fix, RPU conversion (in user-facing text)
