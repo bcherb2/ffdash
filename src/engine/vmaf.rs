@@ -806,16 +806,12 @@ pub fn quality_search(encoder: VideoEncoder) -> QualitySearch {
         lower_is_better: true,
     };
     match encoder {
-        LibvpxVp9 | LibsvtAv1 | LibaomAv1 => lower(SOFTWARE_QUALITY_FLOOR),
-        // libx265 CRF 0-51: stop at CRF 10 like the other software Encoders.
-        Libx265 => lower(SOFTWARE_QUALITY_FLOOR),
-        Vp9Qsv | Vp9Vaapi | Av1Qsv | Av1Nvenc | Av1Vaapi | Av1Amf => lower(HARDWARE_QUALITY_FLOOR),
-        HevcNvenc => lower(HARDWARE_QUALITY_FLOOR),
-        // hevc_qsv CQP -q:v 1-51, lower is better: same floor as the other QSV Encoders.
-        HevcQsv => lower(HARDWARE_QUALITY_FLOOR),
-        // hevc_vaapi QP 1-51, lower is better.
-        HevcVaapi => lower(HARDWARE_QUALITY_FLOOR),
-        HevcAmf => lower(HARDWARE_QUALITY_FLOOR),
+        // Software Encoders (libx265 CRF 0-51 stops at CRF 10 like the others).
+        LibvpxVp9 | LibsvtAv1 | LibaomAv1 | Libx265 => lower(SOFTWARE_QUALITY_FLOOR),
+        // Hardware Encoders whose quality scale is lower-is-better (QSV, VAAPI and NVENC
+        // CQ/QP, AMF QP): one shared floor.
+        Vp9Qsv | Vp9Vaapi | Av1Qsv | Av1Nvenc | Av1Vaapi | Av1Amf | HevcNvenc | HevcQsv
+        | HevcVaapi | HevcAmf => lower(HARDWARE_QUALITY_FLOOR),
         // VideoToolbox q:v is 1-100 and HIGHER is better: set the ceiling here.
         HevcVideotoolbox => QualitySearch {
             best: 100,
