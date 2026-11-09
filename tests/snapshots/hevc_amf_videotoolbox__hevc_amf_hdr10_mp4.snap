@@ -1,5 +1,6 @@
 ---
 source: tests/hevc_amf_videotoolbox.rs
+assertion_line: 80
 expression: out
 ---
--i /tmp/input.mp4 -progress - -nostats -c:v hevc_amf -rc cqp -qp_i 26 -qp_p 26 -quality balanced -pix_fmt p010le -profile:v main10 -g:v 240 -colorspace:v 9 -color_primaries:v 9 -color_trc:v 16 -color_range:v 0 -tag:v hvc1 -map 0:v:0? -map 0:a:0? -c:a:0 aac -b:a:0 128k -map 0:s? -map 0:t? -c:s copy -c:t copy -map_metadata 0 -map_chapters 0 /tmp/output.mp4
+-i /tmp/input.mp4 -progress - -nostats -c:v hevc_amf -rc cqp -qp_i 26 -qp_p 26 -quality balanced -pix_fmt p010le -profile:v main10 -g:v 240 -colorspace:v 9 -color_primaries:v 9 -color_trc:v 16 -color_range:v 0 -tag:v hvc1 -map 0:v:0? -map 0:a:0? -c:a:0 aac -b:a:0 128k -map_metadata 0 -map_chapters 0 /tmp/output.mp4

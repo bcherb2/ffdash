@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 
 mod hevc;
+mod mp4_streams;
 
 /// Check if FFmpeg was cancelled by user signal (SIGTERM, SIGINT, SIGQUIT)
 /// Returns true if we should preserve partial output files
@@ -191,13 +192,25 @@ fn null_output_target() -> &'static str {
 /// Handles the common mistake of using `-map 0` which grabs ALL streams including
 /// cover art/attached pictures. When detected, we add exclusions to prevent
 /// re-mapping video/audio streams (already mapped) and encoding attached pictures.
-fn apply_additional_args(cmd: &mut Command, additional_args: &str) {
-    if additional_args.is_empty() {
-        return;
+/// Apply the profile's `additional_args` for this job. MP4 outputs get their stream
+/// mappings rewritten (no attachments; text subtitles as `mov_text`, others dropped).
+fn apply_job_additional_args(cmd: &mut Command, job: &VideoJob, profile: &Profile) {
+    let mut args = split_additional_args(&profile.additional_args);
+    if container_from_output(job, profile) == "mp4" {
+        let subtitles = mp4_streams::probe_subtitle_codecs(&job.input_path);
+        args = mp4_streams::mp4_stream_args(args, &subtitles);
     }
+    apply_arg_list(cmd, args);
+}
 
+#[cfg(test)]
+fn apply_additional_args(cmd: &mut Command, additional_args: &str) {
+    apply_arg_list(cmd, split_additional_args(additional_args));
+}
+
+fn split_additional_args(additional_args: &str) -> Vec<String> {
     // Use shlex for shell-style parsing (respects quotes)
-    let args = if let Some(parsed) = shlex::split(additional_args) {
+    if let Some(parsed) = shlex::split(additional_args) {
         parsed
     } else {
         // If shlex fails to parse (unbalanced quotes), fall back to simple whitespace split
@@ -205,7 +218,13 @@ fn apply_additional_args(cmd: &mut Command, additional_args: &str) {
             .split_whitespace()
             .map(String::from)
             .collect()
-    };
+    }
+}
+
+fn apply_arg_list(cmd: &mut Command, args: Vec<String>) {
+    if args.is_empty() {
+        return;
+    }
 
     // Process args, looking for bare "-map 0" patterns
     let mut iter = args.iter().peekable();
@@ -500,7 +519,7 @@ fn build_vaapi_cmd(
     apply_audio_settings(&mut cmd, profile, &container);
 
     // Additional user-provided FFmpeg arguments
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     // Overwrite
     if job.overwrite {
@@ -885,7 +904,7 @@ fn build_vp9_qsv_cmd(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Com
     apply_audio_settings(&mut cmd, profile, &container);
 
     // Additional user-provided FFmpeg arguments
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     if job.overwrite {
         cmd.arg("-y");
@@ -1109,7 +1128,7 @@ fn build_software_cmd_internal(
     }
 
     // Additional user-provided FFmpeg arguments
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     // Overwrite flag if enabled
     if job.overwrite {
@@ -1258,7 +1277,7 @@ fn build_av1_software_cmd(job: &VideoJob, profile: &Profile) -> Command {
     apply_audio_settings(&mut cmd, profile, &container);
 
     // Additional user-provided FFmpeg arguments
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     // Overwrite
     if job.overwrite {
@@ -1453,7 +1472,7 @@ fn build_av1_qsv_cmd(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Com
     // QSV encoders ignore -colorspace/-color_primaries/-color_trc flags
 
     // Additional user-provided FFmpeg arguments
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     if job.overwrite {
         cmd.arg("-y");
@@ -1568,7 +1587,7 @@ fn build_av1_nvenc_cmd(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> C
     apply_audio_settings(&mut cmd, profile, &container);
 
     // Additional user-provided FFmpeg arguments
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     if job.overwrite {
         cmd.arg("-y");
@@ -1693,7 +1712,7 @@ fn build_av1_vaapi_cmd(job: &VideoJob, profile: &Profile) -> Command {
     apply_audio_settings(&mut cmd, profile, &container);
 
     // Additional user-provided FFmpeg arguments
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     if job.overwrite {
         cmd.arg("-y");

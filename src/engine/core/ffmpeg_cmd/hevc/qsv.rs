@@ -7,8 +7,8 @@
 use std::process::Command;
 
 use super::super::{
-    apply_additional_args, apply_audio_settings, build_qsv_color_options, container_from_output,
-    init_qsv_from_vaapi, qsv_preset_name,
+    apply_audio_settings, apply_job_additional_args, build_qsv_color_options,
+    container_from_output, init_qsv_from_vaapi, qsv_preset_name,
 };
 use super::apply_hevc_container_tag;
 use crate::engine::core::profile::Profile;
@@ -130,7 +130,7 @@ pub(super) fn build(job: &VideoJob, profile: &Profile, cpu_decode: bool) -> Comm
 
     let container = container_from_output(job, profile);
     apply_audio_settings(&mut cmd, profile, &container);
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     if job.overwrite {
         cmd.arg("-y");

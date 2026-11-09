@@ -3,7 +3,7 @@
 use std::process::Command;
 
 use super::super::container_from_output;
-use super::super::{apply_additional_args, apply_audio_settings, apply_color_metadata};
+use super::super::{apply_audio_settings, apply_color_metadata, apply_job_additional_args};
 use super::apply_hevc_container_tag;
 use crate::engine::core::profile::Profile;
 use crate::engine::core::types::VideoJob;
@@ -97,7 +97,7 @@ pub(super) fn build(job: &VideoJob, profile: &Profile) -> Command {
 
     let container = container_from_output(job, profile);
     apply_audio_settings(&mut cmd, profile, &container);
-    apply_additional_args(&mut cmd, &profile.additional_args);
+    apply_job_additional_args(&mut cmd, job, profile);
 
     if job.overwrite {
         cmd.arg("-y");

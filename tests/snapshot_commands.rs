@@ -167,6 +167,33 @@ fn snapshot_hevc_x265_mp4_is_tagged_hvc1() {
 }
 
 #[test]
+fn snapshot_mp4_output_never_maps_attachments_or_copies_subtitles() {
+    // Profiles written for MKV map `0:s?`/`0:t?` and copy them; MP4 cannot hold those.
+    // The input does not exist, so no text subtitles are probed and subtitles are dropped.
+    let av1 = build(
+        &mk_job("mp4"),
+        &Profile::get("av1-svt"),
+        VideoEncoder::LibsvtAv1,
+    );
+    assert_snapshot!("av1_svt_mp4", av1);
+
+    let vp9 = build(
+        &mk_job("mp4"),
+        &Profile::get("vp9-good"),
+        VideoEncoder::LibvpxVp9,
+    );
+    assert_snapshot!("vp9_good_mp4", vp9);
+
+    for out in [&av1, &vp9] {
+        assert!(
+            !out.contains("-map 0:t") && !out.contains("-map 0:s"),
+            "{out}"
+        );
+        assert!(!out.contains("-c:s") && !out.contains("-c:t"), "{out}");
+    }
+}
+
+#[test]
 fn snapshot_hevc_nvenc() {
     let profile = Profile::get("hevc-nvenc");
     let job = mk_job("mkv");
