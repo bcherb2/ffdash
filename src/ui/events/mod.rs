@@ -2,7 +2,8 @@
 
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers,
         MouseButton, MouseEvent, MouseEventKind,
     },
     execute,
@@ -318,6 +319,13 @@ fn run_app<B: ratatui::backend::Backend>(
         // Process input events first so user commands are never stuck behind a tick backlog
         for input in pending_inputs {
             match input {
+                // On Windows, crossterm reports both a Press and a Release event for every
+                // keystroke (other platforms only report Press unless keyboard enhancement
+                // flags are enabled). Acting on Release makes toggles like the help modal
+                // open and immediately close, and makes Tab advance twice. Repeat is kept so
+                // that holding a key still auto-repeats where enhancement flags are active.
+                // See https://docs.rs/crossterm/latest/crossterm/event/enum.KeyEventKind.html
+                Event::Key(key) if key.kind == KeyEventKind::Release => {}
                 Event::Key(key) => {
                     if handle_key(key, state, event_tx) {
                         return Ok(());
